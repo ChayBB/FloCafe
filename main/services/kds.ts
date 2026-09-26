@@ -18,6 +18,8 @@ interface KdsClient {
   isAlive: boolean;
   categoryIdsChanged: boolean;
   stationIdsChanged: boolean;
+  /** One screen per kitchen: narrows this connection to a single station. */
+  selectedStationId: string | null;
   lastExpiredVoidMarker: string | null;
   authTimeout?: NodeJS.Timeout;
 }
@@ -152,6 +154,7 @@ export function setupKdsWebSocket(wss: WebSocketServer): void {
       isAlive: true,
       categoryIdsChanged: false,
       stationIdsChanged: false,
+      selectedStationId: null,
       lastExpiredVoidMarker: null,
     };
     client.authTimeout = setTimeout(() => {
@@ -278,12 +281,47 @@ function handleMessage(ws: WebSocket, message: any): void {
       handleStatusUpdate(client, message);
       break;
 
+    case 'select_station':
+      handleSelectStation(client, message);
+      break;
+
     case 'ping':
       ws.send(JSON.stringify({ type: 'pong', timestamp: new Date().toISOString() }));
       break;
 
     default:
       ws.send(JSON.stringify({ type: 'error', message: 'Unknown message type' }));
+  }
+}
+
+/**
+ * Points this screen at one kitchen. A station the login is not assigned to is
+ * refused, so a shared URL cannot widen what a chef can see.
+ */
+function handleSelectStation(client: KdsClient, message: any): void {
+  const requested = message?.stationId === null || message?.stationId === undefined
+    ? null
+    : String(message.stationId);
+
+  if (requested !== null) {
+    const db = getDatabase();
+    const station = db.prepare('SELECT id FROM kitchen_stations WHERE id = ? AND is_active = 1').get(requested);
+    if (!station) {
+      client.ws.send(JSON.stringify({ type: 'error', message: 'Kitchen station not found' }));
+      return;
+    }
+    if (client.stationIds.length > 0 && !client.stationIds.includes(requested)) {
+      client.ws.send(JSON.stringify({ type: 'error', message: 'You are not assigned to this kitchen station' }));
+      return;
+    }
+  }
+
+  client.selectedStationId = requested;
+  client.ws.send(JSON.stringify({ type: 'station_selected', stationId: requested }));
+  try {
+    sendClientOrders(client);
+  } catch (error) {
+    console.error('[KDS] Station switch refresh failed:', error);
   }
 }
 
@@ -352,9 +390,10 @@ function handleAuth(ws: WebSocket, client: KdsClient, message: any): void {
         categoryIds: categoryIds,
         stationIds: stationIds,
       },
+      stations: selectableStations(client),
     }));
 
-    sendActiveOrders(ws, client.categoryIds, client.stationIds, client.role === 'chef' || client.categoryIds.length > 0 || client.stationIds.length > 0);
+    sendClientOrders(client);
     client.lastExpiredVoidMarker = getExpiredVoidMarker();
   } catch (error) {
     const message = error instanceof Error && /station|permission/i.test(error.message)
@@ -474,6 +513,30 @@ function activeOrdersCondition(): string {
     JOIN order_items oi2 ON oi2.order_id = o2.id AND oi2.status NOT IN ('served','cancelled')
     WHERE o2.status NOT IN ('pending','preparing','ready','served','cancelled')
   )`;
+}
+
+/** Stations this client is allowed to display, for the on-screen picker. */
+function selectableStations(client: KdsClient): { id: string; name: string }[] {
+  const db = getDatabase();
+  const rows = db.prepare('SELECT id, name FROM kitchen_stations WHERE is_active = 1 ORDER BY sort_order, name')
+    .all() as { id: string; name: string }[];
+  if (client.stationIds.length === 0) return rows;
+  return rows.filter((row) => client.stationIds.includes(String(row.id)));
+}
+
+/** The station scope to render: the picked station, or everything the login allows. */
+function effectiveStationIds(client: KdsClient): string[] {
+  return client.selectedStationId ? [client.selectedStationId] : client.stationIds;
+}
+
+function sendClientOrders(client: KdsClient): void {
+  const stationIds = effectiveStationIds(client);
+  sendActiveOrders(
+    client.ws,
+    client.categoryIds,
+    stationIds,
+    client.role === 'chef' || client.categoryIds.length > 0 || stationIds.length > 0,
+  );
 }
 
 function sendActiveOrders(ws: WebSocket, categoryIds: string[], stationIds: string[] = [], restrictedPayload = categoryIds.length > 0): void {
@@ -637,7 +700,7 @@ function broadcastOrderUpdate(): void {
       return;
     }
     try {
-      sendActiveOrders(client.ws, client.categoryIds, client.stationIds, client.role === 'chef' || client.categoryIds.length > 0 || client.stationIds.length > 0);
+      sendClientOrders(client);
       client.categoryIdsChanged = false;
       client.stationIdsChanged = false;
       client.lastExpiredVoidMarker = sharedExpiredVoidMarker;

@@ -34,6 +34,7 @@ import {
   XCircle,
   Download,
   Loader2,
+  SquarePen,
 } from 'lucide-react';
 import type { Order, OrderItem, Bill, Customer } from '@/lib/types';
 import { Ltr } from '@/components/layout/Ltr';
@@ -293,13 +294,26 @@ export function OrderCard({
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="size-9 rounded-lg border-border/70 text-muted-foreground hover:text-foreground touch-manipulation active:scale-95"
-                >
-                  <MoreHorizontal size={17} />
-                </Button>
+                {/* A pending order is still fully editable, so its menu gets a named
+                    button rather than the compact overflow icon. */}
+                {order.status === 'pending' ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-9 gap-1.5 rounded-lg border-border/70 px-3 text-muted-foreground hover:text-foreground touch-manipulation active:scale-95"
+                  >
+                    <SquarePen size={15} />
+                    {tCommon('edit')}
+                  </Button>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="size-9 rounded-lg border-border/70 text-muted-foreground hover:text-foreground touch-manipulation active:scale-95"
+                  >
+                    <MoreHorizontal size={17} />
+                  </Button>
+                )}
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-52">
                 {order.type === 'dine_in' && !['completed', 'cancelled'].includes(order.status) && (
@@ -339,7 +353,7 @@ export function OrderCard({
                       ) : (
                         <Lock size={14} className="me-2" />
                       )}
-                      {cancellingOrderId === order.id ? tOrders('cancelling') : tCommon('cancel')}
+                      {cancellingOrderId === order.id ? tOrders('cancelling') : tOrders('cancel')}
                     </DropdownMenuItem>
                   </>
                 )}

@@ -33,6 +33,74 @@ Each decision states: the rule, why it exists, where it's enforced in code, how 
 
 ---
 
+## Server App table assignments
+
+**Rule:** A `server` may be assigned specific tables (Staff page > Tables). Once a server has at least one assignment, the Server App only lets them open or append orders on those tables, and its table picker hides the rest. A server with **no** assignment rows keeps access to every table. Managers and owners are never table-scoped, and the restriction applies only to the Server App (`:3003`) — the dashboard POS is unaffected.
+
+**Why:** Larger floors split sections between waiters, and the merchant asked to stop a waiter picking up a table another section is responsible for. Scoping by assignment keeps that operational boundary without gating anything by who created an order.
+
+**Relationship to "Orders are never ownership-gated" (above):** This does not reverse that decision. It is the same shape as the chef's KDS station scope — a **role-based restriction on a specific action, narrowed by assignment**. No `order.user_id` is compared against the requester anywhere: a scoped server still sees and reads every order, including orders on tables they are not assigned to. Only the write path (create order / append items) is scoped, and only by table.
+
+**Enforced by:** `main/server-app.ts` (`requireTablePermission` on `POST /api/orders` and `POST /api/orders/:id/items`, table-list filtering on `GET /api/tables`), backed by `isTableAllowedForUser()`/`getUserTableIds()` in `main/db.ts`. Assignments are stored in `table_users` (migration v87) and managed via `GET`/`PUT /api/staff/:id/tables` (owner/manager only).
+
+**How to verify:** `npm run test:server-app-table-permissions` — covers the unassigned-server default, table-list filtering, 403 on an unassigned table for both create and append, owners being unscoped, and the invariant that a scoped server can still read orders from other tables.
+
+**Decided:** 2026-09-21.
+
+---
+
+## Customers can order without an account, scoped by a table's QR token
+
+**Rule:** A customer scans the QR on their table and orders from their own phone. They never sign in and no account is created for them. Holding a table's `guest_token` is what authorises ordering, and it authorises **only** that table: the menu, that table's open ticket, and adding lines to it. Customer orders go straight to the kitchen with no staff approval step, and are attributed to a locked system account (`guest-ordering`, `is_active = 0`, unusable password) because every order write records an actor against a `NOT NULL` foreign key.
+
+**Why:** Guests should not have to install an app, create an account or hand over a phone number to order a coffee. A per-table secret is both less friction and less data to hold than customer accounts. Orders skip staff approval because the merchant asked for it: the kitchen screen is the check, and an unwanted line is cancelled there.
+
+**The feature is off until the merchant turns it on** (`guest_ordering_enabled`, default off). While off, every guest route answers 404.
+
+**What a token does *not* open:** payments, bills, the table list, other tables' tickets, customer records, product cost or stock, staff login, or any POS route. The guest surface runs on its own port (`main/guest-server.ts`, default 3004) that serves only `/api/guest/:token/*` and the customer page; every other `/api/*` path there returns 404. This separation is what makes it safe for the merchant to publish that one port to the internet — publishing 3001/3002/3003 would expose staff and money endpoints and must never be done.
+
+**How a guest order reaches the POS:** the guest server calls the POS API over loopback carrying a secret generated per process and held only in memory (`main/services/guest-channel.ts`). The POS API accepts it for exactly two routes — `POST /api/orders` and `POST /api/orders/:id/items` — and only from a loopback socket. Nothing else is reachable that way.
+
+**Abuse limits:** 10 orders per minute per IP, at most 40 lines per order, quantity 1–20 per line, and every product id is re-checked against the live menu before it becomes an order line. Rotating a table's code (Settings → Customer QR ordering) invalidates the printed one immediately.
+
+**How to verify:** `npm run test:guest-ordering` — covers the disabled default, token scoping, rotation, the hidden cost/stock fields, input rejection, and that no staff route or login is reachable on the guest port.
+
+**Decided:** 2026-09-26.
+
+---
+
+## Front-of-house staff can cancel a pending line
+
+**Rule:** A `cashier` or `server` can cancel an individual order item **only while that item is still `pending`** — the kitchen has not started it. Once an item reaches `preparing` or `ready`, cancelling it is a void and still requires an owner/manager approval PIN, exactly as before. Owner and manager keep their existing unrestricted item cancel.
+
+**Why:** Guests change their mind seconds after ordering. Making a waiter find a manager to drop a line the kitchen has not touched is friction with no control value — nothing has been produced or consumed yet, and the actor is recorded on the cancellation either way.
+
+**What did not change:** the manager-PIN void path for in-progress items, the block on cancelling items of a paid or partially paid order, and the rule that cancelling the last live line cancels the order.
+
+**Enforced by:** `canCancelPendingItem` in the `PATCH /api/orders/:orderId/items/:itemId/cancel` handler (`main/routes/index.ts`). The Server App forwards this route under the same table scoping as its other writes.
+
+**How to verify:** `npm run test:server-app-table-permissions` (a scoped server cancels a pending line on their own table and is refused on another table) plus `npm run test:cancel-override` for the PIN path.
+
+**Decided:** 2026-09-21.
+
+---
+
+## Servers can take payment
+
+**Rule:** The `server` role can settle a bill, alongside owner, manager, and cashier. Concretely, servers may generate a bill, read it, take a payment (single or split batch), and print it. Bill **discounts** and `markPrinted` stay owner/manager-only, and the bill list (`GET /api/bills`) stays owner/manager/cashier.
+
+**Why:** Waiters settle at the table in this merchant's service model, so routing every payment back through a till person added a step with no control benefit — the actor is recorded on every payment line either way. Previously `billsPayments` was owner/manager/cashier, which made the Server App's payment button impossible.
+
+**Enforced by:** `ROLE_ACCESS.billing` in `shared/role-permissions.ts` (owner, manager, cashier, server), used by the widened routes in `main/routes/bills.ts` and by the `billsPayments` capability in the permission matrix. The Server App forwards `/api/bills/generate`, `/api/bills/order/:orderId`, and `/api/bills/:id/payments`, each still subject to the table scoping above.
+
+**Note:** `ROLE_ACCESS.ownerManagerCashier` is deliberately left unchanged — it also gates the POS terminal, and this decision is about billing, not about giving servers the POS.
+
+**How to verify:** `npm run test:server-app-table-permissions` (a server settles a bill through the Server App) plus `npm run test:authz-phase3` and `npm run test:security`.
+
+**Decided:** 2026-09-21.
+
+---
+
 ## Refunds and Staff Approval PINs
 
 **Rule:** The initial owner must create and confirm a separate 4-6 digit Staff Approval PIN during first-run setup. It is stored as a bcrypt hash in the owner user record and is independent from the device Master PIN. Owners (and, within the first hour of an order, managers too) can refund a bill that has already been paid — in full, partially, or for a single item — without restocking inventory. The refund can be paid back in a different method than the customer originally used, or issued as store credit. Specifically:

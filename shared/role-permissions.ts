@@ -27,6 +27,8 @@ const OWNER_MANAGER = ['owner', 'manager'] as const satisfies readonly Role[];
 const OWNER_MANAGER_CASHIER = ['owner', 'manager', 'cashier'] as const satisfies readonly Role[];
 const SALES = ['owner', 'manager', 'cashier', 'server'] as const satisfies readonly Role[];
 const CASHIER_SERVER = ['cashier', 'server'] as const satisfies readonly Role[];
+/** Taking payment at the table is part of a server's job, so servers bill alongside the till roles. */
+const BILLING = ['owner', 'manager', 'cashier', 'server'] as const satisfies readonly Role[];
 const KITCHEN = ['owner', 'manager', 'chef'] as const satisfies readonly Role[];
 const ORDER_STATUS = ['owner', 'manager', 'cashier', 'server', 'chef'] as const satisfies readonly Role[];
 const ALL_STAFF = ['owner', 'manager', 'cashier', 'server', 'chef'] as const satisfies readonly Role[];
@@ -40,6 +42,7 @@ export const ROLE_ACCESS = {
   ownerManagerCashier: OWNER_MANAGER_CASHIER,
   sales: SALES,
   cashierServer: CASHIER_SERVER,
+  billing: BILLING,
   kitchen: KITCHEN,
   orderStatus: ORDER_STATUS,
   allStaff: ALL_STAFF,
@@ -83,7 +86,7 @@ export const PERMISSION_CAPABILITIES = [
   { id: 'orderItemVoid', area: 'orders', labelKey: 'orderItemVoid', allowedRoles: ROLE_ACCESS.ownerManager },
   { id: 'orderItemRestore', area: 'orders', labelKey: 'orderItemRestore', allowedRoles: ROLE_ACCESS.ownerManager },
   { id: 'heldOrders', area: 'orders', labelKey: 'heldOrders', allowedRoles: ROLE_ACCESS.sales },
-  { id: 'billsPayments', area: 'payments', labelKey: 'billsPayments', allowedRoles: ROLE_ACCESS.ownerManagerCashier },
+  { id: 'billsPayments', area: 'payments', labelKey: 'billsPayments', allowedRoles: ROLE_ACCESS.billing },
   { id: 'billDiscounts', area: 'payments', labelKey: 'billDiscounts', allowedRoles: ROLE_ACCESS.ownerManager },
   { id: 'paymentMethodsView', area: 'payments', labelKey: 'paymentMethodsView', allowedRoles: ROLE_ACCESS.allStaff },
   { id: 'paymentMethodsManage', area: 'payments', labelKey: 'paymentMethodsManage', allowedRoles: ROLE_ACCESS.ownerManager },

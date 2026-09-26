@@ -325,7 +325,15 @@
     "closeStepDone": "بستن",
     "xReportSales": "فروش امروز",
     "refundsCount": "{count} بازپرداخت",
-    "ticketNoPayments": "در این روز پرداختی نشده"
+    "ticketNoPayments": "در این روز پرداختی نشده",
+    "grossProfit": "سود ناخالص",
+    "profitCost": "هزینه",
+    "profitMargin": "حاشیه",
+    "profitMissingCost": "{count} محصول بدون هزینه ثبت‌شده",
+    "profitNoCost": "هزینه ثبت نشده",
+    "profitProduct": "محصول",
+    "profitQuantity": "تعداد",
+    "profitRevenue": "درآمد"
   },
   "kds": {
     "addonsLabel": "افزودنی‌ها",
@@ -369,7 +377,9 @@
     "updating": "در حال به‌روزرسانی…",
     "viewKanban": "کانبان",
     "viewTabs": "زبانه‌ها",
-    "wsConnected": "WebSocket پیوند داده شد"
+    "wsConnected": "WebSocket پیوند داده شد",
+    "stationAll": "همه ایستگاه‌ها",
+    "stationFilter": "ایستگاه آشپزخانه"
   },
   "nav": {
     "collapse": "جمع کردن",
@@ -780,7 +790,8 @@
     "exitFullscreen": "خروج از صندوق تمام‌صفحه",
     "fullscreenUnavailable": "حالت تمام‌صفحه در دسترس نیست",
     "backspaceAmount": "حذف رقم آخر",
-    "numericKeypad": "صفحه‌کلید عددی"
+    "numericKeypad": "صفحه‌کلید عددی",
+    "takeawayItemNote": "بیرون‌بر"
   },
   "printTest": {
     "amt": "مبلغ",
@@ -1169,7 +1180,12 @@
     "statusWaiting": "در انتظار",
     "tableLabel": "میز {name}",
     "tables": "میزها",
-    "title": "برنامه سرور"
+    "title": "برنامه سرور",
+    "billLoadFailed": "صورتحساب بارگیری نشد",
+    "itemReadyAlert": "{item} آماده است — {table}",
+    "noOpenOrder": "سفارش بازی روی این میز نیست",
+    "soundOff": "هشدار صوتی خاموش",
+    "soundOn": "هشدار صوتی روشن"
   },
   "settings": {
     "aboutDescription": "FloPOS یک POS رستوران متن‌باز و برای همیشه رایگان برای کافه‌ها، رستوران‌ها، نانوایی‌ها، فودتراک‌ها، آشپزخانه‌های ابری و بارهاست. شامل سفارش‌گیری، میزها، منوها، نمایشگر آشپزخانه، چاپ رسید، دسترسی کارکنان و ذخیره‌سازی محلی داده است. آن را دریافت کنید، سرویس دهید، داده‌های خود را نگه دارید و POS خود را در اختیار داشته باشید.",
@@ -1910,7 +1926,23 @@
     "themeTitle": "پوسته",
     "themeLight": "روشن",
     "themeDark": "تاریک",
-    "themeSystem": "سیستم"
+    "themeSystem": "سیستم",
+    "guestCodeIssued": "کد ساخته شد",
+    "guestCodeRevoked": "کد خاموش شد",
+    "guestCreateCode": "ساخت کد",
+    "guestCurrentBase": "کدها به این نشانی اشاره می‌کنند:",
+    "guestLanOnlyWarning": "نشانی عمومی تنظیم نشده و کدها فقط روی وای‌فای فروشگاه کار می‌کنند. پورت {port} را از سرور خودتان منتشر کنید.",
+    "guestLoadFailed": "تنظیمات بارگیری نشد",
+    "guestOrdering": "سفارش مشتری با QR",
+    "guestOrderingHint": "مشتری کد روی میز را اسکن می‌کند و از گوشی خودش سفارش می‌دهد. سفارش مستقیم به آشپزخانه می‌رود.",
+    "guestPublicUrl": "نشانی عمومی",
+    "guestPublicUrlHint": "نشانی‌ای که مشتری با اینترنت همراه به آن می‌رسد و از سرور خودتان ارائه می‌شود. خالی یعنی فقط روی وای‌فای فروشگاه.",
+    "guestRevokeCode": "خاموش کردن",
+    "guestRotateCode": "کد تازه",
+    "guestSaveFailed": "ذخیره نشد",
+    "guestTableCodes": "کد هر میز",
+    "guestTableCodesHint": "هر میز هنگام ساخته‌شدن یک کد دائمی می‌گیرد. آن را چاپ و روی میز نصب کنید. فقط در صورت لو رفتن کد، کد تازه بسازید؛ چاپ قبلی بی‌درنگ از کار می‌افتد.",
+    "noTablesYet": "هنوز میزی نیست"
   },
   "setup": {
     "alreadyCompleted": "راه‌اندازی در این نصب پیش‌تر انجام شده است. در حال بازگشت به ورود…",
@@ -2043,7 +2075,14 @@
     "roleServer": "پیش‌خدمت",
     "title": "کارمند",
     "updateButton": "به‌روزرسانی",
-    "updatedToast": "کارمند به‌روزرسانی شد"
+    "updatedToast": "کارمند به‌روزرسانی شد",
+    "emailBadCharacters": "ایمیل شامل نویسه‌های غیرمجاز است: {characters}",
+    "tablesAllTables": "اجازه به همه میزها",
+    "tablesButton": "میزها",
+    "tablesEmpty": "هنوز هیچ میزی ساخته نشده است.",
+    "tablesHint": "انتخاب کنید این گارسون از کدام میزها می‌تواند سفارش بگیرد. اگر هیچ‌کدام انتخاب نشود، همه میزها مجاز هستند.",
+    "tablesModalTitle": "دسترسی میز برای {name}",
+    "tablesSavedToast": "دسترسی میز به‌روزرسانی شد"
   },
   "permissionMatrix": {
     "title": "دسترسی‌های نقش‌ها",

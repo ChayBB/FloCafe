@@ -325,7 +325,15 @@
     "closeStepDone": "Isara",
     "xReportSales": "Mga benta ngayong araw",
     "refundsCount": "{count} refundo",
-    "ticketNoPayments": "Walang bayad sa araw na ito"
+    "ticketNoPayments": "Walang bayad sa araw na ito",
+    "grossProfit": "Gross na kita",
+    "profitCost": "Gastos",
+    "profitMargin": "Margin",
+    "profitMissingCost": "{count} produkto ang walang nakatakdang gastos",
+    "profitNoCost": "walang gastos",
+    "profitProduct": "Produkto",
+    "profitQuantity": "Dami",
+    "profitRevenue": "Benta"
   },
   "kds": {
     "addonsLabel": "Mga Addon",
@@ -369,7 +377,9 @@
     "updating": "Nag-uupdate...",
     "viewKanban": "Kanban",
     "viewTabs": "Tabs",
-    "wsConnected": "Konektado ang WebSocket"
+    "wsConnected": "Konektado ang WebSocket",
+    "stationAll": "Lahat ng istasyon",
+    "stationFilter": "Istasyon ng kusina"
   },
   "nav": {
     "collapse": "I-collapse ang Sidebar",
@@ -780,7 +790,8 @@
     "exitFullscreen": "Lumabas sa full-screen POS",
     "fullscreenUnavailable": "Hindi available ang full-screen mode",
     "backspaceAmount": "I-backspace ang halaga",
-    "numericKeypad": "Numeric keypad"
+    "numericKeypad": "Numeric keypad",
+    "takeawayItemNote": "Take-out"
   },
   "printTest": {
     "amt": "Halaga",
@@ -1169,7 +1180,12 @@
     "statusWaiting": "Naghintay",
     "tableLabel": "Lamesa {name}",
     "tables": "Mga Lamesa",
-    "title": "Server App"
+    "title": "Server App",
+    "billLoadFailed": "Hindi ma-load ang bill",
+    "itemReadyAlert": "Handa na ang {item} — {table}",
+    "noOpenOrder": "Walang bukas na order sa mesang ito",
+    "soundOff": "Naka-mute ang tunog",
+    "soundOn": "Naka-on ang tunog"
   },
   "settings": {
     "aboutDescription": "Ang FloPOS ay isang libre at open-source na POS para sa mga cafe, restaurant, bakery, at bar. Mayroon itong pag-order, lamesa, menu, kitchen display, pag-print ng resibo, at lokal na storage.",
@@ -1910,7 +1926,23 @@
     "themeTitle": "Tema",
     "themeLight": "Maliwanag",
     "themeDark": "Madilim",
-    "themeSystem": "System"
+    "themeSystem": "System",
+    "guestCodeIssued": "Nagawa ang code",
+    "guestCodeRevoked": "Na-off ang code",
+    "guestCreateCode": "Gumawa ng code",
+    "guestCurrentBase": "Nakaturo ang mga code sa:",
+    "guestLanOnlyWarning": "Walang pampublikong address kaya sa WiFi lang gumagana ang mga code. I-publish ang port {port} sa sarili mong server.",
+    "guestLoadFailed": "Hindi ma-load ang settings",
+    "guestOrdering": "Pag-order gamit ang QR",
+    "guestOrderingHint": "I-scan ng customer ang code sa mesa at mag-order sa sariling telepono. Diretso sa kusina ang order.",
+    "guestPublicUrl": "Pampublikong address",
+    "guestPublicUrlHint": "Ang address na maaabot gamit ang mobile data, mula sa sarili mong server. Iwanang blangko para sa WiFi ng tindahan lang.",
+    "guestRevokeCode": "I-off",
+    "guestRotateCode": "Bagong code",
+    "guestSaveFailed": "Hindi na-save",
+    "guestTableCodes": "Mga code ng mesa",
+    "guestTableCodesHint": "Bawat mesa ay may permanenteng code mula nang gawin ito. I-print at idikit sa mesa. Gumawa lang ng bago kung nag-leak — agad nang hindi gagana ang luma.",
+    "noTablesYet": "Wala pang mesa"
   },
   "setup": {
     "alreadyCompleted": "Nakumpleto na ang setup sa installation na ito. Nireredirect sa pag-login…",
@@ -2043,7 +2075,14 @@
     "roleServer": "Server",
     "title": "Pamamahala ng Staff",
     "updateButton": "I-update",
-    "updatedToast": "Na-update ang staff"
+    "updatedToast": "Na-update ang staff",
+    "emailBadCharacters": "May hindi pinapayagang karakter ang email: {characters}",
+    "tablesAllTables": "Payagan ang lahat ng mesa",
+    "tablesButton": "Mga mesa",
+    "tablesEmpty": "Wala pang naitatakdang mesa.",
+    "tablesHint": "Piliin kung saang mga mesa puwedeng kumuha ng order ang server na ito. Kapag walang napili, lahat ng mesa ay pinapayagan.",
+    "tablesModalTitle": "Access sa mesa ni {name}",
+    "tablesSavedToast": "Na-update ang access sa mesa"
   },
   "permissionMatrix": {
     "title": "Matrix ng Pahintulot",

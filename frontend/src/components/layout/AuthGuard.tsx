@@ -11,7 +11,9 @@ export function getLandingPage(): string {
   return '/pos';
 }
 
-const PUBLIC_PATHS = ['/kds', '/kds-standalone', '/server-standalone', '/auth/login', '/auth/register', '/auth/recover', '/setup'];
+// '/guest-order' is the customer's own phone: there is no staff session to load
+// or redirect to, and the page authorises itself with the table token in its URL.
+const PUBLIC_PATHS = ['/kds', '/kds-standalone', '/server-standalone', '/guest-order', '/auth/login', '/auth/register', '/auth/recover', '/setup'];
 
 export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const t = useTranslations('common');
@@ -23,7 +25,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
 
   const isPublicPath = PUBLIC_PATHS.some(p => pathname === p || pathname?.startsWith(p + '/'));
   const isSetupPath = pathname === '/setup' || pathname?.startsWith('/setup/');
-  const isStandalonePath = pathname?.startsWith('/kds') || pathname?.startsWith('/server-standalone');
+  const isStandalonePath = pathname?.startsWith('/kds') || pathname?.startsWith('/server-standalone') || pathname?.startsWith('/guest-order');
 
   useEffect(() => {
     // Standalone KDS and Server App pages manage their own auth sessions;

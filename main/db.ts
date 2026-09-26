@@ -1030,6 +1030,11 @@ export function isServerAppEnabled(): boolean {
   return getSettingValue('server_app_enabled') !== 'false';
 }
 
+/** Customer self-ordering (guest QR) switch; defaults to OFF so a fresh install is never publicly writable. */
+export function isGuestOrderingEnabled(): boolean {
+  return getSettingValue('guest_ordering_enabled') === 'true';
+}
+
 /** KOT ticket printing on/off switch (gates automatic and manual prints). Defaults to enabled. */
 export function isKotPrintingEnabled(): boolean {
   return getSettingValue('kot_printing_enabled') !== 'false';
@@ -2052,6 +2057,37 @@ export function getUserKdsStationIds(dbInstance: Database.Database, userId: stri
   } catch {
     return null;
   }
+}
+
+/** Table ids a user is explicitly assigned to; empty array means "no assignment rows". */
+export function getUserTableIds(dbInstance: Database.Database, userId: string): string[] | null {
+  try {
+    return (dbInstance.prepare(`
+      SELECT tu.table_id
+      FROM table_users tu
+      JOIN tables t ON t.id = tu.table_id
+      WHERE tu.user_id = ? AND t.is_active = 1
+    `).all(userId) as { table_id: string }[]).map((row) => String(row.table_id));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether a server may take orders on a table. Servers with no assignments keep
+ * access to every table, so existing installs are unaffected until tables are assigned.
+ */
+export function isTableAllowedForUser(
+  dbInstance: Database.Database,
+  userId: string,
+  role: string,
+  tableId: string | null | undefined,
+): boolean {
+  if (role !== 'server') return true;
+  const assigned = getUserTableIds(dbInstance, userId);
+  if (assigned === null) return false;
+  if (assigned.length === 0) return true;
+  return !!tableId && assigned.includes(String(tableId));
 }
 
 export function getKdsStationCategoryIds(dbInstance: Database.Database, stationIds: string[]): string[] | null {
@@ -4849,6 +4885,71 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       addColumn('source_created_at', 'source_created_at TEXT');
     },
   },
+  {
+    version: 87,
+    name: 'add_table_users',
+    up: () => {
+      // Restricts which tables a server may take orders on from the Server App.
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS table_users (
+          user_id TEXT NOT NULL,
+          table_id TEXT NOT NULL,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (user_id, table_id),
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+          FOREIGN KEY (table_id) REFERENCES tables(id) ON DELETE CASCADE
+        );
+      `);
+    },
+  },
+  {
+    version: 88,
+    name: 'add_order_item_unit_cost',
+    up: () => {
+      // Cost of goods snapshot taken when the line is sold, so editing a product's
+      // cost later never rewrites the profit of orders already closed.
+      const columns = (db.prepare('PRAGMA table_info(order_items)').all() as { name: string }[]).map((column) => column.name);
+      if (!columns.includes('unit_cost')) {
+        db.exec('ALTER TABLE order_items ADD COLUMN unit_cost REAL');
+      }
+    },
+  },
+  {
+    version: 89,
+    name: 'add_table_guest_token',
+    up: () => {
+      // Secret printed into the table's QR code. Guests never log in: holding a
+      // table's token is what authorises ordering, and only for that table.
+      const columns = (db.prepare('PRAGMA table_info(tables)').all() as { name: string }[]).map((column) => column.name);
+      if (!columns.includes('guest_token')) {
+        db.exec('ALTER TABLE tables ADD COLUMN guest_token TEXT');
+      }
+    },
+  },
+  {
+    version: 90,
+    name: 'add_guest_ordering_system_user',
+    up: () => {
+      // Every order write records an actor, and those columns are NOT NULL with a
+      // foreign key. Customer self-orders therefore need a real row to point at:
+      // a locked account that can never sign in (is_active = 0, no usable password).
+      db.prepare(`
+        INSERT OR IGNORE INTO users (id, name, email, password, role, is_active, created_at, updated_at)
+        VALUES ('guest-ordering', 'Guest ordering', 'guest-ordering@flo.local', '!', 'server', 0, ?, ?)
+      `).run(now(), now());
+    },
+  },
+  {
+    version: 91,
+    name: 'backfill_table_guest_tokens',
+    up: () => {
+      // Every table carries a printable code from here on, so the QR sheet can be
+      // produced in one go rather than table by table.
+      const rows = db.prepare('SELECT id FROM tables WHERE guest_token IS NULL').all() as { id: string }[];
+      const assign = db.prepare('UPDATE tables SET guest_token = ? WHERE id = ?');
+      for (const row of rows) assign.run(crypto.randomBytes(24).toString('base64url'), row.id);
+    },
+  },
 ];
 
 function syncBackupBeforeMigration(fromVersion: number, toVersion: number): void {
@@ -5081,8 +5182,18 @@ function createSchema(): void {
       position_y REAL,
       kitchen_station_id TEXT,
       is_active INTEGER DEFAULT 1,
+      guest_token TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS table_users (
+      user_id TEXT NOT NULL,
+      table_id TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (user_id, table_id),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (table_id) REFERENCES tables(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS customers (
@@ -5165,6 +5276,7 @@ function createSchema(): void {
       product_name TEXT NOT NULL,
       product_sku TEXT,
       unit_price REAL NOT NULL,
+      unit_cost REAL,
       quantity INTEGER NOT NULL DEFAULT 1,
       inventory_deducted_quantity REAL NOT NULL DEFAULT 0,
       subtotal REAL NOT NULL,

@@ -325,7 +325,15 @@
     "closeStepDone": "Abschließen",
     "xReportSales": "Heutiger Umsatz",
     "refundsCount": "{count} Erstattungen",
-    "ticketNoPayments": "Keine Zahlungen an diesem Tag"
+    "ticketNoPayments": "Keine Zahlungen an diesem Tag",
+    "grossProfit": "Rohertrag",
+    "profitCost": "Kosten",
+    "profitMargin": "Marge",
+    "profitMissingCost": "{count} Produkt(e) ohne hinterlegte Kosten",
+    "profitNoCost": "keine Kosten hinterlegt",
+    "profitProduct": "Produkt",
+    "profitQuantity": "Menge",
+    "profitRevenue": "Umsatz"
   },
   "kds": {
     "addonsLabel": "Zusätze",
@@ -369,7 +377,9 @@
     "updating": "Wird aktualisiert…",
     "viewKanban": "Kanban",
     "viewTabs": "Reiter",
-    "wsConnected": "WebSocket verbunden"
+    "wsConnected": "WebSocket verbunden",
+    "stationAll": "Alle Stationen",
+    "stationFilter": "Küchenstation"
   },
   "nav": {
     "collapse": "Einklappen",
@@ -780,7 +790,8 @@
     "exitFullscreen": "Vollbildmodus beenden",
     "fullscreenUnavailable": "Vollbildmodus nicht verfügbar",
     "backspaceAmount": "Ziffer löschen",
-    "numericKeypad": "Ziffernblock"
+    "numericKeypad": "Ziffernblock",
+    "takeawayItemNote": "Zum Mitnehmen"
   },
   "printTest": {
     "amt": "Betrag",
@@ -1169,7 +1180,12 @@
     "statusWaiting": "Wartend",
     "tableLabel": "Tisch {name}",
     "tables": "Tische",
-    "title": "Server-App"
+    "title": "Server-App",
+    "billLoadFailed": "Rechnung konnte nicht geladen werden",
+    "itemReadyAlert": "{item} ist fertig — {table}",
+    "noOpenOrder": "Keine offene Bestellung an diesem Tisch",
+    "soundOff": "Signalton stumm",
+    "soundOn": "Signalton an"
   },
   "settings": {
     "aboutDescription": "FloPOS ist ein dauerhaft kostenloses Open-Source-Kassensystem für Cafés, Restaurants, Bäckereien, Imbisse, Cloud-Küchen und Bars. Es umfasst Bestellungen, Tische, Menüs, Küchenanzeige, Belegdruck, Personalzugänge und lokale Datenspeicherung. Laden Sie es herunter, nutzen Sie es und behalten Sie die Kontrolle über Ihre Daten und Ihr Kassensystem.",
@@ -1910,7 +1926,23 @@
     "themeTitle": "Design",
     "themeLight": "Hell",
     "themeDark": "Dunkel",
-    "themeSystem": "System"
+    "themeSystem": "System",
+    "guestCodeIssued": "Code erstellt",
+    "guestCodeRevoked": "Code deaktiviert",
+    "guestCreateCode": "Code erstellen",
+    "guestCurrentBase": "Codes verweisen auf:",
+    "guestLanOnlyWarning": "Keine öffentliche Adresse gesetzt: Codes funktionieren nur im Lokal-WLAN. Veröffentlichen Sie Port {port} über Ihren eigenen Server.",
+    "guestLoadFailed": "Einstellungen konnten nicht geladen werden",
+    "guestOrdering": "Gästebestellung per QR",
+    "guestOrderingHint": "Gäste scannen am Tisch und bestellen vom eigenen Handy. Bestellungen gehen direkt in die Küche.",
+    "guestPublicUrl": "Öffentliche Adresse",
+    "guestPublicUrlHint": "Die Adresse, die Gäste über Mobilfunk erreichen, bereitgestellt von Ihrem eigenen Server. Leer lassen für reinen WLAN-Betrieb.",
+    "guestRevokeCode": "Deaktivieren",
+    "guestRotateCode": "Neuer Code",
+    "guestSaveFailed": "Speichern fehlgeschlagen",
+    "guestTableCodes": "Tischcodes",
+    "guestTableCodesHint": "Jeder Tisch erhält bei der Anlage einen dauerhaften Code. Ausdrucken und aufkleben. Neu ausgeben nur bei einem Leck — der alte Ausdruck wird sofort ungültig.",
+    "noTablesYet": "Noch keine Tische"
   },
   "setup": {
     "alreadyCompleted": "Die Ersteinrichtung wurde bereits abgeschlossen. Weiterleitung zur Anmeldung…",
@@ -2043,7 +2075,14 @@
     "roleServer": "Bedienung",
     "title": "Mitarbeiter",
     "updateButton": "Aktualisieren",
-    "updatedToast": "Personal aktualisiert"
+    "updatedToast": "Personal aktualisiert",
+    "emailBadCharacters": "Die E-Mail enthält unzulässige Zeichen: {characters}",
+    "tablesAllTables": "Alle Tische erlauben",
+    "tablesButton": "Tische",
+    "tablesEmpty": "Es wurden noch keine Tische angelegt.",
+    "tablesHint": "Wählen Sie, an welchen Tischen diese Servicekraft Bestellungen aufnehmen darf. Ohne Auswahl sind alle Tische erlaubt.",
+    "tablesModalTitle": "Tischzugriff für {name}",
+    "tablesSavedToast": "Tischzugriff aktualisiert"
   },
   "permissionMatrix": {
     "title": "Berechtigungsmatrix",

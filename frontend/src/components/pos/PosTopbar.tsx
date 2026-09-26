@@ -24,7 +24,9 @@ export default function PosTopbar({ tables, onShowTablePicker, onShowCashMovemen
   const t = useTranslations('pos');
   const tDashboard = useTranslations('dashboard');
   const isRestaurant = (currentTenant?.business_type ?? 'restaurant') === 'restaurant';
-  const showTableBtn = isRestaurant && cart.orderType === 'dine_in' && tablesRequired;
+  // Takeaway keeps the picker too: seated guests often add a takeaway order to their table.
+  const showTableBtn = isRestaurant && tablesRequired
+    && (cart.orderType === 'dine_in' || cart.orderType === 'takeaway');
 
   return (
     <div className="flex items-center gap-3 border-b bg-card shrink-0 px-4 py-2.5">

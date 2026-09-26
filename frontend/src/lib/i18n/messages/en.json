@@ -325,7 +325,15 @@
     "closeStepDone": "Close",
     "xReportSales": "Sales today",
     "refundsCount": "{count} refunds",
-    "ticketNoPayments": "No payments for this day"
+    "ticketNoPayments": "No payments for this day",
+    "grossProfit": "Gross profit",
+    "profitCost": "Cost",
+    "profitMargin": "Margin",
+    "profitMissingCost": "{count} product(s) have no cost set",
+    "profitNoCost": "no cost set",
+    "profitProduct": "Product",
+    "profitQuantity": "Qty",
+    "profitRevenue": "Revenue"
   },
   "kds": {
     "addonsLabel": "Add-ons",
@@ -369,7 +377,9 @@
     "updating": "Updating…",
     "viewKanban": "Kanban",
     "viewTabs": "Tabs",
-    "wsConnected": "WebSocket connected"
+    "wsConnected": "WebSocket connected",
+    "stationAll": "All stations",
+    "stationFilter": "Kitchen station"
   },
   "nav": {
     "collapse": "Collapse",
@@ -780,7 +790,8 @@
     "exitFullscreen": "Exit full-screen POS",
     "fullscreenUnavailable": "Full-screen mode is unavailable",
     "backspaceAmount": "Backspace amount",
-    "numericKeypad": "Numeric keypad"
+    "numericKeypad": "Numeric keypad",
+    "takeawayItemNote": "Takeaway"
   },
   "printTest": {
     "amt": "Amt",
@@ -1169,7 +1180,12 @@
     "statusWaiting": "Waiting",
     "tableLabel": "Table {name}",
     "tables": "Tables",
-    "title": "Server App"
+    "title": "Server App",
+    "billLoadFailed": "Could not load the bill",
+    "itemReadyAlert": "{item} is ready — {table}",
+    "noOpenOrder": "No open order on this table",
+    "soundOff": "Ready alerts muted",
+    "soundOn": "Ready alerts on"
   },
   "settings": {
     "aboutDescription": "FloPOS is a free forever, open-source restaurant POS for cafes, restaurants, bakeries, food trucks, cloud kitchens, and bars. It includes ordering, tables, menus, kitchen display, receipt printing, staff access, and local data storage. Download it, run service, keep your data, and own your POS.",
@@ -1910,7 +1926,23 @@
     "themeTitle": "Theme",
     "themeLight": "Light",
     "themeDark": "Dark",
-    "themeSystem": "System"
+    "themeSystem": "System",
+    "guestCodeIssued": "Code created",
+    "guestCodeRevoked": "Code turned off",
+    "guestCreateCode": "Create code",
+    "guestCurrentBase": "Codes currently point to:",
+    "guestLanOnlyWarning": "No public address set, so codes only work on the shop WiFi. Publish port {port} through your own server to take orders over mobile data.",
+    "guestLoadFailed": "Could not load customer ordering settings",
+    "guestOrdering": "Customer QR ordering",
+    "guestOrderingHint": "Let customers scan a code at their table and order from their own phone. Orders go straight to the kitchen.",
+    "guestPublicUrl": "Public address",
+    "guestPublicUrlHint": "The address customers reach over mobile data, served by your own server. Leave empty to work on the shop WiFi only.",
+    "guestRevokeCode": "Turn off",
+    "guestRotateCode": "New code",
+    "guestSaveFailed": "Could not save",
+    "guestTableCodes": "Table codes",
+    "guestTableCodesHint": "Each table gets a permanent code when it is created. Print it and stick it on the table. Issue a new one only if a code leaks — the old printout stops working immediately.",
+    "noTablesYet": "No tables yet"
   },
   "setup": {
     "alreadyCompleted": "Setup has already been completed on this install. Redirecting to login…",
@@ -2043,7 +2075,14 @@
     "roleServer": "Server",
     "title": "Staff",
     "updateButton": "Update",
-    "updatedToast": "Staff updated"
+    "updatedToast": "Staff updated",
+    "emailBadCharacters": "Email contains characters that are not allowed: {characters}",
+    "tablesAllTables": "Allow all tables",
+    "tablesButton": "Tables",
+    "tablesEmpty": "No tables have been created yet.",
+    "tablesHint": "Choose which tables this server can take orders on. Leave all unchecked to allow every table.",
+    "tablesModalTitle": "Table access for {name}",
+    "tablesSavedToast": "Table access updated"
   },
   "permissionMatrix": {
     "title": "Role permissions",

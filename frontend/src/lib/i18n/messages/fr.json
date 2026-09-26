@@ -325,7 +325,15 @@
     "closeStepDone": "Clôturer",
     "xReportSales": "Ventes du jour",
     "refundsCount": "{count} remboursements",
-    "ticketNoPayments": "Aucun paiement ce jour"
+    "ticketNoPayments": "Aucun paiement ce jour",
+    "grossProfit": "Marge brute",
+    "profitCost": "Coût",
+    "profitMargin": "Marge",
+    "profitMissingCost": "{count} produit(s) sans coût renseigné",
+    "profitNoCost": "coût non renseigné",
+    "profitProduct": "Produit",
+    "profitQuantity": "Qté",
+    "profitRevenue": "Chiffre d'affaires"
   },
   "kds": {
     "addonsLabel": "Options",
@@ -369,7 +377,9 @@
     "updating": "Mise à jour…",
     "viewKanban": "Kanban",
     "viewTabs": "Onglets",
-    "wsConnected": "WebSocket connecté"
+    "wsConnected": "WebSocket connecté",
+    "stationAll": "Tous les postes",
+    "stationFilter": "Poste de cuisine"
   },
   "nav": {
     "collapse": "Réduire",
@@ -780,7 +790,8 @@
     "exitFullscreen": "Quitter le POS en plein écran",
     "fullscreenUnavailable": "Le mode plein écran n'est pas disponible",
     "backspaceAmount": "Effacer le dernier chiffre",
-    "numericKeypad": "Pavé numérique"
+    "numericKeypad": "Pavé numérique",
+    "takeawayItemNote": "À emporter"
   },
   "printTest": {
     "amt": "Montant",
@@ -1169,7 +1180,12 @@
     "statusWaiting": "En attente",
     "tableLabel": "Table {name}",
     "tables": "Tables",
-    "title": "Application serveur"
+    "title": "Application serveur",
+    "billLoadFailed": "Impossible de charger l'addition",
+    "itemReadyAlert": "{item} est prêt — {table}",
+    "noOpenOrder": "Aucune commande en cours sur cette table",
+    "soundOff": "Alertes sonores coupées",
+    "soundOn": "Alertes sonores activées"
   },
   "settings": {
     "aboutDescription": "FloPOS est une solution de caisse libre et gratuite à vie pour les cafés, restaurants, boulangeries, camions-restaurants, cuisines virtuelles et bars. Elle comprend la prise de commandes, la gestion des tables et des menus, l’affichage en cuisine, l’impression des reçus, l’accès du personnel et le stockage local des données. Téléchargez-la, lancez le service, conservez vos données et restez propriétaire de votre caisse.",
@@ -1910,7 +1926,23 @@
     "themeTitle": "Thème",
     "themeLight": "Clair",
     "themeDark": "Sombre",
-    "themeSystem": "Système"
+    "themeSystem": "Système",
+    "guestCodeIssued": "Code créé",
+    "guestCodeRevoked": "Code désactivé",
+    "guestCreateCode": "Créer un code",
+    "guestCurrentBase": "Les codes pointent vers :",
+    "guestLanOnlyWarning": "Sans adresse publique, les codes ne marchent que sur le WiFi du restaurant. Publiez le port {port} via votre propre serveur.",
+    "guestLoadFailed": "Chargement des réglages impossible",
+    "guestOrdering": "Commande client par QR",
+    "guestOrderingHint": "Le client scanne à table et commande depuis son téléphone. La commande part directement en cuisine.",
+    "guestPublicUrl": "Adresse publique",
+    "guestPublicUrlHint": "Adresse joignable en données mobiles, servie par votre propre serveur. Vide = uniquement sur le WiFi du restaurant.",
+    "guestRevokeCode": "Désactiver",
+    "guestRotateCode": "Nouveau code",
+    "guestSaveFailed": "Enregistrement impossible",
+    "guestTableCodes": "Codes par table",
+    "guestTableCodesHint": "Chaque table reçoit un code permanent à sa création. Imprimez-le et collez-le. N'en générez un nouveau qu'en cas de fuite : l'ancien tirage cesse aussitôt de fonctionner.",
+    "noTablesYet": "Aucune table"
   },
   "setup": {
     "alreadyCompleted": "La configuration a déjà été effectuée sur cette installation. Redirection vers la connexion…",
@@ -2043,7 +2075,14 @@
     "roleServer": "Personnel de service",
     "title": "Personnel",
     "updateButton": "Mettre à jour",
-    "updatedToast": "Employé mis à jour"
+    "updatedToast": "Employé mis à jour",
+    "emailBadCharacters": "L'e-mail contient des caractères non autorisés : {characters}",
+    "tablesAllTables": "Autoriser toutes les tables",
+    "tablesButton": "Tables",
+    "tablesEmpty": "Aucune table n'a encore été créée.",
+    "tablesHint": "Choisissez les tables où ce serveur peut prendre des commandes. Sans sélection, toutes les tables sont autorisées.",
+    "tablesModalTitle": "Accès aux tables de {name}",
+    "tablesSavedToast": "Accès aux tables mis à jour"
   },
   "permissionMatrix": {
     "title": "Autorisations des rôles",

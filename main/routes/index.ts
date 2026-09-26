@@ -24,6 +24,7 @@ import { kdsInfoRoutes } from './kds-info';
 import { posInfoRoutes } from './pos-info';
 import { serverAppInfoRoutes } from './server-app-info';
 import { moreAppsRoutes } from './more-apps';
+import { guestOrderingRoutes } from './guest-ordering';
 import { notifyKdsUpdate } from '../services/kds';
 import { printerRoutes } from './printers';
 import { databaseRoutes } from './database';
@@ -101,6 +102,7 @@ export function registerRoutes(app: Express): void {
   app.use('/api/pos-info', posInfoRoutes);
   app.use('/api/server-app-info', serverAppInfoRoutes);
   app.use('/api/more-apps', moreAppsRoutes);
+  app.use('/api/guest-ordering', guestOrderingRoutes);
   app.use('/api/printers', printerRoutes);
   app.use('/api/db', databaseRoutes);
   app.use('/api/db-tools', databaseToolsRoutes);
@@ -343,7 +345,10 @@ export function registerRoutes(app: Express): void {
         const isItemVoid = ['preparing', 'ready'].includes(currentItem.status);
         const isPrivilegedRole = hasRole(userRole, ROLE_ACCESS.ownerManager);
         const canUseOverride = hasRole(userRole, ROLE_ACCESS.cashierServer) && isItemVoid;
-        if (!isPrivilegedRole && !canUseOverride) {
+        // Front-of-house staff may pull a line the kitchen has not started. Anything past
+        // 'pending' still goes through the manager-PIN void path below, or is owner/manager only.
+        const canCancelPendingItem = hasRole(userRole, ROLE_ACCESS.cashierServer) && currentItem.status === 'pending';
+        if (!isPrivilegedRole && !canUseOverride && !canCancelPendingItem) {
           throw Object.assign(new Error('Only owner or manager can cancel this item'), { statusCode: 403 });
         }
         let approvedByUserId: string | undefined;
@@ -681,6 +686,57 @@ export function registerRoutes(app: Express): void {
       console.error('[Orders] Restore item error:', error);
       console.error("[API] Internal error:", error);
       res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : "Internal server error" });
+    }
+  });
+
+  // Edit one line's note (e.g. tagging it as takeaway) while the kitchen has not started it.
+  // Notes never affect totals, so no recalculation is needed here.
+  app.patch('/api/orders/:orderId/items/:itemId/notes', inlineOrderWriteRateLimit, (req, res) => {
+    try {
+      const orderId = String(req.params.orderId);
+      const itemId = String(req.params.itemId);
+      const actorId = String((req as any).user?.userId || '');
+      if (!actorId) return res.status(403).json({ error: 'Authentication required' });
+
+      const rawNote = req.body?.special_instructions;
+      if (rawNote !== null && rawNote !== undefined && typeof rawNote !== 'string') {
+        return res.status(400).json({ error: 'special_instructions must be a string or null' });
+      }
+      const note = typeof rawNote === 'string' ? rawNote.trim().slice(0, 200) : null;
+
+      const db = getDatabase();
+      const result = withTxn(() => {
+        const currentOrder = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId) as any;
+        if (!currentOrder) throw Object.assign(new Error('Order not found'), { statusCode: 404 });
+        const currentItem = db.prepare('SELECT * FROM order_items WHERE id = ? AND order_id = ?').get(itemId, orderId) as any;
+        if (!currentItem) throw Object.assign(new Error('Item not found in this order'), { statusCode: 404 });
+
+        const actor = db.prepare('SELECT role FROM users WHERE id = ? AND is_active = 1').get(actorId) as { role: string } | undefined;
+        if (!actor || !hasRole(actor.role, ROLE_ACCESS.sales)) {
+          throw Object.assign(new Error('Not allowed to edit this item'), { statusCode: 403 });
+        }
+        if (['completed', 'cancelled'].includes(currentOrder.status)) {
+          throw Object.assign(new Error('Cannot edit items on completed or cancelled orders'), { statusCode: 400 });
+        }
+        if (currentItem.status !== 'pending') {
+          throw Object.assign(new Error('Only an item the kitchen has not started can be edited'), { statusCode: 409 });
+        }
+
+        db.prepare('UPDATE order_items SET special_instructions = ?, updated_at = ? WHERE id = ?')
+          .run(note || null, now(), itemId);
+        recordOrderAudit(db, { orderId, orderItemId: itemId, actorUserId: actorId, action: 'item_note_updated' });
+
+        const updatedOrder = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId) as any;
+        const items = attachEffectiveAddons(db, db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(orderId).map(parseItemJson) as any[]);
+        return { updatedOrder, items };
+      });
+
+      cloudSync.recordOrderChanged(orderId, 'order.item_note_updated');
+      notifyKdsUpdate();
+      res.json({ order: { ...result.updatedOrder, items: result.items } });
+    } catch (error: any) {
+      console.error('[Orders] Edit item note error:', error);
+      res.status(error.statusCode || 500).json({ error: error.statusCode ? error.message : 'Internal server error' });
     }
   });
 }

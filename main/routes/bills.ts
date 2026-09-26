@@ -457,7 +457,7 @@ router.get('/', requireRole(...ROLE_ACCESS.ownerManagerCashier), (req: Request, 
   }
 });
 
-router.get('/:id', requireRole(...ROLE_ACCESS.ownerManagerCashier), (req: Request, res: Response) => {
+router.get('/:id', requireRole(...ROLE_ACCESS.billing), (req: Request, res: Response) => {
   try {
     const db = getDatabase();
     const bill = addBillLoyaltyFields(db, parseRowJson(db.prepare('SELECT * FROM bills WHERE id = ?').get(req.params.id)));
@@ -476,7 +476,7 @@ router.get('/:id', requireRole(...ROLE_ACCESS.ownerManagerCashier), (req: Reques
 });
 
 // Get bill by order ID
-router.get('/order/:orderId', requireRole(...ROLE_ACCESS.ownerManagerCashier), (req: Request, res: Response) => {
+router.get('/order/:orderId', requireRole(...ROLE_ACCESS.billing), (req: Request, res: Response) => {
   try {
     const db = getDatabase();
     const bill = addBillLoyaltyFields(db, parseRowJson(db.prepare('SELECT * FROM bills WHERE order_id = ? ORDER BY created_at DESC LIMIT 1').get(req.params.orderId)));
@@ -494,7 +494,7 @@ router.get('/order/:orderId', requireRole(...ROLE_ACCESS.ownerManagerCashier), (
   }
 });
 
-router.post('/generate', requireRole(...ROLE_ACCESS.ownerManagerCashier), (req: Request, res: Response) => {
+router.post('/generate', requireRole(...ROLE_ACCESS.billing), (req: Request, res: Response) => {
   try {
     const { order_id } = req.body;
 
@@ -2044,7 +2044,7 @@ function applyPaymentBatch(
   return result;
 }
 
-router.post('/:id/payment', requireRole(...ROLE_ACCESS.ownerManagerCashier), (req: Request, res: Response) => {
+router.post('/:id/payment', requireRole(...ROLE_ACCESS.billing), (req: Request, res: Response) => {
   try {
     const payment = req.body;
     if (!payment || typeof payment !== 'object' || Array.isArray(payment)) {
@@ -2070,7 +2070,7 @@ router.post('/:id/payment', requireRole(...ROLE_ACCESS.ownerManagerCashier), (re
 });
 
 // Atomic split-payment batch endpoint applying payment lines in a single transaction.
-router.post('/:id/payments', requireRole(...ROLE_ACCESS.ownerManagerCashier), (req: Request, res: Response) => {
+router.post('/:id/payments', requireRole(...ROLE_ACCESS.billing), (req: Request, res: Response) => {
   try {
     const body = req.body;
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
@@ -2304,7 +2304,7 @@ router.post('/:id/markPrinted', requireRole(...ROLE_ACCESS.ownerManager), (req: 
 });
 
 // POST /api/bills/:id/print - Print or reprint bill
-router.post('/:id/print', requireRole(...ROLE_ACCESS.ownerManagerCashier), asyncHandler(async (req: Request, res: Response) => {
+router.post('/:id/print', requireRole(...ROLE_ACCESS.billing), asyncHandler(async (req: Request, res: Response) => {
   try {
     const { print_type } = req.body;
 

@@ -17,6 +17,9 @@ export function KdsWorkspace({ conn, serverDefault }: { conn: UseKdsConnectionRe
         connected={conn.connected}
         connectionMode={conn.connectionMode}
         viewMode={viewMode}
+        stations={conn.stations}
+        selectedStationId={conn.selectedStationId}
+        onSelectStation={conn.selectStation}
         onChangeView={setViewMode}
         onLogout={conn.handleLogout}
       />

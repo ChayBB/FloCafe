@@ -13,6 +13,7 @@ import { telemetry, sendEvent as sendTelemetryEvent } from './services/telemetry
 import { googleDrive } from './services/google-drive';
 import { startKdsServer, stopKdsServer, getKdsPort, isKdsServerRunning } from './kds-server';
 import { startServerApp, stopServerApp, getServerAppPort, isServerAppRunning } from './server-app';
+import { startGuestServer, stopGuestServer } from './guest-server';
 import { initPrinter } from './printers/thermal';
 import { destroySharedRasterRenderer } from './printers/raster-renderer';
 import { registerIpcHandlers, isTrustedSender } from './ipc';
@@ -1196,6 +1197,13 @@ async function initialize(): Promise<void> {
     await startServerApp();
     if (isShutdownRequested()) return;
 
+    // Guest ordering listens on its own port so it can be published to the
+    // internet without exposing any staff surface. The routes stay closed until
+    // the merchant turns the feature on.
+    console.log('[Flo] Starting guest ordering server on port 3004...');
+    await startGuestServer();
+    if (isShutdownRequested()) return;
+
     // Native E2E owns an offline fixture; optional LAN discovery must not
     // contend with a developer session or keep the test process alive.
     if (process.env.FLO_E2E_SKIP_OPTIONAL_NETWORK !== '1') {
@@ -1418,6 +1426,7 @@ const cleanupCoordinator = createShutdownCoordinator(() => [
   { name: 'raster surface', run: () => destroySharedRasterRenderer() },
   // Drain Server App before shutting down main API.
   { name: 'Server App', run: () => stopServerApp(), blocksDatabase: true },
+  { name: 'Guest server', run: () => stopGuestServer(), blocksDatabase: true },
   { name: 'Main server', run: () => stopServer(), blocksDatabase: true },
   { name: 'KDS server', run: () => stopKdsServer(), blocksDatabase: true },
   { name: 'cloud sync', run: () => cloudSync.shutdown(), blocksDatabase: true },

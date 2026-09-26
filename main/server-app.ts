@@ -2,12 +2,13 @@ import express, { Express, Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import expressRateLimit from 'express-rate-limit';
 import jwt from 'jsonwebtoken';
+import { WebSocket, WebSocketServer } from 'ws';
 import * as http from 'http';
 import * as path from 'path';
 import * as fs from 'fs';
 import { randomUUID } from 'node:crypto';
 import { closeServerResources, createShutdownCancellationError, getHttpRequestSignal, installHttpShutdownTracking, trackHttpRequestWork } from './shutdown';
-import { databaseMaintenanceMiddleware, getDatabase, isServerAppEnabled } from './db';
+import { databaseMaintenanceMiddleware, getDatabase, getUserTableIds, isServerAppEnabled, isTableAllowedForUser } from './db';
 import { getJWTSecret } from './routes/auth';
 import { authRateLimit, staticRouteRateLimit, corsOptions, isTokenRevoked, isTokenStale, rateLimit, revokeToken } from './middleware/security';
 import { getServerPort } from './server';
@@ -16,9 +17,12 @@ import { API_JSON_BODY_LIMIT } from './http-limits';
 import { buildCspHeader } from './csp';
 import { resolveContainedPath } from './lib/path-containment';
 import { ROLE_ACCESS } from '../shared/role-permissions';
+import { onOrderItemStatus, type OrderItemStatusEvent } from './services/server-app-events';
 import { RegionalNotConfiguredError, resolveRegionalSnapshot } from './countries';
 
 let serverApp: http.Server | null = null;
+let serverAppWss: WebSocketServer | null = null;
+let unsubscribeItemStatus: (() => void) | null = null;
 let stopPromise: Promise<void> | null = null;
 let startReject: ((error: Error) => void) | null = null;
 let stopping = false;
@@ -98,11 +102,21 @@ function requireServerAppAuth(req: Request, res: Response, next: NextFunction) {
   }
 }
 
-async function forwardToMainApi(req: Request, res: Response, targetPath: string) {
-  return trackHttpRequestWork(req, forwardToMainApiImpl(req, res, targetPath));
+async function forwardToMainApi(
+  req: Request,
+  res: Response,
+  targetPath: string,
+  transform?: (body: any) => any,
+) {
+  return trackHttpRequestWork(req, forwardToMainApiImpl(req, res, targetPath, transform));
 }
 
-async function forwardToMainApiImpl(req: Request, res: Response, targetPath: string) {
+async function forwardToMainApiImpl(
+  req: Request,
+  res: Response,
+  targetPath: string,
+  transform?: (body: any) => any,
+) {
   const target = new URL(`/api${targetPath}`, `http://127.0.0.1:${getServerPort()}`);
   for (const [key, value] of Object.entries(req.query)) {
     if (Array.isArray(value)) {
@@ -125,7 +139,16 @@ async function forwardToMainApiImpl(req: Request, res: Response, targetPath: str
     });
     const text = await upstream.text();
     res.status(upstream.status);
-    res.type(upstream.headers.get('content-type') || 'application/json');
+    const contentType = upstream.headers.get('content-type') || 'application/json';
+    if (transform && upstream.ok && contentType.includes('application/json')) {
+      try {
+        res.json(transform(JSON.parse(text)));
+        return;
+      } catch {
+        // Fall through and pass the upstream payload through untouched.
+      }
+    }
+    res.type(contentType);
     res.send(text);
   } catch (error: any) {
     if (getHttpRequestSignal(req)?.aborted) {
@@ -134,6 +157,181 @@ async function forwardToMainApiImpl(req: Request, res: Response, targetPath: str
       return;
     }
     console.error('[Server App] Main API forward failed:', error);
+    res.status(502).json({ error: 'Could not reach the local POS API' });
+  }
+}
+
+/**
+ * Tables the request's user is restricted to, or null when unrestricted.
+ * Only servers are scoped, and a server with no assignment rows keeps every table.
+ */
+function allowedTableIdsFor(user: ServerAppUser | undefined): Set<string> | null {
+  if (!user || user.role !== 'server') return null;
+  const assigned = getUserTableIds(getDatabase(), user.userId);
+  if (assigned === null) return new Set();
+  if (assigned.length === 0) return null;
+  return new Set(assigned);
+}
+
+function orderTableId(orderId: unknown): string | null {
+  const row = getDatabase()
+    .prepare('SELECT table_id FROM orders WHERE id = ?')
+    .get(orderId) as { table_id: string | null } | undefined;
+  return row?.table_id ?? null;
+}
+
+function billTableId(billId: unknown): string | null {
+  const row = getDatabase()
+    .prepare('SELECT o.table_id AS table_id FROM bills b JOIN orders o ON o.id = b.order_id WHERE b.id = ?')
+    .get(billId) as { table_id: string | null } | undefined;
+  return row?.table_id ?? null;
+}
+
+function requireTablePermission(resolveTableId: (req: Request) => string | null) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const user = (req as any).user as ServerAppUser;
+    if (user?.role !== 'server') return next();
+    let tableId: string | null;
+    try {
+      tableId = resolveTableId(req);
+    } catch {
+      return res.status(500).json({ error: 'Could not check table permissions' });
+    }
+    if (!isTableAllowedForUser(getDatabase(), user.userId, user.role, tableId)) {
+      return res.status(403).json({ error: 'You are not assigned to this table.' });
+    }
+    next();
+  };
+}
+
+const MAX_SERVER_APP_SOCKETS = 50;
+const SOCKET_HEARTBEAT_MS = 30_000;
+
+/** Authenticates a socket the same way `requireServerAppAuth` gates HTTP requests. */
+function authenticateSocketToken(token: string): ServerAppUser | null {
+  if (!token || isTokenRevoked(token)) return null;
+  try {
+    const decoded = jwt.verify(token, getJWTSecret()) as any;
+    const user = getDatabase()
+      .prepare('SELECT id, email, role, tokens_valid_after FROM users WHERE id = ? AND is_active = 1')
+      .get(decoded.userId) as any;
+    if (!user || isTokenStale(decoded.iat, user.tokens_valid_after)) return null;
+    if (!SERVER_APP_ALLOWED_ROLES.has(user.role)) return null;
+    return { userId: user.id, email: user.email, role: user.role, iat: decoded.iat };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Pushes kitchen status changes to the waiter covering that table, so a "ready"
+ * item lands on their device immediately instead of on the next poll.
+ */
+function setupServerAppWebSocket(listeningServer: http.Server): void {
+  const wss = new WebSocketServer({ noServer: true });
+  serverAppWss = wss;
+  const sockets = new Map<WebSocket, ServerAppUser>();
+  const alive = new WeakSet<WebSocket>();
+
+  listeningServer.on('upgrade', (request, socket, head) => {
+    const [pathname, rawQuery] = (request.url || '').split('?');
+    if (pathname !== '/server-app') {
+      socket.write('HTTP/1.1 404 Not Found\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+    if (!isServerAppEnabled() || sockets.size >= MAX_SERVER_APP_SOCKETS) {
+      socket.write('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+    // The browser WebSocket API cannot set headers, so the token rides in the query string.
+    const user = authenticateSocketToken(new URLSearchParams(rawQuery || '').get('token') || '');
+    if (!user) {
+      socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      sockets.set(ws, user);
+      alive.add(ws);
+      ws.on('pong', () => alive.add(ws));
+      ws.on('close', () => sockets.delete(ws));
+      ws.on('error', () => sockets.delete(ws));
+      ws.send(JSON.stringify({ type: 'connected' }));
+    });
+  });
+
+  const heartbeat = setInterval(() => {
+    sockets.forEach((_user, ws) => {
+      if (!alive.has(ws)) {
+        ws.terminate();
+        sockets.delete(ws);
+        return;
+      }
+      alive.delete(ws);
+      try { ws.ping(); } catch { /* terminated on the next sweep */ }
+    });
+  }, SOCKET_HEARTBEAT_MS);
+  heartbeat.unref?.();
+  wss.on('close', () => clearInterval(heartbeat));
+
+  unsubscribeItemStatus = onOrderItemStatus((event: OrderItemStatusEvent) => {
+    if (sockets.size === 0 || !event.tableId) return;
+    for (const [ws, user] of sockets) {
+      if (ws.readyState !== WebSocket.OPEN) continue;
+      // Re-read the assignment per event so a reassigned table takes effect without a reconnect.
+      const allowed = allowedTableIdsFor(user);
+      if (allowed && !allowed.has(String(event.tableId))) continue;
+      try {
+        ws.send(JSON.stringify({
+          type: 'item_status',
+          item_id: event.itemId,
+          product_name: event.productName,
+          order_id: event.orderId,
+          table_id: event.tableId,
+          status: event.status,
+        }));
+      } catch (error) {
+        console.error('[Server App] Socket push failed:', error);
+      }
+    }
+  });
+}
+
+// Binary-safe forward: the JSON forwarder above decodes bodies as text, which corrupts image bytes.
+async function forwardBinaryToMainApi(req: Request, res: Response, targetPath: string) {
+  return trackHttpRequestWork(req, forwardBinaryToMainApiImpl(req, res, targetPath));
+}
+
+async function forwardBinaryToMainApiImpl(req: Request, res: Response, targetPath: string) {
+  const target = new URL(`/api${targetPath}`, `http://127.0.0.1:${getServerPort()}`);
+  try {
+    const upstream = await fetch(target, {
+      method: 'GET',
+      headers: {
+        ...(req.headers.authorization ? { Authorization: req.headers.authorization } : {}),
+        ...(req.headers['if-none-match'] ? { 'If-None-Match': String(req.headers['if-none-match']) } : {}),
+      },
+      signal: getHttpRequestSignal(req),
+    });
+    res.status(upstream.status);
+    for (const header of ['content-type', 'cache-control', 'etag']) {
+      const value = upstream.headers.get(header);
+      if (value) res.setHeader(header, value);
+    }
+    if (upstream.status === 304) {
+      res.end();
+      return;
+    }
+    res.send(Buffer.from(await upstream.arrayBuffer()));
+  } catch (error: any) {
+    if (getHttpRequestSignal(req)?.aborted) {
+      if (!res.headersSent) res.status(503).end();
+      else if (!res.writableEnded) res.destroy();
+      return;
+    }
+    console.error('[Server App] Main API binary forward failed:', error);
     res.status(502).json({ error: 'Could not reach the local POS API' });
   }
 }
@@ -256,10 +454,34 @@ export function startServerApp(): Promise<void> {
 
     app.get('/api/categories', requireServerAppAuth, (req, res) => forwardToMainApi(req, res, '/categories'));
     app.get('/api/products', requireServerAppAuth, (req, res) => forwardToMainApi(req, res, '/products'));
-    app.get('/api/tables', requireServerAppAuth, (req, res) => forwardToMainApi(req, res, '/tables'));
+    // Unauthenticated so <img> tags work, mirroring the main API's own product-image exemption.
+    app.get('/api/products/:id/image', (req, res) =>
+      forwardBinaryToMainApi(req, res, `/products/${encodeURIComponent(String(req.params.id))}/image`));
+    app.get('/api/tables', requireServerAppAuth, (req, res) => forwardToMainApi(req, res, '/tables', (body) => {
+      const user = (req as any).user as ServerAppUser;
+      const allowed = allowedTableIdsFor(user);
+      if (!allowed || !Array.isArray(body?.tables)) return body;
+      return { ...body, tables: body.tables.filter((table: any) => allowed.has(String(table?.id))) };
+    }));
     app.get('/api/orders', requireServerAppAuth, (req, res) => forwardToMainApi(req, res, '/orders'));
-    app.post('/api/orders', requireServerAppAuth, (req, res) => forwardToMainApi(req, res, '/orders'));
-    app.post('/api/orders/:id/items', requireServerAppAuth, (req, res) => forwardToMainApi(req, res, `/orders/${encodeURIComponent(String(req.params.id))}/items`));
+    app.post('/api/orders', requireServerAppAuth, requireTablePermission((req) => req.body?.table_id ?? null),
+      (req, res) => forwardToMainApi(req, res, '/orders'));
+    app.post('/api/orders/:id/items', requireServerAppAuth, requireTablePermission((req) => orderTableId(req.params.id)),
+      (req, res) => forwardToMainApi(req, res, `/orders/${encodeURIComponent(String(req.params.id))}/items`));
+    // Editing an open ticket happens line by line: tag one as takeaway, or pull it.
+    // The main API keeps its own rules (only a line the kitchen has not started).
+    app.patch('/api/orders/:id/items/:itemId/notes', requireServerAppAuth, requireTablePermission((req) => orderTableId(req.params.id)),
+      (req, res) => forwardToMainApi(
+        req,
+        res,
+        `/orders/${encodeURIComponent(String(req.params.id))}/items/${encodeURIComponent(String(req.params.itemId))}/notes`,
+      ));
+    app.patch('/api/orders/:id/items/:itemId/cancel', requireServerAppAuth, requireTablePermission((req) => orderTableId(req.params.id)),
+      (req, res) => forwardToMainApi(
+        req,
+        res,
+        `/orders/${encodeURIComponent(String(req.params.id))}/items/${encodeURIComponent(String(req.params.itemId))}/cancel`,
+      ));
     app.get('/api/customers-search', requireServerAppAuth, (req, res) => forwardToMainApi(req, res, '/customers-search'));
     app.get('/api/crm/lookup', requireServerAppAuth, (req, res) => forwardToMainApi(req, res, '/crm/lookup'));
     const customerWriteRateLimit = expressRateLimit({
@@ -275,6 +497,22 @@ export function startServerApp(): Promise<void> {
       standardHeaders: true,
       legacyHeaders: false,
     });
+    // Billing at the table. Table scoping applies here too: a scoped server can only
+    // bill orders sitting on a table they are assigned to.
+    app.get('/api/payment-methods', requireServerAppAuth, (req, res) => forwardToMainApi(req, res, '/payment-methods'));
+    app.post('/api/bills/generate', requireServerAppAuth, requireTablePermission((req) => orderTableId(req.body?.order_id)),
+      (req, res) => forwardToMainApi(req, res, '/bills/generate'));
+    app.get('/api/bills/order/:orderId', requireServerAppAuth, requireTablePermission((req) => orderTableId(req.params.orderId)),
+      (req, res) => forwardToMainApi(req, res, `/bills/order/${encodeURIComponent(String(req.params.orderId))}`));
+    const billPaymentRateLimit = expressRateLimit({
+      windowMs: 60 * 1000,
+      limit: 60,
+      standardHeaders: true,
+      legacyHeaders: false,
+    });
+    app.post('/api/bills/:id/payments', billPaymentRateLimit, requireServerAppAuth, requireTablePermission((req) => billTableId(req.params.id)),
+      (req, res) => forwardToMainApi(req, res, `/bills/${encodeURIComponent(String(req.params.id))}/payments`));
+
     app.post('/api/printers/print-kot', printForwardRateLimit, requireServerAppAuth, (req, res) => forwardToMainApi(req, res, '/printers/print-kot'));
     app.post('/api/printers/print-bill', printForwardRateLimit, requireServerAppAuth, (req, res) => forwardToMainApi(req, res, '/printers/print-bill'));
 
@@ -328,6 +566,7 @@ export function startServerApp(): Promise<void> {
     const listeningServer = http.createServer(app);
     serverApp = listeningServer;
     installHttpShutdownTracking(listeningServer);
+    setupServerAppWebSocket(listeningServer);
 
     const tryListen = () => {
       const attemptedPort = currentPort;
@@ -378,10 +617,14 @@ export function stopServerApp(): Promise<void> {
   startReject = null;
   rejectStart?.(createShutdownCancellationError('Server App'));
   const serverToClose = serverApp;
+  const wssToClose = serverAppWss;
   // Mark the server unavailable immediately while active requests drain.
   serverApp = null;
+  serverAppWss = null;
+  unsubscribeItemStatus?.();
+  unsubscribeItemStatus = null;
 
-  stopPromise = closeServerResources(serverToClose, null, 'Server App')
+  stopPromise = closeServerResources(serverToClose, wssToClose, 'Server App')
     .then(() => {
       console.log('[Server App] HTTP server stopped');
     });

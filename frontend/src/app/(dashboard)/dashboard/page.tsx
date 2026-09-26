@@ -170,6 +170,27 @@ const BUILT_IN_PAYMENT_KEYS = {
   card: 'methodCard',
 } as const satisfies Record<'cash' | 'card', PosKey>;
 
+
+interface ProfitProduct {
+  productId: string;
+  productName: string;
+  quantity: number;
+  revenue: number;
+  cost: number;
+  grossProfit: number;
+  marginPercent: number;
+  quantityWithoutCost: number;
+}
+
+interface ProfitReport {
+  revenue: number;
+  cost: number;
+  grossProfit: number;
+  marginPercent: number;
+  productsWithoutCost: number;
+  products: ProfitProduct[];
+}
+
 export default function DashboardPage() {
   const { currentTenant } = useAuthStore();
   const t = useTranslations('dashboard');
@@ -181,6 +202,7 @@ export default function DashboardPage() {
   const [daySummary, setDaySummary] = useState<DaySummary | null>(null);
   const [financialSummary, setFinancialSummary] = useState<FinancialSummary | null>(null);
   const [topProducts, setTopProducts] = useState<TopProduct[]>([]);
+  const [profit, setProfit] = useState<ProfitReport | null>(null);
   const [recentOrders, setRecentOrders] = useState<RecentOrder[]>([]);
   const [insights, setInsights] = useState<Insights | null>(null);
   const [loading, setLoading] = useState(true);
@@ -247,14 +269,16 @@ export default function DashboardPage() {
         signal: controller.signal,
       }),
       api.get('/reports/insights', { params: { days: 30 }, signal: controller.signal }),
+      api.get('/reports/profit', { params: { start_date: range.startDate, end_date: range.endDate }, signal: controller.signal }),
     ])
-      .then(([statsRes, financialRes, topRes, recentRes, insightsRes]) => {
+      .then(([statsRes, financialRes, topRes, recentRes, insightsRes, profitRes]) => {
         setStats(isToday && statsRes ? statsRes.data : null);
         setDaySummary(!isToday && statsRes ? statsRes.data.summary : null);
         setFinancialSummary(financialRes.data.financialSummary);
         setTopProducts(topRes.data.topProducts || []);
         setRecentOrders(recentRes.data.recentOrders || []);
         setInsights(insightsRes.data);
+        setProfit(profitRes.data.profit || null);
       })
       .catch((err: unknown) => {
         if (err instanceof Error && (err.name === 'CanceledError' || err.name === 'AbortError')) return;
@@ -647,6 +671,79 @@ export default function DashboardPage() {
               )}
             </div>
           </div>
+
+          {/* Gross profit — paid bills in the selected range, costed from each line's
+              cost snapshot so past margins never move when a price list changes. */}
+          <section className="bg-card rounded-xl border border-border mt-4 overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+              <h2 className="flex items-center gap-2 font-semibold text-foreground">
+                <TrendingUp size={16} className="text-muted-foreground" />
+                {t('grossProfit')}
+              </h2>
+              {(profit?.productsWithoutCost ?? 0) > 0 && (
+                <span className="text-xs text-amber-600 dark:text-amber-400">
+                  {t('profitMissingCost', { count: profit!.productsWithoutCost })}
+                </span>
+              )}
+            </div>
+
+            {!profit || profit.products.length === 0 ? (
+              <p className="px-4 py-6 text-sm text-muted-foreground text-center">{t('noSalesYet')}</p>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 gap-px bg-border sm:grid-cols-4">
+                  <div className="bg-card px-4 py-3">
+                    <p className="text-xs text-muted-foreground">{t('profitRevenue')}</p>
+                    <p className="text-lg font-bold text-foreground">{fmt(profit.revenue)}</p>
+                  </div>
+                  <div className="bg-card px-4 py-3">
+                    <p className="text-xs text-muted-foreground">{t('profitCost')}</p>
+                    <p className="text-lg font-bold text-foreground">{fmt(profit.cost)}</p>
+                  </div>
+                  <div className="bg-card px-4 py-3">
+                    <p className="text-xs text-muted-foreground">{t('grossProfit')}</p>
+                    <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400">{fmt(profit.grossProfit)}</p>
+                  </div>
+                  <div className="bg-card px-4 py-3">
+                    <p className="text-xs text-muted-foreground">{t('profitMargin')}</p>
+                    <p className="text-lg font-bold text-foreground">{profit.marginPercent.toFixed(1)}%</p>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-y border-border text-xs text-muted-foreground">
+                        <th className="px-4 py-2 text-start font-medium">{t('profitProduct')}</th>
+                        <th className="px-4 py-2 text-end font-medium">{t('profitQuantity')}</th>
+                        <th className="px-4 py-2 text-end font-medium">{t('profitRevenue')}</th>
+                        <th className="px-4 py-2 text-end font-medium">{t('profitCost')}</th>
+                        <th className="px-4 py-2 text-end font-medium">{t('grossProfit')}</th>
+                        <th className="px-4 py-2 text-end font-medium">{t('profitMargin')}</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {profit.products.map((row) => (
+                        <tr key={row.productId}>
+                          <td className="px-4 py-2 text-foreground">
+                            {row.productName}
+                            {row.quantityWithoutCost > 0 && (
+                              <span className="ms-2 text-xs text-amber-600 dark:text-amber-400">{t('profitNoCost')}</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-2 text-end text-muted-foreground">{row.quantity}</td>
+                          <td className="px-4 py-2 text-end text-foreground">{fmt(row.revenue)}</td>
+                          <td className="px-4 py-2 text-end text-muted-foreground">{fmt(row.cost)}</td>
+                          <td className="px-4 py-2 text-end font-semibold text-emerald-600 dark:text-emerald-400">{fmt(row.grossProfit)}</td>
+                          <td className="px-4 py-2 text-end text-foreground">{row.marginPercent.toFixed(1)}%</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </section>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
             {/* Top Staff */}

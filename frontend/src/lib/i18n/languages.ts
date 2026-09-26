@@ -19,6 +19,13 @@ export const LANGUAGES = {
     selectable: true,
     load: () => import('./messages/en.json'),
   },
+  th: {
+    locale: 'th',
+    nativeName: 'ภาษาไทย',
+    direction: 'ltr',
+    selectable: true,
+    load: () => import('./messages/th.json'),
+  },
   es: {
     locale: 'es',
     nativeName: 'Español',

@@ -131,6 +131,8 @@ interface WsMessage {
   orders?: KdsOrder[];
   counts?: Record<string, number>;
   user?: { id: string; name: string; role: string };
+  stations?: KdsStation[];
+  stationId?: string | null;
   message?: string;
 }
 
@@ -168,7 +170,33 @@ export interface UseKdsConnectionResult {
   handleLogin: (e: React.FormEvent) => Promise<void>;
   handleLogout: () => Promise<void>;
   updateItemStatus: (itemId: number, status: KitchenStatus, opts?: { silent?: boolean; expectedStatus?: KitchenStatus }) => Promise<boolean>;
+  stations: KdsStation[];
+  selectedStationId: string | null;
+  selectStation: (stationId: string | null) => void;
   ConfirmDialog: ReactNode;
+}
+
+export interface KdsStation {
+  id: string;
+  name: string;
+}
+
+// One tablet per kitchen: the pick is remembered on the device, and a
+// ?station=<id> link lets a screen be set up once and reopened anywhere.
+const SELECTED_STATION_KEY = 'flocafe:kds-station';
+
+function readInitialStation(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const fromUrl = new URLSearchParams(window.location.search).get('station');
+    if (fromUrl) {
+      window.localStorage.setItem(SELECTED_STATION_KEY, fromUrl);
+      return fromUrl;
+    }
+    return window.localStorage.getItem(SELECTED_STATION_KEY);
+  } catch {
+    return null;
+  }
 }
 
 const LOGIN_ENDPOINT = '/auth/login';
@@ -198,6 +226,10 @@ export function useKdsConnection(options: UseKdsConnectionOptions): UseKdsConnec
   const itemStatusPath = endpoints?.itemStatus ?? ITEM_STATUS_ENDPOINT;
   const t = useTranslations('kds');
   const tNav = useTranslations('nav');
+  const [stations, setStations] = useState<KdsStation[]>([]);
+  const [selectedStationId, setSelectedStationId] = useState<string | null>(readInitialStation);
+  const selectedStationRef = useRef<string | null>(selectedStationId);
+  useEffect(() => { selectedStationRef.current = selectedStationId; }, [selectedStationId]);
   const { confirm, ConfirmDialog } = useConfirm();
 
   const statusLabel = (s: KitchenStatus) => t(STATUS_CONFIG[normalizeKitchenStatus(s)].labelKey);
@@ -500,6 +532,11 @@ export function useKdsConnection(options: UseKdsConnectionOptions): UseKdsConnec
             stopRestPolling();
             if (authTimeout) { clearTimeout(authTimeout); authTimeout = null; }
             setUser((prev) => (prev ? { ...prev, ...msg.user, token: prev.token } : null));
+            setStations(msg.stations || []);
+            // Re-assert the screen's station: the server starts every connection unscoped.
+            if (selectedStationRef.current) {
+              ws.send(JSON.stringify({ type: 'select_station', stationId: selectedStationRef.current }));
+            }
             setOrders(msg.orders || []);
             setCounts(msg.counts || {});
             setConnected(true);
@@ -739,6 +776,21 @@ export function useKdsConnection(options: UseKdsConnectionOptions): UseKdsConnec
     handleLogin,
     handleLogout,
     updateItemStatus,
+    stations,
+    selectedStationId,
+    selectStation: (stationId: string | null) => {
+      setSelectedStationId(stationId);
+      try {
+        if (stationId) window.localStorage.setItem(SELECTED_STATION_KEY, stationId);
+        else window.localStorage.removeItem(SELECTED_STATION_KEY);
+      } catch {
+        // A locked-down browser just loses the preference on reload.
+      }
+      const socket = wsRef.current;
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ type: 'select_station', stationId }));
+      }
+    },
     ConfirmDialog,
   };
 }

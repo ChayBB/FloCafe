@@ -299,6 +299,10 @@ function serializeProduct(product: any): any {
   if (!product) return product;
   return {
     ...product,
+    // The column is `cost`, but every writer and reader on the client calls it
+    // `cost_price`. Without this alias the field reads back empty, and saving the
+    // form again would clear the stored cost.
+    cost_price: product.cost ?? null,
     is_active: toBoolean(product.is_active),
     track_inventory: toBoolean(product.track_inventory),
     allow_fractional_quantity: toBoolean(product.allow_fractional_quantity),

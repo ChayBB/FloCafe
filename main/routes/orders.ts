@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { getDatabase, generateOrderNumber, now, parseItemJson, parseRowJson, withTxn, verifyPin, getSettingValue, insertOrderItemAddons, attachEffectiveAddons, utcDayBounds, utcTodayDate, recordOrderAudit } from '../db';
 import {
   calculateConfiguredChargeTaxes,
@@ -22,6 +22,28 @@ import { getTenantCurrency } from './bills';
 import expressRateLimit from 'express-rate-limit';
 
 const router = Router();
+
+/** Locked system account that owns customer self-orders (migration v90). */
+const GUEST_ORDER_USER_ID = 'guest-ordering';
+
+/**
+ * Role gate that also admits a customer's own order arriving on the guest
+ * channel (already proven loopback-local by requireAuth).
+ */
+function allowGuestOrStaff(...roles: readonly string[]) {
+  const staffGate = requireRole(...roles);
+  return (req: Request, res: Response, next: NextFunction) => {
+    if ((req as any).user?.guestOrder === true) return next();
+    return staffGate(req, res, next);
+  };
+}
+
+/** Cost of goods for this line, frozen at sale time; null when the product has no cost on file. */
+function unitCostAtSale(product: { cost?: number | string | null }): number | null {
+  const cost = Number(product?.cost);
+  return Number.isFinite(cost) && cost > 0 ? cost : null;
+}
+
 const orderReadRateLimit = expressRateLimit({ windowMs: 60 * 1000, limit: 120, standardHeaders: true, legacyHeaders: false });
 const orderWriteRateLimit = expressRateLimit({ windowMs: 60 * 1000, limit: 60, standardHeaders: true, legacyHeaders: false });
 const MAX_ORDER_IDEMPOTENCY_KEY_LENGTH = 128;
@@ -430,18 +452,18 @@ router.get('/:id', orderReadRateLimit, requireRole(...ROLE_ACCESS.sales), (req: 
   }
 });
 
-router.post('/', orderWriteRateLimit, requireRole(...ROLE_ACCESS.sales), (req: Request, res: Response) => {
+router.post('/', orderWriteRateLimit, allowGuestOrStaff(...ROLE_ACCESS.sales), (req: Request, res: Response) => {
   try {
     const body = req.body || {};
     const { table_id, customer_id, type, guest_count, special_instructions, packaging_charge, delivery_charge, service_charge, items, online_platform, external_order_id } = body;
     // Carries optional service charge without automatic calculation policy.
     const idempotencyKey = orderIdempotencyKey(req);
-    const idempotencyUserId = String((req as any).user.userId);
+    const idempotencyUserId = String((req as any).user.userId ?? GUEST_ORDER_USER_ID);
     const requestHash = idempotencyKey
       ? createHash('sha256').update(JSON.stringify(body)).digest('hex')
       : null;
     // Always use authenticated user ID to ensure correct server visibility and attribution.
-    const authenticatedUserId = (req as any).user.userId;
+    const authenticatedUserId = (req as any).user.userId ?? GUEST_ORDER_USER_ID;
 
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: 'At least one item is required' });
@@ -562,10 +584,10 @@ router.post('/', orderWriteRateLimit, requireRole(...ROLE_ACCESS.sales), (req: R
       const customer = customer_id ? db.prepare('SELECT * FROM customers WHERE id = ?').get(customer_id) as any : null;
 
       const insertItem = db.prepare(`
-        INSERT INTO order_items (order_id, product_id, product_name, product_sku, unit_price, quantity, inventory_deducted_quantity,
+        INSERT INTO order_items (order_id, product_id, product_name, product_sku, unit_price, unit_cost, quantity, inventory_deducted_quantity,
           subtotal, tax_amount, tax_breakdown, tax_snapshot, tax_type, discount_amount, total, variant_selection,
           modifier_selection, special_instructions, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
       `);
 
       for (const item of items) {
@@ -617,7 +639,7 @@ router.post('/', orderWriteRateLimit, requireRole(...ROLE_ACCESS.sales), (req: R
 
         const itemCreatedAt = now();
         const insertItemResult = insertItem.run(
-          orderId, product.id, product.name, product.sku, unitPrice, quantity, product.track_inventory ? quantity : 0,
+          orderId, product.id, product.name, product.sku, unitPrice, unitCostAtSale(product), quantity, product.track_inventory ? quantity : 0,
           itemSubtotal, taxResult.tax_amount, JSON.stringify(taxResult.tax_breakdown), itemTaxSnapshotJson,
           taxResult.tax_type, itemDiscount, itemTotal,
           JSON.stringify(item.variant_selection || null),
@@ -700,13 +722,13 @@ router.post('/', orderWriteRateLimit, requireRole(...ROLE_ACCESS.sales), (req: R
   }
 });
 
-router.post('/:id/items', orderWriteRateLimit, requireRole(...ROLE_ACCESS.sales), (req: Request, res: Response) => {
+router.post('/:id/items', orderWriteRateLimit, allowGuestOrStaff(...ROLE_ACCESS.sales), (req: Request, res: Response) => {
   try {
     const db = getDatabase();
     const body = req.body || {};
     const { items, special_instructions } = body;
     const idempotencyKey = orderIdempotencyKey(req);
-    const idempotencyUserId = String((req as any).user.userId);
+    const idempotencyUserId = String((req as any).user.userId ?? GUEST_ORDER_USER_ID);
     const requestHash = idempotencyKey
       ? createHash('sha256').update(JSON.stringify({ order_id: req.params.id, items, special_instructions })).digest('hex')
       : null;
@@ -784,10 +806,10 @@ router.post('/:id/items', orderWriteRateLimit, requireRole(...ROLE_ACCESS.sales)
       const customer = currentOrder.customer_id ? db.prepare('SELECT * FROM customers WHERE id = ?').get(currentOrder.customer_id) as any : null;
 
       const insertItem = db.prepare(`
-        INSERT INTO order_items (order_id, product_id, product_name, product_sku, unit_price, quantity, inventory_deducted_quantity,
+        INSERT INTO order_items (order_id, product_id, product_name, product_sku, unit_price, unit_cost, quantity, inventory_deducted_quantity,
           subtotal, tax_amount, tax_breakdown, tax_snapshot, tax_type, discount_amount, total, variant_selection,
           modifier_selection, special_instructions, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
       `);
 
       const insertedItemIds: (number | bigint)[] = [];
@@ -828,7 +850,7 @@ router.post('/:id/items', orderWriteRateLimit, requireRole(...ROLE_ACCESS.sales)
 
         const itemCreatedAt = now();
         const insertItemResult = insertItem.run(
-          req.params.id, product.id, product.name, product.sku, unitPrice, quantity, product.track_inventory ? quantity : 0,
+          req.params.id, product.id, product.name, product.sku, unitPrice, unitCostAtSale(product), quantity, product.track_inventory ? quantity : 0,
           itemSubtotal, taxResult.tax_amount, JSON.stringify(taxResult.tax_breakdown), itemTaxSnapshotJson,
           taxResult.tax_type, itemDiscount, itemTotal,
           JSON.stringify(item.variant_selection || null),

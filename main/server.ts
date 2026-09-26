@@ -3,6 +3,7 @@ import cors from 'cors';
 import { WebSocketServer } from 'ws';
 import * as http from 'http';
 import { closeServerResources, createShutdownCancellationError, installHttpShutdownTracking } from './shutdown';
+import { isGuestChannelRequest, isGuestWritablePath } from './services/guest-channel';
 import * as path from 'path';
 import * as fs from 'fs';
 import jwt from 'jsonwebtoken';
@@ -28,6 +29,14 @@ let stopping = false;
 
 /** JWT verification middleware protecting API routes from unauthenticated LAN access. */
 function requireAuth(req: Request, res: Response, next: NextFunction): void {
+  // Customer self-ordering: a loopback call from the guest server, carrying this
+  // process's secret, may place an order without a user token. The order is
+  // attributed to no one (user_id stays null) — see docs/business-decisions.md.
+  if (isGuestChannelRequest(req) && isGuestWritablePath(req.method, req.path)) {
+    (req as any).user = { userId: null, role: 'guest', guestOrder: true };
+    next();
+    return;
+  }
   // Only protect API routes — static files and SPA fallback must pass through
   if (!req.path.startsWith('/api')) { next(); return; }
   // Health check — unauthenticated

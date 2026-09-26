@@ -51,6 +51,7 @@ import { SettingsTabShell } from '@/components/settings/SettingsTabShell';
 import type { HealthCheckReport } from '@/types/electron';
 import { useTranslations } from 'use-intl';
 import { Ltr } from '@/components/layout/Ltr';
+import { toastApiError } from '@/lib/api-error';
 import { useFormatDate } from '@/hooks/useFormatDate';
 import { useUpdateStatus } from '@/hooks/useUpdateStatus';
 import { ROLE_ACCESS, hasRole } from '@shared/role-permissions';
@@ -287,6 +288,83 @@ export default function SettingsPage() {
   const discountFormRef = useRef({ discountMaxPct, discountMaxAmount, discountMode, discountRequiresApproval });
   const [savingDiscount, setSavingDiscount] = useState(false);
 
+
+  // ── Guest (customer QR) ordering ─────────────────────────────────────────
+  // Guest-ordering errors come back as plain sentences, not dotted codes.
+  const apiErrorT = (key: string): string => key;
+  const [guestConfig, setGuestConfig] = useState<{
+    enabled: boolean;
+    public_url: string;
+    base_url: string;
+    guest_port: number;
+    tables: { id: string; number: string; url: string | null; qr_data: string | null }[];
+  } | null>(null);
+  const [guestLoading, setGuestLoading] = useState(false);
+  const [guestPublicUrl, setGuestPublicUrl] = useState('');
+  const [guestSaving, setGuestSaving] = useState(false);
+  const [guestTokenBusy, setGuestTokenBusy] = useState<string | null>(null);
+
+  const fetchGuestConfig = async (signal?: AbortSignal): Promise<boolean> => {
+    setGuestLoading(true);
+    try {
+      const res = await api.get('/guest-ordering', signal ? { signal } : undefined);
+      if (signal?.aborted) return false;
+      setGuestConfig(res.data);
+      setGuestPublicUrl(res.data.public_url || '');
+      return true;
+    } catch (error) {
+      if (isRequestCancelled(error)) throw error;
+      toast.error(t('guestLoadFailed'));
+      return false;
+    } finally {
+      if (!signal?.aborted) setGuestLoading(false);
+    }
+  };
+
+  const saveGuestSettings = async (payload: { enabled?: boolean; public_url?: string }) => {
+    setGuestSaving(true);
+    try {
+      const { data } = await api.put('/guest-ordering', payload);
+      // The QR codes encode the public address, so they are re-read after a change.
+      setGuestConfig((current) => (current ? { ...current, ...data } : current));
+      await fetchGuestConfig();
+      toast.success(t('allSaved'));
+    } catch (error: unknown) {
+      toastApiError(error, t('guestSaveFailed'), apiErrorT);
+    } finally {
+      setGuestSaving(false);
+    }
+  };
+
+  const issueGuestToken = async (tableId: string) => {
+    setGuestTokenBusy(tableId);
+    try {
+      const { data } = await api.post(`/guest-ordering/tables/${tableId}/token`);
+      setGuestConfig((current) => current
+        ? { ...current, tables: current.tables.map((row) => (row.id === tableId ? { ...row, ...data.table } : row)) }
+        : current);
+      toast.success(t('guestCodeIssued'));
+    } catch (error: unknown) {
+      toastApiError(error, t('guestSaveFailed'), apiErrorT);
+    } finally {
+      setGuestTokenBusy(null);
+    }
+  };
+
+  const revokeGuestToken = async (tableId: string) => {
+    setGuestTokenBusy(tableId);
+    try {
+      await api.delete(`/guest-ordering/tables/${tableId}/token`);
+      setGuestConfig((current) => current
+        ? { ...current, tables: current.tables.map((row) => (row.id === tableId ? { ...row, url: null, qr_data: null } : row)) }
+        : current);
+      toast.success(t('guestCodeRevoked'));
+    } catch (error: unknown) {
+      toastApiError(error, t('guestSaveFailed'), apiErrorT);
+    } finally {
+      setGuestTokenBusy(null);
+    }
+  };
 
   const searchParams = useSearchParams();
   const requestedTab = searchParams?.get('tab') || 'store';
@@ -1942,10 +2020,17 @@ export default function SettingsPage() {
             if (isRequestCancelled(error)) throw error;
             return false;
           }),
+          // Stations route tickets to a printer, so this tab needs the printer list too —
+          // without it the station form only ever offers "use the default printer".
+          fetchPrinters(signal),
         ]);
         if (!kdsInfoLoaded || !settingLoaded) {
           throw new Error('KDS hydration failed');
         }
+        return;
+      }
+      if (tab === 'guest-ordering') {
+        if (!await fetchGuestConfig(signal)) throw new Error('Guest ordering hydration failed');
         return;
       }
       if (tab === 'server-app') {
@@ -2844,6 +2929,7 @@ export default function SettingsPage() {
             <SettingsNavItem label={t('kitchenStations')} value="kitchen-stations" active={activeTab} onClick={handleSettingsTabChange} />
             <SettingsNavItem label={t('tabKds')} value="kds" active={activeTab} onClick={handleSettingsTabChange} />
             <SettingsNavItem label={t('tablesideOrdering')} value="server-app" active={activeTab} onClick={handleSettingsTabChange} />
+            <SettingsNavItem label={t('guestOrdering')} value="guest-ordering" active={activeTab} onClick={handleSettingsTabChange} />
             {/* WhatsApp opt-in lives under Operations because the receive-bill
                 workflow is what the cashier touches every time a customer pays. */}
             <SettingsNavItem label={t('tabWhatsapp')} value="whatsapp" active={activeTab} onClick={handleSettingsTabChange} />
@@ -3378,6 +3464,115 @@ export default function SettingsPage() {
             <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/40 rounded-xl p-4 text-sm text-blue-800 dark:text-blue-300">
               <strong>{t('howItWorks')}</strong> {t('howItWorksBody')}
             </div>
+          </SettingsTabShell>
+        </TabsContent>
+
+        <TabsContent value="guest-ordering">
+          <SettingsTabShell>
+            <div className="bg-card rounded-xl border border-border p-6">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-foreground">{t('guestOrdering')}</p>
+                  <p className="text-sm text-muted-foreground">{t('guestOrderingHint')}</p>
+                </div>
+                <Toggle
+                  value={!!guestConfig?.enabled}
+                  label={t('guestOrdering')}
+                  onChange={(value) => { if (!guestSaving) void saveGuestSettings({ enabled: value }); }}
+                />
+              </div>
+            </div>
+
+            {guestLoading && !guestConfig && (
+              <div className="flex items-center justify-center py-10">
+                <div className="w-6 h-6 border-2 border-brand border-t-transparent rounded-full animate-spin" />
+              </div>
+            )}
+
+            {guestConfig && (
+              <>
+                <div className="bg-card rounded-xl border border-border p-6 space-y-3">
+                  <div>
+                    <p className="font-medium text-foreground">{t('guestPublicUrl')}</p>
+                    <p className="text-sm text-muted-foreground">{t('guestPublicUrlHint')}</p>
+                  </div>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <input
+                      value={guestPublicUrl}
+                      onChange={(event) => setGuestPublicUrl(event.target.value)}
+                      placeholder="https://order.myshop.com"
+                      dir="ltr"
+                      className="flex-1 min-h-11 px-3 py-2 text-sm border border-border bg-background rounded-lg focus:ring-2 focus:ring-brand focus:border-brand outline-none"
+                    />
+                    <Button
+                      onClick={() => void saveGuestSettings({ public_url: guestPublicUrl })}
+                      disabled={guestSaving || guestPublicUrl === (guestConfig.public_url || '')}
+                    >
+                      {t('save')}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {t('guestCurrentBase')} <Ltr as="span" className="font-mono">{guestConfig.base_url}</Ltr>
+                  </p>
+                  {!guestConfig.public_url && (
+                    <p className="rounded-lg bg-amber-50 dark:bg-amber-950/40 p-3 text-xs text-amber-700 dark:text-amber-300">
+                      {t('guestLanOnlyWarning', { port: guestConfig.guest_port })}
+                    </p>
+                  )}
+                </div>
+
+                <div className="bg-card rounded-xl border border-border p-6">
+                  <p className="font-medium text-foreground mb-1">{t('guestTableCodes')}</p>
+                  <p className="text-sm text-muted-foreground mb-4">{t('guestTableCodesHint')}</p>
+
+                  {guestConfig.tables.length === 0 ? (
+                    <p className="py-6 text-center text-sm text-muted-foreground">{t('noTablesYet')}</p>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {guestConfig.tables.map((table) => (
+                        <div key={table.id} className="flex flex-col items-center p-4 bg-muted border border-border rounded-lg">
+                          <p className="text-sm font-semibold text-foreground mb-3">{table.number}</p>
+                          {table.qr_data ? (
+                            <img src={table.qr_data} alt={table.number} className="w-36 h-36 rounded-lg mb-3 bg-card p-2 border border-border" />
+                          ) : (
+                            <div className="w-36 h-36 bg-card rounded-lg flex items-center justify-center mb-3 border border-dashed border-border">
+                              <QrCode size={36} className="text-muted-foreground" />
+                            </div>
+                          )}
+                          {table.url && (
+                            <Ltr as="a" href={table.url} target="_blank" rel="noopener noreferrer" className="mb-3 text-[11px] font-mono text-brand hover:underline break-all text-center">
+                              {table.url}
+                            </Ltr>
+                          )}
+                          <div className="flex gap-2 w-full">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="flex-1"
+                              disabled={guestTokenBusy === table.id}
+                              onClick={() => void issueGuestToken(table.id)}
+                            >
+                              {table.url ? t('guestRotateCode') : t('guestCreateCode')}
+                            </Button>
+                            {table.url && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-red-600 hover:text-red-700"
+                                disabled={guestTokenBusy === table.id}
+                                onClick={() => void revokeGuestToken(table.id)}
+                              >
+                                {t('guestRevokeCode')}
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
           </SettingsTabShell>
         </TabsContent>
 

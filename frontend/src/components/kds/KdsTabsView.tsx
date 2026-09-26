@@ -4,6 +4,7 @@ import { ChevronRight, Clock } from 'lucide-react';
 import { useState } from 'react';
 import { ElapsedTime } from '@/components/kds/ElapsedTime';
 import { KdsItemModal } from '@/components/kds/KdsItemModal';
+import { KdsStatusSwitch } from '@/components/kds/KdsStatusSwitch';
 import { Badge } from '@/components/ui/badge';
 import {
   STATUS_CONFIG,
@@ -120,10 +121,18 @@ export function KdsTabsView({ orders, updating, updateItemStatus }: KdsTabsViewP
                   const isVoided = itemStatus === 'voided';
 
                   return (
-                    <button
+                    <div
                       key={item.id}
+                      role="button"
+                      tabIndex={0}
                       onClick={() => setModalItem({ item, orderNumber: order.order_number })}
-                      className={`w-full text-start rounded-xl border-2 ${config.border} ${config.bg} px-3 py-2.5 transition-all active:scale-95 hover:brightness-95`}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          setModalItem({ item, orderNumber: order.order_number });
+                        }
+                      }}
+                      className={`w-full text-start rounded-xl border-2 ${config.border} ${config.bg} px-3 py-2.5 transition-all active:scale-95 hover:brightness-95 cursor-pointer`}
                     >
                       <div className="flex items-center gap-2">
                         <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${config.color}`} />
@@ -131,7 +140,15 @@ export function KdsTabsView({ orders, updating, updateItemStatus }: KdsTabsViewP
                         <span className={`text-lg font-semibold flex-1 truncate ${isVoided ? 'text-gray-400 line-through' : 'text-foreground'}`}>
                           {item.product_name}
                         </span>
-                        <ChevronRight size={14} className="text-gray-400 shrink-0 rtl-flip" />
+                        {isVoided ? (
+                          <ChevronRight size={14} className="text-gray-400 shrink-0 rtl-flip" />
+                        ) : (
+                          <KdsStatusSwitch
+                            status={itemStatus}
+                            updating={updating === item.id}
+                            onAdvance={(next) => updateItemStatus(item.id, next, { expectedStatus: itemStatus })}
+                          />
+                        )}
                       </div>
                       {item.addons && item.addons.length > 0 && (
                         <div className="ms-[26px] flex flex-wrap gap-1 mt-1">
@@ -150,7 +167,7 @@ export function KdsTabsView({ orders, updating, updateItemStatus }: KdsTabsViewP
                           {`"${item.special_instructions}"`}
                         </p>
                       )}
-                    </button>
+                    </div>
                   );
                 })}
               </div>

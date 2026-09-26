@@ -270,7 +270,7 @@ export default function CartPanel({ tables, submitting, onPlaceOrder, onEditItem
           <Button
             onClick={onPlaceOrder}
             disabled={submitting || cart.items.length === 0}
-            className="flex-1"
+            className="flex-1 bg-emerald-600 text-white hover:bg-emerald-700 active:bg-emerald-700"
             size="lg"
           >
             {submitting ? t('placing') : t('placeOrderButton')}

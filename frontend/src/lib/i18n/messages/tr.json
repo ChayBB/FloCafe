@@ -325,7 +325,15 @@
     "closeStepDone": "Kapat",
     "xReportSales": "Bugünkü satışlar",
     "refundsCount": "{count} iade",
-    "ticketNoPayments": "Bu gün ödeme yok"
+    "ticketNoPayments": "Bu gün ödeme yok",
+    "grossProfit": "Brüt kâr",
+    "profitCost": "Maliyet",
+    "profitMargin": "Marj",
+    "profitMissingCost": "{count} üründe maliyet girilmemiş",
+    "profitNoCost": "maliyet girilmemiş",
+    "profitProduct": "Ürün",
+    "profitQuantity": "Adet",
+    "profitRevenue": "Gelir"
   },
   "kds": {
     "addonsLabel": "Eklentiler",
@@ -369,7 +377,9 @@
     "updating": "Güncelleniyor...",
     "viewKanban": "Kanban Görünümü",
     "viewTabs": "Sekme Görünümü",
-    "wsConnected": "WebSocket Bağlı"
+    "wsConnected": "WebSocket Bağlı",
+    "stationAll": "Tüm istasyonlar",
+    "stationFilter": "Mutfak istasyonu"
   },
   "nav": {
     "collapse": "Menüyü Daralt",
@@ -780,7 +790,8 @@
     "exitFullscreen": "Tam Ekrandan Çık",
     "fullscreenUnavailable": "Tam ekran desteklenmiyor",
     "backspaceAmount": "Sil",
-    "numericKeypad": "Sayısal Tuş Takımı"
+    "numericKeypad": "Sayısal Tuş Takımı",
+    "takeawayItemNote": "Paket"
   },
   "printTest": {
     "amt": "Tutar",
@@ -1169,7 +1180,12 @@
     "statusWaiting": "Bekliyor",
     "tableLabel": "Masa {name}",
     "tables": "Masalar",
-    "title": "Garson & Masa Terminali"
+    "title": "Garson & Masa Terminali",
+    "billLoadFailed": "Hesap yüklenemedi",
+    "itemReadyAlert": "{item} hazır — {table}",
+    "noOpenOrder": "Bu masada açık sipariş yok",
+    "soundOff": "Sesli uyarılar kapalı",
+    "soundOn": "Sesli uyarılar açık"
   },
   "settings": {
     "aboutDescription": "FloPOS; kafeler, restoranlar, pastaneler, yemek karavanları ve barlar için tamamen ücretsiz ve açık kaynaklı bir restoran satış noktasıdır. Sipariş, masa, menü, mutfak ekranı, fiş yazdırma, personel erişimi ve yerel veri depolama içerir.",
@@ -1910,7 +1926,23 @@
     "themeTitle": "Tema ve Renk Modu",
     "themeLight": "Açık Tema",
     "themeDark": "Koyu Tema",
-    "themeSystem": "Sistem Varsayılanı"
+    "themeSystem": "Sistem Varsayılanı",
+    "guestCodeIssued": "Kod oluşturuldu",
+    "guestCodeRevoked": "Kod kapatıldı",
+    "guestCreateCode": "Kod oluştur",
+    "guestCurrentBase": "Kodların işaret ettiği adres:",
+    "guestLanOnlyWarning": "Genel adres yok; kodlar yalnızca işletme WiFi ağında çalışır. Mobil veri için {port} portunu kendi sunucunuz üzerinden yayınlayın.",
+    "guestLoadFailed": "Ayarlar yüklenemedi",
+    "guestOrdering": "QR ile müşteri siparişi",
+    "guestOrderingHint": "Müşteri masadaki kodu okutup kendi telefonundan sipariş verir. Sipariş doğrudan mutfağa gider.",
+    "guestPublicUrl": "Genel adres",
+    "guestPublicUrlHint": "Müşterilerin mobil veriyle ulaştığı, kendi sunucunuzdan yayınlanan adres. Boş bırakılırsa yalnızca işletme WiFi ağında çalışır.",
+    "guestRevokeCode": "Kapat",
+    "guestRotateCode": "Yeni kod",
+    "guestSaveFailed": "Kaydedilemedi",
+    "guestTableCodes": "Masa kodları",
+    "guestTableCodesHint": "Her masa oluşturulurken kalıcı bir kod alır. Yazdırıp masaya yapıştırın. Yalnızca kod sızarsa yenisini üretin; eski çıktı anında geçersiz olur.",
+    "noTablesYet": "Henüz masa yok"
   },
   "setup": {
     "alreadyCompleted": "Kurulum bu cihazda zaten tamamlandı. Giriş ekranına yönlendiriliyorsunuz…",
@@ -2043,7 +2075,14 @@
     "roleServer": "Garson",
     "title": "Personel Yönetimi",
     "updateButton": "Güncelle",
-    "updatedToast": "Personel güncellendi"
+    "updatedToast": "Personel güncellendi",
+    "emailBadCharacters": "E-posta izin verilmeyen karakterler içeriyor: {characters}",
+    "tablesAllTables": "Tüm masalara izin ver",
+    "tablesButton": "Masalar",
+    "tablesEmpty": "Henüz masa oluşturulmadı.",
+    "tablesHint": "Bu garsonun hangi masalardan sipariş alabileceğini seçin. Hiçbiri seçilmezse tüm masalara izin verilir.",
+    "tablesModalTitle": "{name} için masa erişimi",
+    "tablesSavedToast": "Masa erişimi güncellendi"
   },
   "permissionMatrix": {
     "title": "Yetki ve İzin Matrisi",

@@ -325,7 +325,15 @@
     "closeStepDone": "Cerrar",
     "xReportSales": "Ventas del día",
     "refundsCount": "{count} reembolsos",
-    "ticketNoPayments": "No hay pagos en este día"
+    "ticketNoPayments": "No hay pagos en este día",
+    "grossProfit": "Beneficio bruto",
+    "profitCost": "Costo",
+    "profitMargin": "Margen",
+    "profitMissingCost": "{count} producto(s) sin costo definido",
+    "profitNoCost": "sin costo definido",
+    "profitProduct": "Producto",
+    "profitQuantity": "Cant.",
+    "profitRevenue": "Ingresos"
   },
   "kds": {
     "addonsLabel": "Adicionales",
@@ -369,7 +377,9 @@
     "updating": "Actualizando…",
     "viewKanban": "Kanban",
     "viewTabs": "Pestañas",
-    "wsConnected": "WebSocket conectado"
+    "wsConnected": "WebSocket conectado",
+    "stationAll": "Todas las estaciones",
+    "stationFilter": "Estación de cocina"
   },
   "nav": {
     "collapse": "Contraer",
@@ -780,7 +790,8 @@
     "exitFullscreen": "Salir del POS en pantalla completa",
     "fullscreenUnavailable": "El modo de pantalla completa no está disponible",
     "backspaceAmount": "Borrar último dígito",
-    "numericKeypad": "Teclado numérico"
+    "numericKeypad": "Teclado numérico",
+    "takeawayItemNote": "Para llevar"
   },
   "printTest": {
     "amt": "Total",
@@ -1169,7 +1180,12 @@
     "statusWaiting": "En espera",
     "tableLabel": "Mesa {name}",
     "tables": "Mesas",
-    "title": "App de mesero"
+    "title": "App de mesero",
+    "billLoadFailed": "No se pudo cargar la cuenta",
+    "itemReadyAlert": "{item} está listo — {table}",
+    "noOpenOrder": "No hay pedido abierto en esta mesa",
+    "soundOff": "Avisos silenciados",
+    "soundOn": "Avisos con sonido"
   },
   "settings": {
     "aboutDescription": "FloPOS es un POS para restaurantes de código abierto y gratuito para siempre, para cafeterías, restaurantes, panaderías, camiones de comida, cocinas fantasma y bares. Incluye pedidos, mesas, menús, pantalla de cocina, impresión de recibos, acceso de personal y almacenamiento de datos local. Descárgalo, ejecuta el servicio, mantén tus datos y sé dueño de tu POS.",
@@ -1910,7 +1926,23 @@
     "themeTitle": "Tema",
     "themeLight": "Claro",
     "themeDark": "Oscuro",
-    "themeSystem": "Sistema"
+    "themeSystem": "Sistema",
+    "guestCodeIssued": "Código creado",
+    "guestCodeRevoked": "Código desactivado",
+    "guestCreateCode": "Crear código",
+    "guestCurrentBase": "Los códigos apuntan a:",
+    "guestLanOnlyWarning": "Sin dirección pública, los códigos solo funcionan en el WiFi del local. Publica el puerto {port} desde tu propio servidor.",
+    "guestLoadFailed": "No se pudo cargar la configuración",
+    "guestOrdering": "Pedidos por QR",
+    "guestOrderingHint": "Los clientes escanean en la mesa y piden desde su móvil. Los pedidos van directo a cocina.",
+    "guestPublicUrl": "Dirección pública",
+    "guestPublicUrlHint": "La dirección que los clientes alcanzan con datos móviles, servida por tu propio servidor. Vacío = solo WiFi del local.",
+    "guestRevokeCode": "Desactivar",
+    "guestRotateCode": "Código nuevo",
+    "guestSaveFailed": "No se pudo guardar",
+    "guestTableCodes": "Códigos por mesa",
+    "guestTableCodesHint": "Cada mesa recibe un código permanente al crearse. Imprímelo y pégalo en la mesa. Genera uno nuevo solo si se filtra: el impreso anterior deja de funcionar al instante.",
+    "noTablesYet": "Aún no hay mesas"
   },
   "setup": {
     "alreadyCompleted": "La configuración ya se completó en esta instalación. Redirigiendo al inicio de sesión…",
@@ -2043,7 +2075,14 @@
     "roleServer": "Servidor",
     "title": "Personal",
     "updateButton": "Actualizar",
-    "updatedToast": "Personal actualizado"
+    "updatedToast": "Personal actualizado",
+    "emailBadCharacters": "El correo contiene caracteres no permitidos: {characters}",
+    "tablesAllTables": "Permitir todas las mesas",
+    "tablesButton": "Mesas",
+    "tablesEmpty": "Todavía no se han creado mesas.",
+    "tablesHint": "Elige en qué mesas puede tomar pedidos este camarero. Si no marcas ninguna, se permiten todas.",
+    "tablesModalTitle": "Acceso a mesas de {name}",
+    "tablesSavedToast": "Acceso a mesas actualizado"
   },
   "permissionMatrix": {
     "title": "Permisos por rol",

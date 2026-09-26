@@ -2,7 +2,7 @@
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import { randomUUID } from 'node:crypto';
-import { getDatabase, now } from '../db';
+import { getDatabase, now, withTxn } from '../db';
 import { requireRole, validatePassword, authRateLimit, invalidateUserAuthCache } from '../middleware/security';
 import { isValidEmail } from './auth';
 import { ROLE_ACCESS, ROLE_KEYS, OPERATIONAL_ROLES, hasRole } from '../../shared/role-permissions';
@@ -30,6 +30,11 @@ function isValidPin(pin: unknown): boolean {
   return /^\d{4,6}$/.test(String(pin));
 }
 
+/** Records why a staff write was refused; 4xx bodies alone never reach the app log. */
+function logStaffRejection(action: string, reason: string, email: string): void {
+  console.warn(`[Staff] ${action} refused: ${reason} (email: ${email || 'empty'})`);
+}
+
 function normalizeStaffEmail(email: unknown): string {
   return String(email || '').trim().toLowerCase();
 }
@@ -39,7 +44,8 @@ function normalizeStaffEmail(email: unknown): string {
 router.get('/', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, res: Response) => {
   try {
     const db = getDatabase();
-    let query = `SELECT ${STAFF_SELECT_FIELDS} FROM users WHERE 1=1`;
+    // 'guest-ordering' is a system account for customer self-orders, not a person.
+    let query = `SELECT ${STAFF_SELECT_FIELDS} FROM users WHERE id <> 'guest-ordering'`;
     const params: any[] = [];
 
     if (req.query.role) {
@@ -100,28 +106,35 @@ router.post('/', requireRole(...ROLE_ACCESS.ownerManager), authRateLimit(), (req
     const normalizedEmail = normalizeStaffEmail(email);
 
     if (!name || !normalizedEmail || !password || !role) {
+      logStaffRejection('create', 'missing required field', normalizedEmail);
       return res.status(400).json({ error: 'name, email, password, and role are required' });
     }
     if (!isValidEmail(normalizedEmail)) {
+      logStaffRejection('create', 'invalid email', normalizedEmail);
       return res.status(400).json({ error: 'Enter a valid email address' });
     }
     if (!validatePassword(password)) {
+      logStaffRejection('create', 'weak password', normalizedEmail);
       return res.status(400).json({ error: 'Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, and one number.' });
     }
 
     if (!VALID_ROLES.includes(role)) {
+      logStaffRejection('create', 'invalid role', normalizedEmail);
       return res.status(400).json({ error: `role must be one of: ${VALID_ROLES.join(', ')}` });
     }
 
     const requesterRole = (req as any).user.role;
     if (requesterRole === 'manager' && !isOperationalRole(role)) {
+      logStaffRejection('create', 'manager cannot create this role', normalizedEmail);
       return res.status(403).json({ error: `Managers can only create operational staff accounts (${OPERATIONAL_ROLES.join(', ')})` });
     }
 
     if (isOperationalRole(role) && hasNonEmptyPin(pin)) {
+      logStaffRejection('create', 'pin not allowed for this role', normalizedEmail);
       return res.status(400).json({ error: 'PINs are only permitted for owner and manager roles' });
     }
     if (hasNonEmptyPin(pin) && !isValidPin(pin)) {
+      logStaffRejection('create', 'invalid pin', normalizedEmail);
       return res.status(400).json({ error: 'PIN must be between 4 and 6 numeric digits' });
     }
 
@@ -129,6 +142,7 @@ router.post('/', requireRole(...ROLE_ACCESS.ownerManager), authRateLimit(), (req
 
     const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(normalizedEmail);
     if (existing) {
+      logStaffRejection('create', 'email already in use', normalizedEmail);
       return res.status(400).json({ error: 'Email already in use' });
     }
 
@@ -318,6 +332,58 @@ router.post('/:id/reactivate', requireRole(...ROLE_ACCESS.ownerManager), (req: R
       `SELECT ${STAFF_SELECT_FIELDS} FROM users WHERE id = ?`
     ).get(req.params.id);
     res.json({ staff: updated });
+  } catch (error: any) {
+    console.error("[API] Internal error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ── Table assignments ─────────────────────────────────────────────────────────
+// Scopes which tables a server may take orders on in the Server App. An empty
+// list means "every table", matching how unassigned servers behave today.
+
+router.get('/:id/tables', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const member = db.prepare('SELECT id FROM users WHERE id = ?').get(req.params.id);
+    if (!member) return res.status(404).json({ error: 'Staff member not found' });
+
+    const rows = db.prepare('SELECT table_id FROM table_users WHERE user_id = ?').all(req.params.id) as { table_id: string }[];
+    res.json({ table_ids: rows.map((row) => row.table_id) });
+  } catch (error: any) {
+    console.error("[API] Internal error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.put('/:id/tables', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const member = db.prepare('SELECT id, role FROM users WHERE id = ?').get(req.params.id) as any;
+    if (!member) return res.status(404).json({ error: 'Staff member not found' });
+    if (!canModifyTargetStaff((req as any).user.role, member.role)) {
+      return res.status(403).json({ error: 'Managers cannot change owner or manager accounts' });
+    }
+
+    const tableIds = req.body?.table_ids;
+    if (!Array.isArray(tableIds) || tableIds.some((id) => typeof id !== 'string')) {
+      return res.status(400).json({ error: 'table_ids must be an array of table ids' });
+    }
+
+    const unique = [...new Set(tableIds.map(String))];
+    const exists = db.prepare('SELECT 1 FROM tables WHERE id = ?');
+    const unknown = unique.filter((id) => !exists.get(id));
+    if (unknown.length > 0) {
+      return res.status(400).json({ error: `Unknown table(s): ${unknown.join(', ')}` });
+    }
+
+    withTxn(() => {
+      db.prepare('DELETE FROM table_users WHERE user_id = ?').run(req.params.id);
+      const insert = db.prepare('INSERT INTO table_users (user_id, table_id, created_at) VALUES (?, ?, ?)');
+      for (const tableId of unique) insert.run(req.params.id, tableId, now());
+    });
+
+    res.json({ table_ids: unique });
   } catch (error: any) {
     console.error("[API] Internal error:", error);
     res.status(500).json({ error: "Internal server error" });

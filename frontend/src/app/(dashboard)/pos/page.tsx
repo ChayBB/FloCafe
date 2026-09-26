@@ -104,6 +104,12 @@ export default function POSPage() {
   const { confirm, ConfirmDialog } = useConfirm();
   const cashDrawer = useCashDrawerMovements();
 
+  // A takeaway order placed on an occupied table reads as dine-in on the kitchen
+  // ticket, so every line of such an order carries a takeaway tag.
+  const takeawayItemNote = cart.orderType === 'takeaway' && cart.tableId ? t('takeawayItemNote') : null;
+  const itemInstructions = (value: string | null | undefined): string | null =>
+    [takeawayItemNote, value?.trim() || null].filter(Boolean).join(' · ') || null;
+
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [tables, setTables] = useState<Table[]>([]);
@@ -602,7 +608,7 @@ export default function POSPage() {
           addons: item.addons.length > 0
             ? item.addons.map((a) => ({ id: a.id, name: a.name, price: a.price, quantity: a.quantity || 1 }))
             : null,
-          special_instructions: item.special_instructions || null,
+          special_instructions: itemInstructions(item.special_instructions),
         }));
         const specialInstructions = cart.orderNotes || undefined;
         const itemFingerprint = buildAppendItemsFingerprint(pendingOrder.id, newItems, specialInstructions);
@@ -645,7 +651,7 @@ export default function POSPage() {
             addons: item.addons.length > 0
               ? item.addons.map((a) => ({ id: a.id, name: a.name, price: a.price, quantity: a.quantity || 1 }))
               : null,
-            special_instructions: item.special_instructions || null,
+            special_instructions: itemInstructions(item.special_instructions),
           })),
         };
         const orderFingerprint = JSON.stringify(orderPayload);
@@ -699,7 +705,7 @@ export default function POSPage() {
       addons: item.addons.length > 0
         ? item.addons.map((a) => ({ id: a.id, name: a.name, price: a.price, quantity: a.quantity || 1 }))
         : null,
-      special_instructions: item.special_instructions || null,
+      special_instructions: itemInstructions(item.special_instructions),
     }));
     const paymentLines = payments
       .filter((p) => p.amount > 0)
@@ -1177,7 +1183,9 @@ export default function POSPage() {
           </button>
         </DrawerTrigger>
         <DrawerContent className="max-h-[85vh]">
-          <div className="overflow-y-auto max-h-[80vh] px-2 pb-2">
+          {/* Centred and width-capped: the sheet spans the viewport, so on a wide
+              screen the cart would otherwise stretch edge to edge. */}
+          <div className="mx-auto w-full max-w-lg overflow-y-auto max-h-[80vh] px-2 pb-2">
             <CartPanel {...cartPanelProps} variant="drawer" />
           </div>
         </DrawerContent>

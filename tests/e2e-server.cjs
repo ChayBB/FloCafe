@@ -44,6 +44,7 @@ const { initDatabase, getDatabase, closeDatabase, beginDatabaseShutdown, waitFor
 const { createExitCodeAwareShutdown, waitForHttpShutdownWork, isShutdownTimeout } = require('../dist/main/shutdown');
 const { startServer, stopServer, getServerPort } = require('../dist/main/server');
 const { startServerApp, stopServerApp, getServerAppPort } = require('../dist/main/server-app');
+const { startGuestServer, stopGuestServer, getGuestPort } = require('../dist/main/guest-server');
 const { shutdown: shutdownWhatsApp, requestShutdown: requestWhatsAppShutdown } = require('../dist/main/services/whatsapp');
 const { startStandaloneServers } = require('../dist/main/standalone-startup');
 const flatRatePackData = require('./fixtures/synthetic-flat-rate-pack.json');
@@ -191,6 +192,12 @@ let shutdownRequested = false;
 const requestStop = createExitCodeAwareShutdown(async () => {
   let cleanupFailed = false;
   let databaseBlocked = false;
+  try { await stopGuestServer(); } catch (error) {
+    cleanupFailed = true;
+    databaseBlocked = true;
+    console.error('[E2E] Guest server cleanup failed:', error);
+    if (isShutdownTimeout(error)) throw error;
+  }
   try { await stopServerApp(); } catch (error) {
     cleanupFailed = true;
     databaseBlocked = true;
@@ -279,7 +286,9 @@ async function stop(exitCode = 0) {
   if (Object.entries(expectedPorts).some(([key, port]) => actualPorts[key] !== port)) {
     throw new Error(`E2E service port mismatch: expected ${JSON.stringify(expectedPorts)}, got ${JSON.stringify(actualPorts)}`);
   }
-  console.log('[E2E] Main, KDS, and Server App servers ready');
+  // Guest ordering shares this process so its loopback channel secret matches the API's.
+  await startGuestServer();
+  console.log('[E2E] Main, KDS, Server App and Guest servers ready (guest port ' + getGuestPort() + ')');
 })().catch((error) => {
   console.error(error);
   stop(1);

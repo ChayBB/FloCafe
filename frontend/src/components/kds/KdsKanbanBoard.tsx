@@ -8,6 +8,7 @@ import toast from 'react-hot-toast';
 import { ElapsedTime } from '@/components/kds/ElapsedTime';
 import { KdsColumn } from '@/components/kds/KdsColumn';
 import { KdsItemModal } from '@/components/kds/KdsItemModal';
+import { KdsStatusSwitch } from '@/components/kds/KdsStatusSwitch';
 import { Badge } from '@/components/ui/badge';
 import {
   STATUS_CONFIG,
@@ -146,6 +147,9 @@ export function KdsKanbanBoard({ orders, updating, updateItemStatus }: KdsKanban
                     items={items}
                     updating={updating}
                     onItemOpen={(item) => setModalItem({ item, orderNumber: order.order_number })}
+                    onItemAdvance={(itemId, next, fromStatus) =>
+                      updateItemStatus(itemId, next, { silent: true, expectedStatus: fromStatus })
+                    }
                   />
                 ))}
               </KdsColumn>
@@ -185,12 +189,14 @@ function KanbanOrderCard({
   items,
   updating,
   onItemOpen,
+  onItemAdvance,
 }: {
   order: KdsOrder;
   status: KitchenStatus;
   items: KdsOrderItem[];
   updating: number | null;
   onItemOpen: (item: KdsOrderItem) => void;
+  onItemAdvance: (itemId: number, next: KitchenStatus, fromStatus: KitchenStatus) => void;
 }) {
   const t = useTranslations('kds');
   const tOrders = useTranslations('orders');
@@ -239,15 +245,22 @@ function KanbanOrderCard({
 
         <div className="space-y-1">
           {items.map((item) => (
-            <button
+            <div
               key={item.id}
-              type="button"
+              role="button"
+              tabIndex={0}
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
                 onItemOpen(item);
               }}
-              className={`w-full text-start rounded-lg border ${config.border} ${config.bg} px-2 py-1.5 hover:brightness-95 active:scale-[0.98] transition`}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onItemOpen(item);
+                }
+              }}
+              className={`w-full text-start rounded-lg border ${config.border} ${config.bg} px-2 py-1.5 hover:brightness-95 active:scale-[0.98] transition cursor-pointer`}
             >
               <div className="flex items-center gap-2">
                 <span className={`text-base font-bold w-6 shrink-0 ${config.text}`}>{item.quantity}×</span>
@@ -255,13 +268,18 @@ function KanbanOrderCard({
                 {item.addons && item.addons.length > 0 && (
                   <span className="text-[10px] text-blue-600">+{item.addons.length}</span>
                 )}
+                <KdsStatusSwitch
+                  status={status}
+                  updating={updating === item.id}
+                  onAdvance={(next) => onItemAdvance(item.id, next, status)}
+                />
               </div>
               {item.special_instructions && (
                 <p className="ms-[26px] text-sm text-red-600 italic mt-0.5 font-medium break-words">
                   {`"${item.special_instructions}"`}
                 </p>
               )}
-            </button>
+            </div>
           ))}
         </div>
       </div>

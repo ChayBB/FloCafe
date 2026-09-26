@@ -5,15 +5,18 @@ import axios from 'axios';
 import api from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import toast from 'react-hot-toast';
-import { Plus, X, Edit, RotateCcw, Eye, EyeOff } from 'lucide-react';
+import { Plus, X, Edit, LayoutGrid, RotateCcw, Eye, EyeOff } from 'lucide-react';
 import type { Staff } from '@/lib/types';
 import { useTranslations, type AppConfig } from 'use-intl';
 import { useAuthStore } from '@/store/auth';
 import { PermissionMatrix } from '@/components/settings/PermissionMatrix';
 import { ROLE_ACCESS, ROLE_KEYS, hasRole } from '@shared/role-permissions';
 import { ROLE_LABEL_KEYS } from '@/lib/i18n-enums';
+import { invalidEmailCharacters, isValidEmailInput, sanitizeEmailInput } from '@/lib/email-input';
 
 const VALID_ROLES = ROLE_KEYS;
+
+type TableOption = { id: string; number: string };
 
 type StaffKey = keyof AppConfig['Messages']['staff'];
 
@@ -59,6 +62,11 @@ export default function StaffPage() {
     role: 'server',
     pin: '',
   });
+  const [tablesStaff, setTablesStaff] = useState<Staff | null>(null);
+  const [allTables, setAllTables] = useState<TableOption[]>([]);
+  const [assignedTableIds, setAssignedTableIds] = useState<string[]>([]);
+  const [tablesLoading, setTablesLoading] = useState(false);
+  const [tablesSaving, setTablesSaving] = useState(false);
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -114,11 +122,19 @@ export default function StaffPage() {
       toast.error(tSetup('passwordsMismatch'));
       return;
     }
+    // Checked here rather than left to the browser: its own refusal names a
+    // character the field does not visibly contain, which reads as a dead form.
+    const email = sanitizeEmailInput(form.email).trim();
+    if (!isValidEmailInput(email)) {
+      const bad = invalidEmailCharacters(email);
+      toast.error(bad ? t('emailBadCharacters', { characters: bad }) : tSetup('errorInvalidEmail'));
+      return;
+    }
     try {
       if (editingStaff) {
         await api.put(`/staff/${editingStaff.id}`, {
           name: form.name,
-          email: form.email,
+          email,
           role: form.role,
           ...(form.password ? { password: form.password } : {}),
           ...(form.pin ? { pin: form.pin } : {}),
@@ -127,7 +143,7 @@ export default function StaffPage() {
       } else {
         await api.post('/staff', {
           name: form.name,
-          email: form.email,
+          email,
           password: form.password,
           role: form.role,
           ...(form.pin ? { pin: form.pin } : {}),
@@ -153,6 +169,43 @@ export default function StaffPage() {
       closeResetPassword();
     } catch (error: unknown) {
       toast.error(extractErrorMessage(error, t('failedToReset')));
+    }
+  };
+
+  const openTables = async (s: Staff) => {
+    setTablesStaff(s);
+    setTablesLoading(true);
+    setAssignedTableIds([]);
+    try {
+      const [tablesRes, assignedRes] = await Promise.all([
+        api.get('/tables', { params: { active: 'true' } }),
+        api.get(`/staff/${s.id}/tables`),
+      ]);
+      setAllTables(tablesRes.data.tables || []);
+      setAssignedTableIds(assignedRes.data.table_ids || []);
+    } catch (error: unknown) {
+      toast.error(extractErrorMessage(error, t('failedToLoad')));
+      setTablesStaff(null);
+    } finally {
+      setTablesLoading(false);
+    }
+  };
+
+  const toggleAssignedTable = (tableId: string) => {
+    setAssignedTableIds((ids) => ids.includes(tableId) ? ids.filter((id) => id !== tableId) : [...ids, tableId]);
+  };
+
+  const saveAssignedTables = async () => {
+    if (!tablesStaff) return;
+    setTablesSaving(true);
+    try {
+      await api.put(`/staff/${tablesStaff.id}/tables`, { table_ids: assignedTableIds });
+      toast.success(t('tablesSavedToast'));
+      setTablesStaff(null);
+    } catch (error: unknown) {
+      toast.error(extractErrorMessage(error, t('failedToSave')));
+    } finally {
+      setTablesSaving(false);
     }
   };
 
@@ -209,6 +262,11 @@ export default function StaffPage() {
               <Button variant="outline" size="sm" onClick={() => openResetPw(s)}>
                 <RotateCcw size={14} className="me-1" /> {t('resetPwButton')}
               </Button>
+              {s.role === 'server' && (
+                <Button variant="outline" size="sm" onClick={() => openTables(s)}>
+                  <LayoutGrid size={14} className="me-1" /> {t('tablesButton')}
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 size="sm"
@@ -233,7 +291,7 @@ export default function StaffPage() {
               <h2 className="text-lg font-bold">{editingStaff ? t('modalTitleEdit') : t('modalTitleAdd')}</h2>
               <button type="button" onClick={closeForm}><X size={20} className="text-gray-400" /></button>
             </div>
-            <form onSubmit={handleSave} className="space-y-4">
+            <form onSubmit={handleSave} className="space-y-4" noValidate>
               <input
                 type="text" placeholder={t('namePlaceholder')} value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -241,7 +299,7 @@ export default function StaffPage() {
               />
               <input
                 type="email" placeholder={tAuth('email')} value={form.email}
-                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                onChange={(e) => setForm({ ...form, email: sanitizeEmailInput(e.target.value) })}
                 className="w-full px-3 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-brand"
                 autoComplete="email"
                 dir="ltr"
@@ -298,6 +356,57 @@ export default function StaffPage() {
               )}
               <Button type="submit" className="w-full">{editingStaff ? t('updateButton') : t('addButton')}</Button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {tablesStaff && (
+        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+          <div className="bg-card w-full max-w-md rounded-t-2xl sm:rounded-2xl p-5 sm:p-6 max-h-[85vh] flex flex-col">
+            <div className="flex justify-between items-start gap-3 mb-2">
+              <h2 className="text-lg font-bold">{t('tablesModalTitle', { name: tablesStaff.name })}</h2>
+              <button type="button" onClick={() => setTablesStaff(null)} aria-label={tCommon('close')}>
+                <X size={20} className="text-gray-400" />
+              </button>
+            </div>
+            <p className="text-sm text-muted-foreground mb-4">{t('tablesHint')}</p>
+
+            {tablesLoading ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">{tCommon('loading')}</p>
+            ) : allTables.length === 0 ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">{t('tablesEmpty')}</p>
+            ) : (
+              <div className="flex-1 overflow-y-auto -mx-1 px-1">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {allTables.map((table) => {
+                    const checked = assignedTableIds.includes(table.id);
+                    return (
+                      <label
+                        key={table.id}
+                        className={`flex min-h-12 cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm ${checked ? 'border-brand bg-brand/10 font-semibold' : 'border-border'}`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleAssignedTable(table.id)}
+                          className="rounded border-border text-brand focus:ring-brand"
+                        />
+                        <span className="truncate">{table.number}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <Button variant="outline" onClick={() => setAssignedTableIds([])} disabled={tablesSaving || assignedTableIds.length === 0}>
+                {t('tablesAllTables')}
+              </Button>
+              <Button onClick={saveAssignedTables} disabled={tablesLoading || tablesSaving}>
+                {tablesSaving ? tCommon('saving') : tCommon('save')}
+              </Button>
+            </div>
           </div>
         </div>
       )}

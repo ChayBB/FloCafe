@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { getDatabase, getKdsStationCategoryIds, getKdsStationRoutingScope, getUserKdsStationIds, hasUserKdsStationAssignments, isKdsStationItemAllowed, now, parseItemJson, attachEffectiveAddons, isVoidedItemKdsVisible, projectKdsItem, projectKdsOrder, withTxn } from '../db';
 import { notifyKdsUpdate } from '../services/kds';
+import { emitOrderItemStatus } from '../services/server-app-events';
 import { parseCategoryIds } from './auth';
 import { requireKdsEnabled, isTokenRevoked, isTokenStale } from '../middleware/security';
 import { ROLE_ACCESS, hasRole } from '../../shared/role-permissions';
@@ -152,6 +153,22 @@ router.patch('/:id/status', requireKdsEnabled, (req: Request, res: Response) => 
     }
 
     notifyKdsUpdate();
+
+    // Pushes the change to the waiter covering that table (see main/server-app.ts).
+    const changed = db.prepare(`
+      SELECT oi.id AS item_id, oi.product_name, o.id AS order_id, o.table_id
+      FROM order_items oi JOIN orders o ON o.id = oi.order_id
+      WHERE oi.id = ?
+    `).get(itemId) as { item_id: number; product_name: string; order_id: number; table_id: string | null } | undefined;
+    if (changed) {
+      emitOrderItemStatus({
+        itemId: changed.item_id,
+        productName: changed.product_name,
+        orderId: changed.order_id,
+        tableId: changed.table_id,
+        status,
+      });
+    }
 
     res.json({ order: orderData });
   } catch (error: any) {

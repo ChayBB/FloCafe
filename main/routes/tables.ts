@@ -4,6 +4,7 @@ import { randomUUID } from 'crypto';
 import { requireRole } from '../middleware/security';
 import { ROLE_ACCESS } from '../../shared/role-permissions';
 import { notifyKdsUpdate } from '../services/kds';
+import { newGuestToken } from '../services/guest-tokens';
 import { cloudSync } from '../services/cloud-sync';
 
 const router = Router();
@@ -203,11 +204,14 @@ router.post('/', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, res: R
 
     const tableId = `tbl-${randomUUID().slice(0, 8)}`;
     const result = db.prepare(`
-      INSERT INTO tables (id, number, capacity, floor, section, position_x, position_y, kitchen_station_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO tables (id, number, capacity, floor, section, position_x, position_y, kitchen_station_id, guest_token, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       tableId, tableNumber, normalizedCapacity, normalizedFloor, normalizedSection,
-      normalizedX, normalizedY, kitchen_station_id || null, now(), now()
+      normalizedX, normalizedY, kitchen_station_id || null,
+      // Printed on the table's sticker: issued with the table and left alone
+      // afterwards. It opens nothing until customer ordering is switched on.
+      newGuestToken(), now(), now()
     );
 
     const table = db.prepare('SELECT * FROM tables WHERE id = ?').get(tableId);

@@ -372,6 +372,87 @@ router.get('/sales', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, re
   }
 });
 
+/**
+ * Gross profit for bills settled in the window, matching /financial-summary's
+ * paid-bill basis rather than order creation time.
+ *
+ * Cost comes from the line's `unit_cost` snapshot; lines sold before that column
+ * existed fall back to the product's current cost. A zero cost is treated as "not
+ * entered" rather than "free", so an unpriced item is flagged instead of inflating
+ * the margin.
+ */
+router.get('/profit', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, res: Response) => {
+  try {
+    const today = reportToday();
+    const startDate = reportDate(req.query.start_date, today);
+    const endDate = reportDate(req.query.end_date, startDate);
+    if (startDate > endDate) {
+      return res.status(400).json({ error: 'start_date must be on or before end_date' });
+    }
+    const [start] = reportDayBounds(startDate);
+    const [, end] = reportDayBounds(endDate);
+    const db = getDatabase();
+
+    const rows = db.prepare(`
+      SELECT oi.product_id, oi.product_name,
+        SUM(oi.quantity) AS quantity,
+        SUM(oi.subtotal - COALESCE(oi.discount_amount, 0)) AS revenue,
+        SUM(CASE WHEN NULLIF(COALESCE(oi.unit_cost, p.cost), 0) IS NULL THEN 0
+                 ELSE NULLIF(COALESCE(oi.unit_cost, p.cost), 0) * oi.quantity END) AS cost,
+        SUM(CASE WHEN NULLIF(COALESCE(oi.unit_cost, p.cost), 0) IS NULL THEN oi.quantity ELSE 0 END) AS quantity_without_cost
+      FROM order_items oi
+      JOIN orders o ON o.id = oi.order_id
+      JOIN bills b ON b.order_id = o.id
+      LEFT JOIN products p ON p.id = oi.product_id
+      WHERE b.paid_at >= ? AND b.paid_at < ?
+        AND b.payment_status = 'paid'
+        AND oi.status NOT IN ('cancelled', 'voided', 'void_adjustment', 'refunded')
+      GROUP BY oi.product_id, oi.product_name
+      ORDER BY (SUM(oi.subtotal - COALESCE(oi.discount_amount, 0)) - SUM(CASE WHEN NULLIF(COALESCE(oi.unit_cost, p.cost), 0) IS NULL THEN 0
+                 ELSE NULLIF(COALESCE(oi.unit_cost, p.cost), 0) * oi.quantity END)) DESC
+    `).all(start, end) as {
+      product_id: string; product_name: string;
+      quantity: number; revenue: number; cost: number; quantity_without_cost: number;
+    }[];
+
+    const products = rows.map((row) => {
+      const revenue = Number(row.revenue || 0);
+      const cost = Number(row.cost || 0);
+      const grossProfit = revenue - cost;
+      return {
+        productId: row.product_id,
+        productName: row.product_name,
+        quantity: Number(row.quantity || 0),
+        revenue,
+        cost,
+        grossProfit,
+        marginPercent: revenue > 0 ? (grossProfit / revenue) * 100 : 0,
+        quantityWithoutCost: Number(row.quantity_without_cost || 0),
+      };
+    });
+
+    const revenue = products.reduce((sum, row) => sum + row.revenue, 0);
+    const cost = products.reduce((sum, row) => sum + row.cost, 0);
+    const grossProfit = revenue - cost;
+
+    res.json({
+      profit: {
+        startDate,
+        endDate,
+        revenue,
+        cost,
+        grossProfit,
+        marginPercent: revenue > 0 ? (grossProfit / revenue) * 100 : 0,
+        productsWithoutCost: products.filter((row) => row.quantityWithoutCost > 0).length,
+        products,
+      },
+    });
+  } catch (error: any) {
+    console.error('[API] Internal error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 router.get('/topProducts', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, res: Response) => {
   try {
     const db = getDatabase();

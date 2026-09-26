@@ -2,8 +2,11 @@
 
 import axios, { AxiosInstance } from 'axios';
 import toast from 'react-hot-toast';
-import { Bell, CheckCircle2, ChefHat, Circle, Flame, LogOut, Minus, Plus, RefreshCw, Search, Send, ShoppingCart, Smartphone, SquarePen, Trash2, UserRound } from 'lucide-react';
+import { Bell, BellOff, CheckCircle2, ChefHat, ChevronDown, Circle, Flame, LayoutGrid, LogOut, Minus, Plus, RefreshCw, Search, Send, ShoppingCart, Smartphone, SquarePen, Trash2, UserRound } from 'lucide-react';
 import { Drawer, DrawerContent, DrawerTrigger } from '@/components/ui/drawer';
+import { ServerPaymentSheet } from '@/components/server-app/ServerPaymentSheet';
+import { ServerTablePicker, activeOrderOf } from '@/components/server-app/ServerTablePicker';
+import { useServerReadyAlerts } from '@/hooks/useServerReadyAlerts';
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { parsePhone } from '@/lib/phone';
 import { useSyncServerLanguage } from '@/lib/i18n';
@@ -11,6 +14,8 @@ import { useTranslations, type AppConfig } from 'use-intl';
 import { Ltr } from '@/components/layout/Ltr';
 import { toastApiError } from '@/lib/api-error';
 import { formatCurrencyForTenant } from '@/lib/countries';
+import { nameToColor } from '@/lib/image-utils';
+import { parseDbTimestamp } from '@/lib/utils';
 import { createPaymentIdempotencyKey } from '@/lib/payment-idempotency';
 import { printerService } from '@/lib/printer/PrinterService';
 import { generateCartItemId } from '@/lib/cart-identity';
@@ -19,7 +24,7 @@ import type { Order as FullOrder, Product, Addon, CartItem } from '@/lib/types';
 
 type User = { id: string; name: string; email: string; role: string };
 type Category = { id: string; name: string };
-type Table = { id: string; name?: string; number?: string; status?: string; activeOrder?: Order | null; current_order?: Order | null };
+type Table = { id: string; name?: string; number?: string; status?: string; capacity?: number; seated_at?: string | null; activeOrder?: Order | null; current_order?: Order | null };
 type OrderItem = { id: number; product_name: string; quantity: number; status: string; special_instructions?: string | null };
 type Order = { id: number; order_number: string; table_id?: string | null; status: string; items?: OrderItem[]; customer?: { id: string; name: string; phone?: string } | null };
 type DraftLine = CartItem;
@@ -78,9 +83,10 @@ export default function ServerStandalonePage() {
   const t = useTranslations('serverApp');
   const tAuth = useTranslations('auth');
   const tOrders = useTranslations('orders');
-  const tTables = useTranslations('tables');
   const tCommon = useTranslations('common');
   const tPos = useTranslations('pos');
+  const tNav = useTranslations('nav');
+  const tSettings = useTranslations('settings');
 
   // Fall back to caller-supplied localized message for server-app errors without dotted error codes.
   const apiErrorT = (key: string): string => key;
@@ -104,6 +110,9 @@ export default function ServerStandalonePage() {
   const [addonModalProduct, setAddonModalProduct] = useState<Product | null>(null);
   const [editingDraftLine, setEditingDraftLine] = useState<DraftLine | null>(null);
   const [mobileCartOpen, setMobileCartOpen] = useState(false);
+  const [tablePickerOpen, setTablePickerOpen] = useState(false);
+  const [soundMuted, setSoundMuted] = useState(false);
+  const [payingTable, setPayingTable] = useState<Table | null>(null);
   const [currentOrder, setCurrentOrder] = useState<Order | null>(null);
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
@@ -495,6 +504,18 @@ export default function ServerStandalonePage() {
   }, [draft]);
   const draftItemCount = draft.reduce((sum, line) => sum + line.quantity, 0);
 
+  // `tables` is already narrowed to this user's assigned tables by the Server App API,
+  // so the alert only ever fires for the section they are covering.
+  useServerReadyAlerts({
+    api,
+    tables,
+    enabled: !!user,
+    muted: soundMuted,
+    onReady: ({ productName, tableName }) => {
+      toast.success(t('itemReadyAlert', { item: productName, table: tableName }), { icon: '🔔', duration: 6000 });
+    },
+  });
+
   if (loading) {
     return <div className="flex h-screen items-center justify-center bg-background"><div className="h-10 w-10 animate-spin rounded-full border-4 border-brand border-t-transparent" /></div>;
   }
@@ -628,35 +649,42 @@ export default function ServerStandalonePage() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <header className="sticky top-0 z-20 border-b border-border bg-card/95 px-3 py-2 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand text-white"><ChefHat size={18} /></div>
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-2 sm:gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand text-white"><ChefHat size={18} /></div>
           <div className="min-w-0 flex-1">
             <h1 className="truncate text-base font-semibold">{t('title')}</h1>
-            <p className="truncate text-xs text-muted-foreground">{activeTable ? t('tableLabel', { name: activeTable.name ?? String(activeTable.number) }) : t('selectTable')}</p>
+            <p className="truncate text-xs text-muted-foreground">{user.name}</p>
           </div>
-          <button onClick={() => loadAll().catch(() => toast.error(t('refreshFailed')))} className="rounded-lg border border-border p-2 text-muted-foreground"><RefreshCw size={17} /></button>
-          <button onClick={logout} className="rounded-lg border border-border p-2 text-muted-foreground"><LogOut size={17} /></button>
+          <button
+            onClick={() => setTablePickerOpen(true)}
+            className="order-last flex min-h-11 w-full min-w-0 items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-start sm:order-none sm:w-auto sm:max-w-[45%]"
+          >
+            <LayoutGrid size={16} className="shrink-0 text-muted-foreground" />
+            {/* The action always reads as "select a table"; the current table rides
+                alongside it so the header still says which one is open. */}
+            <span className="shrink-0 text-sm font-semibold">{t('selectTable')}</span>
+            {activeTable && (
+              <span className="min-w-0 flex-1 truncate rounded-full bg-brand/10 px-2 py-0.5 text-xs font-semibold text-brand">
+                {activeTable.name ?? String(activeTable.number)}
+              </span>
+            )}
+            <ChevronDown size={16} className="shrink-0 text-muted-foreground" />
+          </button>
+          <button
+            onClick={() => setSoundMuted((muted) => !muted)}
+            aria-pressed={!soundMuted}
+            aria-label={soundMuted ? t('soundOff') : t('soundOn')}
+            title={soundMuted ? t('soundOff') : t('soundOn')}
+            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-border ${soundMuted ? 'text-muted-foreground' : 'text-brand'}`}
+          >
+            {soundMuted ? <BellOff size={17} /> : <Bell size={17} />}
+          </button>
+          <button onClick={() => loadAll().catch(() => toast.error(t('refreshFailed')))} aria-label={tSettings('refresh')} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground"><RefreshCw size={17} /></button>
+          <button onClick={logout} aria-label={tNav('logout')} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground"><LogOut size={17} /></button>
         </div>
       </header>
 
-      <main className="mx-auto grid max-w-6xl gap-3 p-3 lg:grid-cols-[220px_1fr_340px]">
-        <section className="rounded-lg border border-border bg-card p-3">
-          <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">{t('tables')}</h2>
-          <div className="grid grid-cols-3 gap-2 lg:grid-cols-1">
-            {tables.map((table) => {
-              const selected = table.id === selectedTableId;
-              const order = table.activeOrder || table.current_order;
-              return (
-                <button key={table.id} onClick={() => setSelectedTableId(table.id)}
-                  className={`min-h-14 rounded-lg border px-2 py-2 text-start ${selected ? 'border-brand bg-brand/10' : 'border-border bg-card'}`}>
-                  <span className="block truncate text-sm font-semibold">{table.name || table.number}</span>
-                  <span className="text-xs text-muted-foreground">{order ? t('openOrder') : tTables('statusAvailable')}</span>
-                </button>
-              );
-            })}
-          </div>
-        </section>
-
+      <main className="mx-auto grid max-w-6xl gap-3 p-3 lg:grid-cols-[1fr_340px]">
         <section className="rounded-lg border border-border bg-card p-3">
           <div className="mb-3 flex gap-2">
             <div className="relative flex-1">
@@ -684,6 +712,22 @@ export default function ServerStandalonePage() {
                       <Ltr>{inCartQty}</Ltr>
                     </span>
                   )}
+                  <div className="relative mb-2 aspect-square w-full overflow-hidden rounded-lg">
+                    <div
+                      className="absolute inset-0 flex items-center justify-center"
+                      style={{ backgroundColor: nameToColor(product.name) }}
+                    >
+                      <span className="text-2xl font-bold text-white/80">{product.name.substring(0, 2).toUpperCase()}</span>
+                    </div>
+                    {product.has_image && (
+                      <img
+                        src={`/api/products/${product.id}/image?t=${parseDbTimestamp(product.updated_at).getTime()}`}
+                        alt={product.name}
+                        className="absolute inset-0 h-full w-full object-cover"
+                        onError={(event) => { (event.target as HTMLImageElement).style.display = 'none'; }}
+                      />
+                    )}
+                  </div>
                   <span className="line-clamp-2 text-sm font-semibold">{product.name}</span>
                   <span className="mt-2 block text-sm text-muted-foreground"><Ltr>{money(product.price, regional)}</Ltr></span>
                 </button>
@@ -736,6 +780,45 @@ export default function ServerStandalonePage() {
           initialInstructions={editingDraftLine.special_instructions}
           onAdd={(_editedProduct, quantity, addons, instructions) => updateDraftLine(editingDraftLine.id, quantity, addons, instructions)}
           onClose={() => setEditingDraftLine(null)}
+        />
+      )}
+
+      {tablePickerOpen && api && (
+        <ServerTablePicker
+          api={api}
+          tables={tables}
+          selectedTableId={selectedTableId}
+          onAddOrder={(table) => {
+            setSelectedTableId(table.id);
+            setTablePickerOpen(false);
+          }}
+          onPay={(table) => {
+            if (!activeOrderOf(table)) return;
+            setSelectedTableId(table.id);
+            setTablePickerOpen(false);
+            setPayingTable(table as Table);
+          }}
+          onOrderChanged={() => {
+            void loadAll().catch(() => toast.error(t('refreshFailed')));
+            if (selectedTableId) void loadOrder(selectedTableId).catch(() => {});
+          }}
+          onClose={() => setTablePickerOpen(false)}
+        />
+      )}
+
+      {payingTable && api && (
+        <ServerPaymentSheet
+          api={api}
+          tableId={payingTable.id}
+          tableName={t('tableLabel', { name: payingTable.name ?? String(payingTable.number) })}
+          formatMoney={(value) => money(value, regional)}
+          onClose={() => setPayingTable(null)}
+          onPaid={() => {
+            setPayingTable(null);
+            setDraft([]);
+            void loadAll().catch(() => toast.error(t('refreshFailed')));
+            void loadOrder(payingTable.id).catch(() => {});
+          }}
         />
       )}
     </div>

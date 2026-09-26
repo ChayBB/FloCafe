@@ -325,7 +325,15 @@
     "closeStepDone": "Fechar",
     "xReportSales": "Vendas do dia",
     "refundsCount": "{count} reembolsos",
-    "ticketNoPayments": "Sem pagamentos neste dia"
+    "ticketNoPayments": "Sem pagamentos neste dia",
+    "grossProfit": "Lucro bruto",
+    "profitCost": "Custo",
+    "profitMargin": "Margem",
+    "profitMissingCost": "{count} produto(s) sem custo definido",
+    "profitNoCost": "sem custo definido",
+    "profitProduct": "Produto",
+    "profitQuantity": "Qtd",
+    "profitRevenue": "Receita"
   },
   "kds": {
     "addonsLabel": "Adicionais",
@@ -369,7 +377,9 @@
     "updating": "Atualizando…",
     "viewKanban": "Kanban",
     "viewTabs": "Abas",
-    "wsConnected": "WebSocket conectado"
+    "wsConnected": "WebSocket conectado",
+    "stationAll": "Todas as estações",
+    "stationFilter": "Estação da cozinha"
   },
   "nav": {
     "collapse": "Recolher",
@@ -780,7 +790,8 @@
     "exitFullscreen": "Sair do PDV em tela cheia",
     "fullscreenUnavailable": "O modo de tela cheia não está disponível",
     "backspaceAmount": "Apagar último dígito",
-    "numericKeypad": "Teclado numérico"
+    "numericKeypad": "Teclado numérico",
+    "takeawayItemNote": "Para viagem"
   },
   "printTest": {
     "amt": "Total",
@@ -1169,7 +1180,12 @@
     "statusWaiting": "Aguardando",
     "tableLabel": "Mesa {name}",
     "tables": "Mesas",
-    "title": "App do Garçom"
+    "title": "App do Garçom",
+    "billLoadFailed": "Não foi possível carregar a conta",
+    "itemReadyAlert": "{item} está pronto — {table}",
+    "noOpenOrder": "Nenhum pedido aberto nesta mesa",
+    "soundOff": "Alertas sonoros silenciados",
+    "soundOn": "Alertas sonoros ativados"
   },
   "settings": {
     "aboutDescription": "O FloPOS é um PDV de restaurante gratuito para sempre e de código aberto para cafeterias, restaurantes, padarias, food trucks, dark kitchens e bares. Inclui pedidos, mesas, menus, display de cozinha, impressão de comprovantes, acesso da equipe e armazenamento local de dados. Baixe, execute o serviço, mantenha seus dados e seja dono do seu PDV.",
@@ -1910,7 +1926,23 @@
     "themeTitle": "Tema",
     "themeLight": "Claro",
     "themeDark": "Escuro",
-    "themeSystem": "Sistema"
+    "themeSystem": "Sistema",
+    "guestCodeIssued": "Código criado",
+    "guestCodeRevoked": "Código desativado",
+    "guestCreateCode": "Criar código",
+    "guestCurrentBase": "Os códigos apontam para:",
+    "guestLanOnlyWarning": "Sem endereço público, os códigos só funcionam no WiFi do local. Publique a porta {port} pelo seu próprio servidor.",
+    "guestLoadFailed": "Não foi possível carregar as configurações",
+    "guestOrdering": "Pedido por QR",
+    "guestOrderingHint": "O cliente escaneia na mesa e pede pelo próprio celular. O pedido vai direto para a cozinha.",
+    "guestPublicUrl": "Endereço público",
+    "guestPublicUrlHint": "Endereço acessível por dados móveis, servido pelo seu próprio servidor. Vazio = somente no WiFi do local.",
+    "guestRevokeCode": "Desativar",
+    "guestRotateCode": "Novo código",
+    "guestSaveFailed": "Não foi possível salvar",
+    "guestTableCodes": "Códigos por mesa",
+    "guestTableCodesHint": "Cada mesa recebe um código permanente ao ser criada. Imprima e cole na mesa. Gere um novo apenas se vazar — o impresso anterior para de funcionar na hora.",
+    "noTablesYet": "Ainda não há mesas"
   },
   "setup": {
     "alreadyCompleted": "A configuração já foi concluída nesta instalação. Redirecionando para o login…",
@@ -2043,7 +2075,14 @@
     "roleServer": "Servidor",
     "title": "Equipe",
     "updateButton": "Atualizar",
-    "updatedToast": "Funcionário atualizado"
+    "updatedToast": "Funcionário atualizado",
+    "emailBadCharacters": "O e-mail contém caracteres não permitidos: {characters}",
+    "tablesAllTables": "Permitir todas as mesas",
+    "tablesButton": "Mesas",
+    "tablesEmpty": "Nenhuma mesa foi criada ainda.",
+    "tablesHint": "Escolha em quais mesas este garçom pode receber pedidos. Sem nenhuma marcada, todas são permitidas.",
+    "tablesModalTitle": "Acesso às mesas de {name}",
+    "tablesSavedToast": "Acesso às mesas atualizado"
   },
   "permissionMatrix": {
     "title": "Permissões por função",

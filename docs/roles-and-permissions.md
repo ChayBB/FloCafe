@@ -21,7 +21,7 @@ A check means the role is allowed to use the capability. A dash means it is not 
 | Orders | Void in-progress order items (manager PIN may be required) | ✓ | ✓ | — | — | — |
 | Orders | Restore cancelled order items | ✓ | ✓ | — | — | — |
 | Orders | Create and manage held orders | ✓ | ✓ | ✓ | ✓ | — |
-| Payments | View bills, take payments, and print receipts | ✓ | ✓ | ✓ | — | — |
+| Payments | View bills, take payments, and print receipts | ✓ | ✓ | ✓ | ✓ | — |
 | Payments | Apply bill discounts and mark bills printed | ✓ | ✓ | — | — | — |
 | Payments | View payment methods | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Payments | Manage payment methods | ✓ | ✓ | — | — | — |
@@ -66,6 +66,9 @@ A check means the role is allowed to use the capability. A dash means it is not 
 - **KDS scope:** Chef access is further narrowed by assigned `category_ids` and kitchen stations. Owner and manager KDS access is unrestricted by category, subject to the KDS being enabled.
 - **Orders are never ownership-gated:** any role with order access (this table's "View and create orders" row) can view and act on every order, including ones other staff created — there is no per-order `user_id` check anywhere in the authorization model. Restriction is by role and, for kitchen operations, by KDS stage/station (previous bullet) — never by who took the order. Accountability comes from audit attribution (every write records the authenticated actor), not from hiding orders between staff.
 - **Server App:** The standalone Server App is intentionally restricted to `server`, `manager`, and `owner` roles. It is separate from the dashboard navigation.
+- **Cancelling a single item:** The "Cancel an order item" row covers items the kitchen has already started, which stay owner/manager (or a cashier/server with a manager approval PIN). A cashier or server may cancel an item on their own while it is still `pending`, since nothing has been made yet. See `docs/business-decisions.md`.
+- **Servers and payment:** Servers settle bills at the table (generate, read, pay, print). Bill discounts and `markPrinted` remain owner/manager-only, and the full bill list stays owner/manager/cashier. This does not grant POS terminal access, which is a separate capability. See `docs/business-decisions.md`.
+- **Server App table scope:** A `server` can be assigned specific tables (Staff > Tables). Once assigned, that server can only open or append Server App orders on those tables, and the Server App table picker hides the rest. A server with no assignments keeps every table, and managers and owners are never table-scoped. This narrows an action by assignment — like the KDS station scope above — and never gates an order by who created it. Enforced in `main/server-app.ts`; see `docs/business-decisions.md`.
 - **Staff management:** Managers can manage operational staff, but cannot modify or deactivate owner/manager accounts. Only owners can change roles for an existing account, and the last active owner cannot be demoted.
 - **Conditional surfaces:** Business type, feature settings (such as KDS or WhatsApp), and account state can hide or disable a surface without changing the fixed role boundary.
 
