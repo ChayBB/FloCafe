@@ -2100,7 +2100,12 @@
     "workLogThu": "Do",
     "workLogFri": "Fr",
     "workLogSat": "Sa",
-    "workLogSun": "So"
+    "workLogSun": "So",
+    "emailOptionalPlaceholder": "E-Mail (optional)",
+    "usernamePlaceholder": "Benutzername",
+    "identifierHint": "Geben Sie eine E-Mail-Adresse oder einen Benutzernamen ein — beides funktioniert zur Anmeldung.",
+    "identifierRequired": "E-Mail-Adresse oder Benutzernamen eingeben",
+    "usernameInvalid": "Der Benutzername muss 3-32 Zeichen haben: Buchstaben, Ziffern, Punkt, Bindestrich oder Unterstrich"
   },
   "permissionMatrix": {
     "title": "Berechtigungsmatrix",

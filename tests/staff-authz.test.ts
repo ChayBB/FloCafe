@@ -122,11 +122,30 @@ async function main() {
     assertEqual(result.status, 200, `manager can edit ${role}`);
   }
 
+  // Email is no longer required — but an account still needs some way to sign
+  // in, so creating one with neither identifier is refused.
   result = await request(app).post('/api/staff').set(managerAuth).send({
-    name: 'Missing email server', password: 'StrongPass1', role: 'server',
+    name: 'No identifier server', password: 'StrongPass1', role: 'server',
   });
-  assertEqual(result.status, 400, 'staff creation requires email');
-  assertEqual(result.body.error, 'name, email, password, and role are required', 'missing email returns a clear validation error');
+  assertEqual(result.status, 400, 'staff creation requires an email or a username');
+  assertEqual(result.body.error, 'An email address or a username is required', 'neither identifier returns a clear validation error');
+
+  result = await request(app).post('/api/staff').set(managerAuth).send({
+    name: 'Username only server', username: 'nok.server', password: 'StrongPass1', role: 'server',
+  });
+  assertEqual(result.status, 201, 'a username alone is enough to create an account');
+  assertEqual(result.body.staff.email, null, 'and no email is invented for them');
+  assertEqual(result.body.staff.username, 'nok.server', 'the username is stored');
+
+  result = await request(app).post('/api/staff').set(managerAuth).send({
+    name: 'Duplicate username', username: 'NOK.Server', password: 'StrongPass1', role: 'server',
+  });
+  assertEqual(result.status, 400, 'usernames collide case-insensitively');
+
+  result = await request(app).post('/api/staff').set(managerAuth).send({
+    name: 'Email-shaped username', username: 'someone@example.com', password: 'StrongPass1', role: 'server',
+  });
+  assertEqual(result.status, 400, 'a username may not look like an email address');
 
   result = await request(app).post('/api/staff').set(managerAuth).send({
     name: 'Invalid email server', email: 'not-an-email', password: 'StrongPass1', role: 'server',
@@ -140,9 +159,10 @@ async function main() {
   assertEqual(result.status, 201, 'staff creation trims and normalizes required email');
   assertEqual(result.body.staff.email, 'mixed.server@test.local', 'created staff email is stored normalized');
 
+  // Clearing the only identifier would leave an account nobody can sign in to.
   result = await request(app).put(`/api/staff/${managerCreated.server}`).set(managerAuth).send({ email: '   ' });
-  assertEqual(result.status, 400, 'staff update rejects blank email');
-  assertEqual(result.body.error, 'email is required', 'blank email update returns a clear validation error');
+  assertEqual(result.status, 400, 'staff update rejects clearing the last identifier');
+  assertEqual(result.body.error, 'An email address or a username is required', 'clearing the last identifier is refused');
 
   result = await request(app).post('/api/staff').set(managerAuth).send({
     name: 'Pinned cashier', email: 'pinned-cashier@test.local', password: 'StrongPass1', role: 'cashier', pin: '1234',

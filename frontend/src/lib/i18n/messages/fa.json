@@ -2100,7 +2100,12 @@
     "workLogThu": "پنجشنبه",
     "workLogFri": "جمعه",
     "workLogSat": "شنبه",
-    "workLogSun": "یکشنبه"
+    "workLogSun": "یکشنبه",
+    "emailOptionalPlaceholder": "ایمیل (اختیاری)",
+    "usernamePlaceholder": "نام کاربری",
+    "identifierHint": "یک ایمیل یا یک نام کاربری وارد کنید — هر دو برای ورود کار می‌کنند.",
+    "identifierRequired": "ایمیل یا نام کاربری وارد کنید",
+    "usernameInvalid": "نام کاربری باید ۳ تا ۳۲ نویسه باشد: حرف، رقم، نقطه، خط تیره یا زیرخط"
   },
   "permissionMatrix": {
     "title": "دسترسی‌های نقش‌ها",

@@ -58,6 +58,7 @@ export default function StaffPage() {
   const [form, setForm] = useState({
     name: '',
     email: '',
+    username: '',
     password: '',
     confirmPassword: '',
     role: 'server',
@@ -95,7 +96,7 @@ export default function StaffPage() {
 
   const openAdd = () => {
     setEditingStaff(null);
-    setForm({ name: '', email: '', password: '', confirmPassword: '', role: 'server', pin: '' });
+    setForm({ name: '', email: '', username: '', password: '', confirmPassword: '', role: 'server', pin: '' });
     setShowPassword(false);
     setShowPin(false);
     setShowForm(true);
@@ -103,7 +104,7 @@ export default function StaffPage() {
 
   const openEdit = (s: Staff) => {
     setEditingStaff(s);
-    setForm({ name: s.name, email: s.email || '', password: '', confirmPassword: '', role: s.role, pin: '' });
+    setForm({ name: s.name, email: s.email || '', username: s.username || '', password: '', confirmPassword: '', role: s.role, pin: '' });
     setShowPassword(false);
     setShowPin(false);
     setShowForm(true);
@@ -126,9 +127,22 @@ export default function StaffPage() {
     // Checked here rather than left to the browser: its own refusal names a
     // character the field does not visibly contain, which reads as a dead form.
     const email = sanitizeEmailInput(form.email).trim();
-    if (!isValidEmailInput(email)) {
+    const username = form.username.trim();
+    // Either identifier is enough, but not neither: an account with no way to
+    // sign in can be created and then never used.
+    if (!email && !username) {
+      toast.error(t('identifierRequired'));
+      return;
+    }
+    // Only checked when one was actually typed. The browser's own refusal names
+    // a character the field does not visibly contain, which reads as a dead form.
+    if (email && !isValidEmailInput(email)) {
       const bad = invalidEmailCharacters(email);
       toast.error(bad ? t('emailBadCharacters', { characters: bad }) : tSetup('errorInvalidEmail'));
+      return;
+    }
+    if (username && !/^[A-Za-z0-9._-]{3,32}$/.test(username)) {
+      toast.error(t('usernameInvalid'));
       return;
     }
     try {
@@ -136,6 +150,7 @@ export default function StaffPage() {
         await api.put(`/staff/${editingStaff.id}`, {
           name: form.name,
           email,
+          username,
           role: form.role,
           ...(form.password ? { password: form.password } : {}),
           ...(form.pin ? { pin: form.pin } : {}),
@@ -145,6 +160,7 @@ export default function StaffPage() {
         await api.post('/staff', {
           name: form.name,
           email,
+          username,
           password: form.password,
           role: form.role,
           ...(form.pin ? { pin: form.pin } : {}),
@@ -251,7 +267,7 @@ export default function StaffPage() {
             <div className="flex justify-between items-start mb-3">
               <div>
                 <p className="font-bold text-foreground">{s.name}</p>
-                <p className="text-xs text-muted-foreground">{s.email || '—'}</p>
+                <p className="text-xs text-muted-foreground">{s.email || s.username || '—'}</p>
                 {Boolean(s.has_pin) && (
                   <p className="text-xs text-green-600 mt-1">{t('pinSet')}</p>
                 )}
@@ -303,13 +319,20 @@ export default function StaffPage() {
                 className="w-full px-3 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-brand" required
               />
               <input
-                type="email" placeholder={tAuth('email')} value={form.email}
+                type="email" placeholder={t('emailOptionalPlaceholder')} value={form.email}
                 onChange={(e) => setForm({ ...form, email: sanitizeEmailInput(e.target.value) })}
                 className="w-full px-3 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-brand"
                 autoComplete="email"
                 dir="ltr"
-                required
               />
+              <input
+                type="text" placeholder={t('usernamePlaceholder')} value={form.username}
+                onChange={(e) => setForm({ ...form, username: e.target.value.replace(/[^A-Za-z0-9._-]/g, '') })}
+                className="w-full px-3 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-brand"
+                autoComplete="username"
+                dir="ltr"
+              />
+              <p className="-mt-1 text-xs text-muted-foreground">{t('identifierHint')}</p>
               <div className="relative">
                 <input
                   type={showPassword ? 'text' : 'password'} placeholder={editingStaff ? t('newPasswordPlaceholder') : t('passwordPlaceholder')}

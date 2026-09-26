@@ -262,7 +262,9 @@ export interface TaxSnapshot {
 export interface Staff {
   id: string;
   name: string;
+  /** Either identifier signs them in; staff without an email address have only a username. */
   email: string | null;
+  username: string | null;
   role: string;
   has_pin?: boolean | number;
   is_active: number;

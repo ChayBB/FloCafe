@@ -8,7 +8,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { randomUUID } from 'node:crypto';
 import { closeServerResources, createShutdownCancellationError, getHttpRequestSignal, installHttpShutdownTracking, trackHttpRequestWork } from './shutdown';
-import { databaseMaintenanceMiddleware, getDatabase, getUserTableIds, isServerAppEnabled, isTableAllowedForUser, recordStaffWorkEvent } from './db';
+import { databaseMaintenanceMiddleware, findUserByLoginIdentifier, getDatabase, getUserTableIds, isServerAppEnabled, isTableAllowedForUser, recordStaffWorkEvent } from './db';
 import { getJWTSecret } from './routes/auth';
 import { authRateLimit, staticRouteRateLimit, corsOptions, isTokenRevoked, isTokenStale, rateLimit, revokeToken } from './middleware/security';
 import { getServerPort } from './server';
@@ -407,7 +407,7 @@ export function startServerApp(): Promise<void> {
 
         const db = getDatabase();
         const bcrypt = require('bcryptjs');
-        const user = db.prepare('SELECT * FROM users WHERE email = ? AND is_active = 1').get(email) as any;
+        const user = findUserByLoginIdentifier(email) as any;
         let passwordMatches = false;
         if (user) {
           try {

@@ -10,7 +10,7 @@ import { ROLE_ACCESS, ROLE_KEYS, OPERATIONAL_ROLES, hasRole } from '../../shared
 const router = Router();
 
 const VALID_ROLES: readonly string[] = ROLE_KEYS;
-const STAFF_SELECT_FIELDS = 'id, name, email, role, (pin_hash IS NOT NULL) AS has_pin, is_active, created_at, updated_at';
+const STAFF_SELECT_FIELDS = 'id, name, email, username, role, (pin_hash IS NOT NULL) AS has_pin, is_active, created_at, updated_at';
 
 function canModifyTargetStaff(requesterRole: string, targetRole: string): boolean {
   if (requesterRole === 'owner') return true;
@@ -37,6 +37,52 @@ function logStaffRejection(action: string, reason: string, email: string): void 
 
 function normalizeStaffEmail(email: unknown): string {
   return String(email || '').trim().toLowerCase();
+}
+
+function normalizeUsername(value: unknown): string {
+  return String(value ?? '').trim();
+}
+
+/**
+ * Letters, digits, dot, dash and underscore — no spaces and no `@`.
+ *
+ * The `@` matters: sign-in accepts either identifier, so a username shaped like
+ * an email address would make one typed string ambiguous between two people.
+ */
+const USERNAME_PATTERN = /^[A-Za-z0-9._-]{3,32}$/;
+
+/**
+ * An account needs at least one way to sign in.
+ *
+ * Email used to be mandatory, which suited shops whose staff all have one and
+ * nobody else. Either identifier is now enough — but not neither, because an
+ * account with no identifier can be created and then never used, which looks
+ * like a bug long after the person who created it has forgotten.
+ */
+function identifierErrors(
+  db: ReturnType<typeof getDatabase>,
+  email: string,
+  username: string,
+  excludeUserId?: string,
+): string | null {
+  if (!email && !username) return 'An email address or a username is required';
+  if (email && !isValidEmail(email)) return 'Enter a valid email address';
+  if (username && !USERNAME_PATTERN.test(username)) {
+    return 'Username must be 3-32 characters using letters, numbers, dot, dash or underscore';
+  }
+
+  const clash = (value: string) => {
+    const rows = excludeUserId
+      ? db.prepare('SELECT id FROM users WHERE (LOWER(email) = ? OR LOWER(username) = ?) AND id != ?').get(value.toLowerCase(), value.toLowerCase(), excludeUserId)
+      : db.prepare('SELECT id FROM users WHERE LOWER(email) = ? OR LOWER(username) = ?').get(value.toLowerCase(), value.toLowerCase());
+    return Boolean(rows);
+  };
+
+  // Checked across both columns: a username that matches someone's email (or
+  // the reverse) would resolve one typed string to two accounts at sign-in.
+  if (email && clash(email)) return 'Email already in use';
+  if (username && clash(username)) return 'Username already in use';
+  return null;
 }
 
 // ── Work log ──────────────────────────────────────────────────────────────────
@@ -202,16 +248,13 @@ router.get('/:id', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, res:
 
 router.post('/', requireRole(...ROLE_ACCESS.ownerManager), authRateLimit(), (req: Request, res: Response) => {
   try {
-    const { name, email, password, role, pin } = req.body;
+    const { name, email, username, password, role, pin } = req.body;
     const normalizedEmail = normalizeStaffEmail(email);
+    const normalizedUsername = normalizeUsername(username);
 
-    if (!name || !normalizedEmail || !password || !role) {
+    if (!name || !password || !role) {
       logStaffRejection('create', 'missing required field', normalizedEmail);
-      return res.status(400).json({ error: 'name, email, password, and role are required' });
-    }
-    if (!isValidEmail(normalizedEmail)) {
-      logStaffRejection('create', 'invalid email', normalizedEmail);
-      return res.status(400).json({ error: 'Enter a valid email address' });
+      return res.status(400).json({ error: 'name, password, and role are required' });
     }
     if (!validatePassword(password)) {
       logStaffRejection('create', 'weak password', normalizedEmail);
@@ -240,10 +283,10 @@ router.post('/', requireRole(...ROLE_ACCESS.ownerManager), authRateLimit(), (req
 
     const db = getDatabase();
 
-    const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(normalizedEmail);
-    if (existing) {
-      logStaffRejection('create', 'email already in use', normalizedEmail);
-      return res.status(400).json({ error: 'Email already in use' });
+    const identifierProblem = identifierErrors(db, normalizedEmail, normalizedUsername);
+    if (identifierProblem) {
+      logStaffRejection('create', identifierProblem, normalizedEmail || normalizedUsername);
+      return res.status(400).json({ error: identifierProblem });
     }
 
     const id = randomUUID();
@@ -251,10 +294,12 @@ router.post('/', requireRole(...ROLE_ACCESS.ownerManager), authRateLimit(), (req
 
     const hashedPin = hasNonEmptyPin(pin) ? bcrypt.hashSync(String(pin), 10) : null;
 
+    // NULL, never '': `email` is UNIQUE, and SQLite treats two empty strings as
+    // a collision while allowing any number of NULLs.
     db.prepare(`
-      INSERT INTO users (id, name, email, password, role, pin_hash, is_active, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
-    `).run(id, name, normalizedEmail, hashedPassword, role, hashedPin, now(), now());
+      INSERT INTO users (id, name, email, username, password, role, pin_hash, is_active, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+    `).run(id, name, normalizedEmail || null, normalizedUsername || null, hashedPassword, role, hashedPin, now(), now());
 
     const member = db.prepare(
       `SELECT ${STAFF_SELECT_FIELDS} FROM users WHERE id = ?`
@@ -271,9 +316,11 @@ router.post('/', requireRole(...ROLE_ACCESS.ownerManager), authRateLimit(), (req
 
 router.put('/:id', requireRole(...ROLE_ACCESS.ownerManager), authRateLimit(), (req: Request, res: Response) => {
   try {
-    const { name, email, password, role, pin, is_active } = req.body;
+    const { name, email, username, password, role, pin, is_active } = req.body;
     const emailProvided = email !== undefined;
     const normalizedEmail = emailProvided ? normalizeStaffEmail(email) : undefined;
+    const usernameProvided = username !== undefined;
+    const normalizedUsername = usernameProvided ? normalizeUsername(username) : undefined;
     const db = getDatabase();
 
     if (is_active !== undefined) {
@@ -307,17 +354,14 @@ router.put('/:id', requireRole(...ROLE_ACCESS.ownerManager), authRateLimit(), (r
       return res.status(400).json({ error: 'PIN must be between 4 and 6 numeric digits' });
     }
 
-    if (emailProvided && !normalizedEmail) {
-      return res.status(400).json({ error: 'email is required' });
-    }
-    if (normalizedEmail && !isValidEmail(normalizedEmail)) {
-      return res.status(400).json({ error: 'Enter a valid email address' });
-    }
-    if (normalizedEmail && normalizedEmail !== member.email) {
-      const existing = db.prepare('SELECT id FROM users WHERE email = ? AND id != ?').get(normalizedEmail, req.params.id);
-      if (existing) {
-        return res.status(400).json({ error: 'Email already in use' });
-      }
+    // Whatever is not being changed keeps its current value, so clearing the
+    // last identifier is caught here rather than producing an account nobody
+    // can sign in to.
+    const nextEmail = emailProvided ? (normalizedEmail as string) : normalizeStaffEmail(member.email);
+    const nextUsername = usernameProvided ? (normalizedUsername as string) : normalizeUsername(member.username);
+    const identifierProblem = identifierErrors(db, nextEmail, nextUsername, String(req.params.id));
+    if (identifierProblem) {
+      return res.status(400).json({ error: identifierProblem });
     }
 
     if (password && !validatePassword(password)) {
@@ -351,7 +395,8 @@ router.put('/:id', requireRole(...ROLE_ACCESS.ownerManager), authRateLimit(), (r
     const result = db.prepare(`
       UPDATE users SET
         name       = COALESCE(?, name),
-        email      = COALESCE(?, email),
+        email      = ?,
+        username   = ?,
         password   = ?,
         role       = COALESCE(?, role),
         pin_hash   = ?,
@@ -363,7 +408,7 @@ router.put('/:id', requireRole(...ROLE_ACCESS.ownerManager), authRateLimit(), (r
           OR (SELECT COUNT(*) FROM users WHERE role = 'owner' AND is_active = 1) > 1
         )
     `).run(
-      name || null, normalizedEmail || null, hashedPassword,
+      name || null, nextEmail || null, nextUsername || null, hashedPassword,
       role || null, hashedPin, tokensValidAfter,
       now(), req.params.id, demotesActiveOwner ? 1 : 0,
     );

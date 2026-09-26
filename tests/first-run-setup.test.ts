@@ -36,7 +36,12 @@ const { authRoutes } = require('../main/routes/auth');
 
 function count(table: string): number {
   const db = getDatabase();
-  return (db.prepare(`SELECT COUNT(*) as count FROM ${table}`).get() as { count: number }).count;
+  // `users` carries one locked system account (`guest-ordering`, migration v90)
+  // that exists so customer orders have an actor to record against. It is not a
+  // person and is hidden from the staff list, so it must not count as one here
+  // either — "fresh install starts without users" is about staff.
+  const where = table === 'users' ? " WHERE id != 'guest-ordering'" : '';
+  return (db.prepare(`SELECT COUNT(*) as count FROM ${table}${where}`).get() as { count: number }).count;
 }
 
 function setting(key: string): string | null {

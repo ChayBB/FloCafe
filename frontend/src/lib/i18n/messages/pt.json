@@ -2100,7 +2100,12 @@
     "workLogThu": "Qui",
     "workLogFri": "Sex",
     "workLogSat": "Sáb",
-    "workLogSun": "Dom"
+    "workLogSun": "Dom",
+    "emailOptionalPlaceholder": "E-mail (opcional)",
+    "usernamePlaceholder": "Nome de usuário",
+    "identifierHint": "Preencha um e-mail ou um nome de usuário — qualquer um serve para entrar.",
+    "identifierRequired": "Informe um e-mail ou um nome de usuário",
+    "usernameInvalid": "O nome de usuário deve ter 3-32 caracteres: letras, números, ponto, hífen ou sublinhado"
   },
   "permissionMatrix": {
     "title": "Permissões por função",

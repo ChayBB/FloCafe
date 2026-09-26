@@ -2100,7 +2100,12 @@
     "workLogThu": "Thu",
     "workLogFri": "Fri",
     "workLogSat": "Sat",
-    "workLogSun": "Sun"
+    "workLogSun": "Sun",
+    "emailOptionalPlaceholder": "Email (optional)",
+    "usernamePlaceholder": "Username",
+    "identifierHint": "Fill in an email address or a username — either one signs them in.",
+    "identifierRequired": "Enter an email address or a username",
+    "usernameInvalid": "Username must be 3-32 characters: letters, numbers, dot, dash or underscore"
   },
   "permissionMatrix": {
     "title": "Role permissions",

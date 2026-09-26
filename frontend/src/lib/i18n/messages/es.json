@@ -2100,7 +2100,12 @@
     "workLogThu": "Jue",
     "workLogFri": "Vie",
     "workLogSat": "Sáb",
-    "workLogSun": "Dom"
+    "workLogSun": "Dom",
+    "emailOptionalPlaceholder": "Correo (opcional)",
+    "usernamePlaceholder": "Nombre de usuario",
+    "identifierHint": "Completá un correo o un nombre de usuario: cualquiera de los dos sirve para entrar.",
+    "identifierRequired": "Ingresá un correo o un nombre de usuario",
+    "usernameInvalid": "El nombre de usuario debe tener 3-32 caracteres: letras, números, punto, guion o guion bajo"
   },
   "permissionMatrix": {
     "title": "Permisos por rol",

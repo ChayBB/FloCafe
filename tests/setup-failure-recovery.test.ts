@@ -61,7 +61,9 @@ async function run() {
     encryptionShouldFail = true;
     const pinFailure = await request(app).post('/api/auth/setup/initialize').send(setupPayload);
     assert.equal(pinFailure.status, 500, 'setup reports Master PIN persistence failure');
-    assert.equal((getDatabase().prepare('SELECT COUNT(*) AS count FROM users').get() as { count: number }).count, 0, 'PIN failure rolls back the owner transaction');
+    // Excludes the locked `guest-ordering` system account (migration v90): it is
+    // created by a migration, not by setup, so it is not part of what rolls back.
+    assert.equal((getDatabase().prepare("SELECT COUNT(*) AS count FROM users WHERE id != 'guest-ordering'").get() as { count: number }).count, 0, 'PIN failure rolls back the owner transaction');
     assert.equal(isMasterPinSet(), false, 'failed PIN persistence does not create a PIN file');
 
     encryptionShouldFail = false;
@@ -70,7 +72,7 @@ async function run() {
 
     const cloudFailure = await request(app).post('/api/auth/setup/initialize').send(setupPayload);
     assert.equal(cloudFailure.status, 200, 'cloud initialization failure does not make local setup appear to fail');
-    assert.equal((getDatabase().prepare('SELECT COUNT(*) AS count FROM users').get() as { count: number }).count, 1, 'owner is committed exactly once');
+    assert.equal((getDatabase().prepare("SELECT COUNT(*) AS count FROM users WHERE id != 'guest-ordering'").get() as { count: number }).count, 1, 'owner is committed exactly once');
     assert.equal(isMasterPinSet(), true, 'Master PIN remains available after successful local setup');
     assert.equal(verifyMasterPin('1234'), true, 'persisted Master PIN verifies after setup');
 

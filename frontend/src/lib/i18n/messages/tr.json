@@ -2100,7 +2100,12 @@
     "workLogThu": "Per",
     "workLogFri": "Cum",
     "workLogSat": "Cmt",
-    "workLogSun": "Paz"
+    "workLogSun": "Paz",
+    "emailOptionalPlaceholder": "E-posta (isteğe bağlı)",
+    "usernamePlaceholder": "Kullanıcı adı",
+    "identifierHint": "Bir e-posta veya kullanıcı adı girin — ikisi de girişe yarar.",
+    "identifierRequired": "E-posta veya kullanıcı adı girin",
+    "usernameInvalid": "Kullanıcı adı 3-32 karakter olmalı: harf, rakam, nokta, tire veya alt çizgi"
   },
   "permissionMatrix": {
     "title": "Yetki ve İzin Matrisi",

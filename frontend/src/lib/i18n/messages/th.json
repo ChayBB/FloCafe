@@ -2057,7 +2057,12 @@
     "workLogThu": "พฤ.",
     "workLogFri": "ศ.",
     "workLogSat": "ส.",
-    "workLogSun": "อา."
+    "workLogSun": "อา.",
+    "emailOptionalPlaceholder": "อีเมล (ไม่บังคับ)",
+    "usernamePlaceholder": "ชื่อผู้ใช้",
+    "identifierHint": "กรอกอีเมลหรือชื่อผู้ใช้อย่างใดอย่างหนึ่ง ใช้เข้าระบบได้ทั้งคู่",
+    "identifierRequired": "กรุณากรอกอีเมลหรือชื่อผู้ใช้",
+    "usernameInvalid": "ชื่อผู้ใช้ต้องยาว 3-32 ตัว ใช้ตัวอักษร ตัวเลข จุด ขีด หรือขีดล่าง"
   },
   "permissionMatrix": {
     "title": "สิทธิ์ตามบทบาท",

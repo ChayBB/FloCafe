@@ -1032,6 +1032,29 @@ export function isServerAppEnabled(): boolean {
 
 /** Customer self-ordering (guest QR) switch; defaults to OFF so a fresh install is never publicly writable. */
 /**
+ * Finds the account someone is trying to sign in as.
+ *
+ * Email used to be the only identifier the app accepted, which meant a staff
+ * member without an email address could be created but never sign in. A
+ * username is an alternative, not a replacement: existing accounts keep using
+ * their email and nothing about them changes.
+ *
+ * Both are matched case-insensitively, and the two spaces are kept apart at
+ * write time (see `main/routes/staff.ts`) so one string can never resolve to
+ * two people.
+ */
+export function findUserByLoginIdentifier(identifier: string): Record<string, unknown> | undefined {
+  const needle = String(identifier || '').trim().toLowerCase();
+  if (!needle) return undefined;
+  return db.prepare(`
+    SELECT * FROM users
+    WHERE is_active = 1
+      AND (LOWER(email) = ? OR LOWER(username) = ?)
+    LIMIT 1
+  `).get(needle, needle) as Record<string, unknown> | undefined;
+}
+
+/**
  * Records a staff member arriving or leaving. Hours are derived from these
  * events, so a missed logout shows as an open shift rather than as zero — the
  * report can then say so instead of quietly under-counting someone's day.
@@ -5003,6 +5026,27 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       }
     },
   },
+  {
+    version: 94,
+    name: 'add_users_username',
+    up: () => {
+      // Staff who have no email address still have to be able to sign in —
+      // email was the only identifier the app accepted, so an account without
+      // one could be created but never used. A username is an alternative
+      // identifier, not a replacement: existing accounts keep signing in with
+      // their email and are untouched.
+      const columns = getColumns(db, 'users');
+      if (!columns.includes('username')) {
+        db.exec(`ALTER TABLE users ADD COLUMN username TEXT`);
+      }
+      // Case-insensitive and partial: usernames must not collide regardless of
+      // how they were typed, while the many accounts without one stay valid.
+      db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_nocase
+          ON users (LOWER(username)) WHERE username IS NOT NULL
+      `);
+    },
+  },
 ];
 
 function syncBackupBeforeMigration(fromVersion: number, toVersion: number): void {
@@ -5284,6 +5328,7 @@ function createSchema(): void {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       email TEXT UNIQUE,
+      username TEXT,
       password TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'cashier'
         ${USER_ROLE_SQL_CHECK},

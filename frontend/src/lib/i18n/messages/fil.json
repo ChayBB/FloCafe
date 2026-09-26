@@ -2100,7 +2100,12 @@
     "workLogThu": "Huw",
     "workLogFri": "Biy",
     "workLogSat": "Sab",
-    "workLogSun": "Lin"
+    "workLogSun": "Lin",
+    "emailOptionalPlaceholder": "Email (opsyonal)",
+    "usernamePlaceholder": "Username",
+    "identifierHint": "Maglagay ng email o username — pareho silang pang-login.",
+    "identifierRequired": "Maglagay ng email o username",
+    "usernameInvalid": "Ang username ay dapat 3-32 karakter: letra, numero, tuldok, gitling o underscore"
   },
   "permissionMatrix": {
     "title": "Matrix ng Pahintulot",

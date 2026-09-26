@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt, { SignOptions } from 'jsonwebtoken';
 import { randomBytes, randomUUID } from 'crypto';
 import { getCountryCallingCode, type CountryCode } from 'libphonenumber-js';
-import { getCurrentSchemaVersion, getDatabase, getSettingValue, now } from '../db';
+import { findUserByLoginIdentifier, getCurrentSchemaVersion, getDatabase, getSettingValue, now } from '../db';
 import { authorizeMasterPin, isMasterPinAvailable, setMasterPin } from '../services/master-pin';
 import { authRateLimit, validatePassword, revokeToken, isTokenRevoked, isTokenStale, invalidateUserAuthCache } from '../middleware/security';
 import { getCurrencySymbol, getCountryByCode, isValidTimeZone, RegionalNotConfiguredError, resolveRegionalSnapshot, type RegionalSnapshot } from '../countries';
@@ -119,8 +119,18 @@ function buildLocalTenant(db: ReturnType<typeof getDatabase>, userRole: string) 
   };
 }
 
+/**
+ * How many real people have accounts on this install.
+ *
+ * Excludes the locked `guest-ordering` system account (migration v90), which
+ * exists only so a customer's order has an actor to record against. Counting it
+ * would make a brand-new install look already set up: `needsSetup` would be
+ * false, first-run would be skipped, and no owner could ever be created.
+ */
 function getUserCount(db: ReturnType<typeof getDatabase>): number {
-  return (db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number }).count;
+  return (db.prepare(
+    "SELECT COUNT(*) as count FROM users WHERE id != 'guest-ordering'",
+  ).get() as { count: number }).count;
 }
 
 function normalizeEmail(email: unknown): string {
@@ -551,7 +561,9 @@ router.post('/login', authRateLimit(), asyncHandler(async (req: Request, res: Re
     }
 
     const db = getDatabase();
-    const user = db.prepare('SELECT * FROM users WHERE email = ? AND is_active = 1').get(email) as any;
+    // Email or username: staff without an email address sign in with the
+    // latter. `email` is still the field name the client sends.
+    const user = findUserByLoginIdentifier(email) as any;
     let passwordMatches = false;
     if (user) {
       try {

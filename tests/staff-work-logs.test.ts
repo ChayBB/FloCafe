@@ -70,6 +70,11 @@ async function main() {
     INSERT INTO users (id, name, email, password, role, is_active, created_at, updated_at)
     VALUES ('wl-server', 'Nok', 'nok@worklog.test', ?, 'server', 1, ?, ?)
   `).run(hash, now(), now());
+  // No email at all — this person signs in with a username.
+  db.prepare(`
+    INSERT INTO users (id, name, email, username, password, role, is_active, created_at, updated_at)
+    VALUES ('wl-noemail', 'Fon', NULL, 'fon.server', ?, 'server', 1, ?, ?)
+  `).run(hash, now(), now());
 
   await startServer();
   await startServerApp();
@@ -150,7 +155,26 @@ async function main() {
       'a logout with no matching login is not invented into a shift',
     );
 
-    console.log('\n5. attendance is owner/manager only');
+    console.log('\n5. a staff member with no email signs in with a username');
+    const byUsername = await call(appUrl, '/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email: 'fon.server', password: 'WorkLog123!' }),
+    });
+    assert.equal(byUsername.status, 200, 'a username works where an email would');
+    assert.equal(byUsername.body.user.name, 'Fon');
+    assert.equal(
+      (db.prepare("SELECT COUNT(*) c FROM staff_work_logs WHERE user_id = 'wl-noemail'").get() as any).c,
+      1,
+      'and their hours are recorded the same way',
+    );
+
+    const wrongCase = await call(appUrl, '/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email: 'FON.SERVER', password: 'WorkLog123!' }),
+    });
+    assert.equal(wrongCase.status, 200, 'a username is matched case-insensitively');
+
+    console.log('\n6. attendance is owner/manager only');
     const asServer = await call(posUrl, '/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email: 'nok@worklog.test', password: 'WorkLog123!' }),
@@ -160,7 +184,7 @@ async function main() {
     });
     assert.equal(denied.status, 403, 'a server cannot read the whole shop hours sheet');
 
-    console.log('\n6. a malformed month is refused');
+    console.log('\n7. a malformed month is refused');
     for (const query of ['?year=26&month=03', '?year=2026&month=13', '?year=2026&month=0']) {
       assert.equal((await call(posUrl, `/api/staff/work-logs${query}`, { headers: auth })).status, 400, query);
     }

@@ -8,7 +8,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { randomUUID } from 'node:crypto';
 import { closeServerResources, createShutdownCancellationError, installHttpShutdownTracking } from './shutdown';
-import { databaseMaintenanceMiddleware, getDatabase, getKdsStationCategoryIds, getKdsStationRoutingScope, getUserKdsStationIds, hasUserKdsStationAssignments, isDatabaseMaintenanceActive, isKdsStationItemAllowed, parseItemJson, attachEffectiveAddons, isKdsEnabled, isVoidedItemKdsVisible, KDS_VOIDED_ITEM_VISIBILITY_MS, projectKdsItem, projectKdsOrder } from './db';
+import { databaseMaintenanceMiddleware, findUserByLoginIdentifier, getDatabase, getKdsStationCategoryIds, getKdsStationRoutingScope, getUserKdsStationIds, hasUserKdsStationAssignments, isDatabaseMaintenanceActive, isKdsStationItemAllowed, parseItemJson, attachEffectiveAddons, isKdsEnabled, isVoidedItemKdsVisible, KDS_VOIDED_ITEM_VISIBILITY_MS, projectKdsItem, projectKdsOrder } from './db';
 import { setupKdsWebSocket, notifyKdsUpdate } from './services/kds';
 import { getJWTSecret, parseCategoryIds } from './routes/auth';
 import { rateLimit, authRateLimit, staticRouteRateLimit, corsOptions, isTokenRevoked, isTokenStale, revokeToken } from './middleware/security';
@@ -191,7 +191,7 @@ export function startKdsServer(): Promise<void> {
         const db = getDatabase();
         const bcrypt = require('bcryptjs');
 
-        const user = db.prepare('SELECT * FROM users WHERE email = ? AND is_active = 1').get(email) as any;
+        const user = findUserByLoginIdentifier(email) as any;
         if (!user || !bcrypt.compareSync(password, user.password)) {
           return res.status(401).json({ error: 'Invalid credentials' });
         }

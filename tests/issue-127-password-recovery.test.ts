@@ -180,7 +180,9 @@ async function runTests() {
   // ── Test 5: recovery never creates/wipes users — only one password field changes ─
   console.log('\nTest 5: recovery does not touch user count or other rows');
   {
-    const userCount = (db.prepare('SELECT COUNT(*) as c FROM users').get() as { c: number }).c;
+    // Excludes the locked `guest-ordering` system account (migration v90), which
+    // is an actor for customer orders rather than a person with a password.
+    const userCount = (db.prepare("SELECT COUNT(*) as c FROM users WHERE id != 'guest-ordering'").get() as { c: number }).c;
     assert(userCount === 1, `still exactly one user after recovery (got ${userCount})`);
   }
 

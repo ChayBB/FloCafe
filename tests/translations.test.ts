@@ -785,6 +785,7 @@ const FIL_INTENTIONAL_IDENTICAL = new Set<string>([
   'settings.vpnMeshNetwork',
   'settings.whatsapp',
   'settings.themeSystem',
+  'staff.usernamePlaceholder',
   'setup.cloudUrlLabel',
   'setup.demoLabel',
   'setup.expressLabel',
