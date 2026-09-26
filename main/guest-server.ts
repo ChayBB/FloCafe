@@ -20,6 +20,8 @@ import { getDefaultGuestPort, getGuestPort as getActiveGuestPort, setGuestPort }
 import { API_JSON_BODY_LIMIT } from './http-limits';
 import { resolveContainedPath } from './lib/path-containment';
 import { GUEST_CHANNEL_HEADER, getGuestChannelSecret } from './services/guest-channel';
+import { isTokenForThisStore, parseGuestToken } from './services/guest-tokens';
+import { publicMenu } from './services/public-menu';
 
 let guestServer: http.Server | null = null;
 let stopPromise: Promise<void> | null = null;
@@ -43,13 +45,20 @@ function getStaticDir(): string | null {
   return null;
 }
 
-/** Resolves a guest token to its table, or null when the token is unknown/disabled. */
+/**
+ * Resolves a guest token to its table, or null when the token is unknown/disabled.
+ *
+ * A code may carry this shop's store reference in front of the secret. That prefix
+ * is checked before the lookup, so another shop's code is refused here rather than
+ * being allowed to miss quietly against our own table rows.
+ */
 function tableForToken(token: unknown): GuestTable | null {
-  if (typeof token !== 'string' || token.length < 16) return null;
+  const parsed = parseGuestToken(token);
+  if (!parsed || !isTokenForThisStore(parsed.storeRef)) return null;
   try {
     const row = getDatabase()
       .prepare('SELECT id, number FROM tables WHERE guest_token = ? AND is_active = 1')
-      .get(token) as GuestTable | undefined;
+      .get(parsed.secret) as GuestTable | undefined;
     return row ?? null;
   } catch {
     return null;
@@ -84,34 +93,6 @@ async function callPosApi(req: Request, method: 'GET' | 'POST', targetPath: stri
   let parsed: any = text;
   try { parsed = JSON.parse(text); } catch { /* upstream error page */ }
   return { status: response.status, body: parsed };
-}
-
-/** Menu rows trimmed to what a customer may see — no cost, stock or supplier data. */
-function publicMenu() {
-  const db = getDatabase();
-  const categories = db.prepare(`
-    SELECT id, name FROM categories WHERE is_active = 1 ORDER BY sort_order, name
-  `).all() as { id: string; name: string }[];
-  const products = db.prepare(`
-    SELECT p.id, p.category_id, p.name, p.description, p.price, p.updated_at,
-      CASE WHEN p.image_url IS NULL OR p.image_url = '' THEN 0 ELSE 1 END AS has_image
-    FROM products p
-    LEFT JOIN categories c ON c.id = p.category_id
-    WHERE p.deleted_at IS NULL AND p.is_active = 1 AND (c.id IS NULL OR c.is_active = 1)
-    ORDER BY p.sort_order, p.name
-  `).all() as any[];
-  return {
-    categories,
-    products: products.map((product) => ({
-      id: product.id,
-      category_id: product.category_id,
-      name: product.name,
-      description: product.description,
-      price: Number(product.price),
-      has_image: Boolean(product.has_image),
-      updated_at: product.updated_at,
-    })),
-  };
 }
 
 /** The table's open ticket, reduced to what the guest ordered and how it is going. */

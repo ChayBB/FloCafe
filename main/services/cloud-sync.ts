@@ -5,7 +5,8 @@ import * as os from 'os';
 import log from 'electron-log';
 import { WebSocket, type RawData } from 'ws';
 import { readCountryProvenance } from './country-provenance';
-import { getDatabase, now, parseItemJson, attachEffectiveAddons, ensureCloudIdentity, isDiagnosticsConsentEnabled, isDatabaseMaintenanceActive, registerDatabaseMaintenanceEndListener, registerDatabaseMaintenanceStartListener, utcDayBounds, utcTodayDate, withDatabaseRequest } from '../db';
+import { getDatabase, getSettingValue, now, parseItemJson, attachEffectiveAddons, ensureCloudIdentity, isDiagnosticsConsentEnabled, isDatabaseMaintenanceActive, isGuestOrderingEnabled, registerDatabaseMaintenanceEndListener, registerDatabaseMaintenanceStartListener, utcDayBounds, utcTodayDate, withDatabaseRequest } from '../db';
+import { publicOrderingSnapshot, snapshotDigest } from './public-menu';
 import { getTenantCurrency } from './refund';
 import { getCurrencyMinorUnitFactor } from '../countries';
 
@@ -13,6 +14,11 @@ export const DEFAULT_CLOUD_SERVER_URL = 'https://blue.flopos.com/';
 
 const HEARTBEAT_INTERVAL_MS = 5 * 60_000;
 const OUTBOX_INTERVAL_MS = 15_000;
+// Public menu/table snapshot for hosted customer ordering. Polled rather than
+// hooked into every product and table write: a menu changes rarely, the snapshot
+// is small, and a digest comparison cannot be forgotten at a new call site the
+// way a notify() call can. See docs/public-ordering-multitenant.md.
+const PUBLIC_ORDERING_INTERVAL_MS = 60_000;
 const COMMAND_POLL_INTERVAL_MS = 10_000;
 const REQUEST_TIMEOUT_MS = 8_000;
 
@@ -246,6 +252,7 @@ function sanitizeOrderSnapshot(value: unknown): unknown {
 export class CloudSyncService {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private outboxTimer: ReturnType<typeof setInterval> | null = null;
+  private publicOrderingTimer: ReturnType<typeof setInterval> | null = null;
   private supportOutboxTimer: ReturnType<typeof setInterval> | null = null;
   private diagnosticsOutboxTimer: ReturnType<typeof setInterval> | null = null;
   private commandTimer: ReturnType<typeof setInterval> | null = null;
@@ -315,6 +322,8 @@ export class CloudSyncService {
       this.supportOutboxTimer = setInterval(() => this.runBackground(this.flushSupportTicketOutbox(), 'support outbox flush'), OUTBOX_INTERVAL_MS);
       this.runBackground(this.flushDiagnosticsOutbox(), 'diagnostics outbox flush');
       this.diagnosticsOutboxTimer = setInterval(() => this.runBackground(this.flushDiagnosticsOutbox(), 'diagnostics outbox flush'), OUTBOX_INTERVAL_MS);
+      this.publishPublicOrderingSnapshot();
+      this.publicOrderingTimer = setInterval(() => this.publishPublicOrderingSnapshot(), PUBLIC_ORDERING_INTERVAL_MS);
     }
 
     this.maybeStartRelay();
@@ -337,6 +346,7 @@ export class CloudSyncService {
     if (this.outboxTimer) { clearInterval(this.outboxTimer); this.outboxTimer = null; }
     if (this.supportOutboxTimer) { clearInterval(this.supportOutboxTimer); this.supportOutboxTimer = null; }
     if (this.diagnosticsOutboxTimer) { clearInterval(this.diagnosticsOutboxTimer); this.diagnosticsOutboxTimer = null; }
+    if (this.publicOrderingTimer) { clearInterval(this.publicOrderingTimer); this.publicOrderingTimer = null; }
     if (this.commandTimer) { clearInterval(this.commandTimer); this.commandTimer = null; }
     this.commandPollAbortController?.abort();
     this.commandPollAbortController = null;
@@ -514,6 +524,9 @@ export class CloudSyncService {
         cloud_api_key: apiKey,
         cloud_pos_id: typeof data.pos_id === 'string' ? data.pos_id : settings.cloud_pos_id,
         cloud_store_id: typeof data.store_id === 'string' ? data.store_id : settings.cloud_store_id,
+        // Short public reference that prefixes this shop's QR tokens once hosted
+        // ordering exists. Absent from older servers, in which case codes stay bare.
+        cloud_store_ref: typeof data.store_ref === 'string' ? data.store_ref : settings.cloud_store_ref,
         cloud_registration_status: 'registered',
         cloud_connected: 'true',
         cloud_last_error: '',
@@ -1012,6 +1025,50 @@ export class CloudSyncService {
 
   sendOrderStatus(orderflowOrderId: string, status: string, note?: string) {
     this.enqueueEvent('order.status', 'order', orderflowOrderId, { orderflow_order_id: orderflowOrderId, status, note });
+  }
+
+  /**
+   * Pushes the customer-facing menu and the shop's table codes so a hosted
+   * ordering server can show the right menu and route a scan to the right table.
+   *
+   * Only while the merchant has customer ordering switched on — there is no
+   * reason for the menu to leave the machine otherwise. Table codes go up as
+   * hashes, never as the tokens themselves, so a breach of the hosted server
+   * cannot produce a working QR. Nothing cost-, stock- or staff-related is in
+   * the payload; see main/services/public-menu.ts.
+   */
+  publishPublicOrderingSnapshot() {
+    if (this.cloudDeletionInProgress || this.shutdownRequested) return;
+    this.runBackground(this.withDatabaseRequest(async () => {
+      if (this.cloudDeletionInProgress || this.shutdownRequested) return;
+      const cfg = this.loadSettings();
+      if (!cfg?.sync_enabled) return;
+
+      // Switching customer ordering off has to take the hosted menu down with it,
+      // not just stop refreshing it.
+      if (!isGuestOrderingEnabled()) {
+        if (!getSettingValue('cloud_public_ordering_digest')) return;
+        this.enqueueEvent('public_ordering.withdrawn', 'store', cfg.store_id || cfg.pos_hash, {
+          captured_at: new Date().toISOString(),
+        });
+        this.upsertSettings({ cloud_public_ordering_digest: '' });
+        return;
+      }
+
+      const db = getDatabase();
+      const snapshot = publicOrderingSnapshot(
+        getTenantCurrency(db),
+        getSettingValue('language') || 'en',
+      );
+      const digest = snapshotDigest(snapshot);
+      if (getSettingValue('cloud_public_ordering_digest') === digest) return;
+
+      this.enqueueEvent('public_ordering.snapshot', 'store', cfg.store_id || cfg.pos_hash, {
+        ...snapshot,
+        captured_at: new Date().toISOString(),
+      });
+      this.upsertSettings({ cloud_public_ordering_digest: digest });
+    }), 'public ordering snapshot', (error) => log.warn('[CloudSync] public ordering snapshot failed', (error as Error).message));
   }
 
   private buildHeartbeatPayload(cfg: CloudSettings) {

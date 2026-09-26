@@ -7,7 +7,7 @@
  */
 import { Router, Request, Response } from 'express';
 import QRCode from 'qrcode';
-import { newGuestToken } from '../services/guest-tokens';
+import { newGuestToken, qualifyGuestToken } from '../services/guest-tokens';
 import { getDatabase, getSettingValue, now, upsertSettings } from '../db';
 import { requireRole } from '../middleware/security';
 import { ROLE_ACCESS } from '../../shared/role-permissions';
@@ -29,8 +29,12 @@ function guestBaseUrl(): string {
   return `http://${getLocalIP()}:${getGuestPort()}`;
 }
 
-function guestUrl(token: string): string {
-  return `${guestBaseUrl()}/guest-order?t=${encodeURIComponent(token)}`;
+/**
+ * The stored secret is qualified with this shop's store reference before it is
+ * printed, so the same code resolves on the local port and on a shared server.
+ */
+function guestUrl(secret: string): string {
+  return `${guestBaseUrl()}/guest-order?t=${encodeURIComponent(qualifyGuestToken(secret))}`;
 }
 
 router.get('/', asyncHandler(async (_req: Request, res: Response) => {

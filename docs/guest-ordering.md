@@ -19,6 +19,8 @@ an account*. This file is the setup guide.
 | Loopback order channel | `main/services/guest-channel.ts` |
 | Owner settings + QR codes | Settings → **Customer QR ordering** (`main/routes/guest-ordering.ts`) |
 | Table tokens | `tables.guest_token`, issued with the table (migrations v89, v91) |
+| Token format helpers | `main/services/guest-tokens.ts` |
+| Public menu definition | `main/services/public-menu.ts` |
 | Order attribution | `guest-ordering` system user (migration v90) |
 
 ## Turning it on
@@ -30,6 +32,11 @@ an account*. This file is the setup guide.
 
 Rotating a code (**New code**) kills the previous printout immediately — use it if
 a code has been photographed or shared outside the shop.
+
+Once the POS is registered with the cloud, printed codes carry a short store
+reference in front of the secret (`<store_ref>.<secret>`) so a shared server can
+tell one shop's codes from another's. Codes printed before that keep working —
+see [public-ordering-multitenant.md](public-ordering-multitenant.md).
 
 ## Serving customers on mobile data
 

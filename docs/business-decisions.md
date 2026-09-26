@@ -69,6 +69,46 @@ Each decision states: the rule, why it exists, where it's enforced in code, how 
 
 ---
 
+## A portal account is linked to a shop by pairing, never by a matching email
+
+**Rule:** When customer ordering is hosted for many shops, signing in to the portal with the same
+email address as the POS owner does **not** by itself grant access to that shop. Linking a portal
+account to a store requires two proofs at once: control of the mailbox (federated sign-in) *and* a
+short-lived single-use code displayed on the POS screen to an owner or manager. Later sign-ins use
+only the first, because the link is already recorded. A portal account and a POS staff account stay
+separate objects: the portal never stores POS passwords and never creates POS staff accounts.
+
+**Why:** the owner's email is printed on receipts, invoices and the shop's public listings. It is an
+identifier, not a secret. If matching it were sufficient, anyone who read a receipt could claim the
+shop. The email says *which* store; the pairing code is what authorises the link.
+
+**Also decided (2026-09-26): the portal is read-only to begin with.** Every command the POS accepts
+from the cloud is a read (`health.get`, `orders.*`, `report.*`). Portal-initiated settings writes are
+deferred to a later phase and, when they arrive, are limited to a closed allowlist
+(`guest_ordering_enabled`, `guest_public_url`, table token rotation) behind an opt-in given on the
+POS machine itself, with a local change always winning.
+
+**What may leave the machine:** while customer ordering is switched on, the customer-facing menu and
+the shop's table list are pushed to the cloud so a hosted server can render them. Table codes go as
+`sha256` hashes of the qualified token, never as the tokens themselves, so a breach of the hosted
+server produces no working QR codes. Cost, stock, SKU, supplier, staff and payment data are not in
+the payload. Switching the feature off withdraws the hosted copy rather than freezing it.
+
+**Enforced by:** `main/services/public-menu.ts` (the single definition of the public payload — the
+forbidden columns are never selected, not selected-then-stripped),
+`main/services/guest-tokens.ts` (`isTokenForThisStore`), `main/guest-server.ts` (`tableForToken`
+checks the tenant before the lookup), `main/services/cloud-sync.ts`
+(`publishPublicOrderingSnapshot`).
+
+**How to verify:** `npm run test:public-ordering` — covers token parsing, another shop's prefix
+opening nothing, back-compatibility with codes printed before registration, the absence of
+cost/stock/SKU and of plaintext tokens in the snapshot, and an assertion that the cloud command
+switch still contains no write commands.
+
+**Decided:** 2026-09-26. Design and later phases: `docs/public-ordering-multitenant.md`.
+
+---
+
 ## Front-of-house staff can cancel a pending line
 
 **Rule:** A `cashier` or `server` can cancel an individual order item **only while that item is still `pending`** — the kitchen has not started it. Once an item reaches `preparing` or `ready`, cancelling it is a void and still requires an owner/manager approval PIN, exactly as before. Owner and manager keep their existing unrestricted item cancel.
