@@ -124,6 +124,27 @@ const TEMPLATE_CARDS: TemplateCard[] = [
   { id: 'compact', nameKey: 'billTemplateCompactName', preview: COMPACT_PREVIEW, source: 'core', selectionSource: 'core' },
 ];
 
+// Bounded backoff for settings reads the server rate-limited. Long enough to ride out a
+// shared per-IP read limit, short enough that a merchant does not notice the pause.
+const THROTTLED_READ_RETRIES = 3;
+const THROTTLED_READ_BACKOFF_MS = 300;
+
+/** A tab fires its reads together, so a fixed delay would retry them all in lockstep
+ * and collide again. Jitter spreads the batch, and the abort listener stops the timer
+ * as soon as the merchant leaves the tab. */
+function waitBeforeRetryRead(signal: AbortSignal, baseMs: number): Promise<void> {
+  const delayMs = baseMs / 2 + Math.random() * (baseMs / 2);
+  return new Promise<void>((resolve) => {
+    const finish = () => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', finish);
+      resolve();
+    };
+    const timer = setTimeout(finish, delayMs);
+    signal.addEventListener('abort', finish, { once: true });
+  });
+}
+
 // Sanitize prefix on load to alphanumeric characters so legacy values pass save validation.
 function sanitizeStoredNumberPrefix(value: string | null | undefined): string {
   return (value ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -1541,7 +1562,21 @@ export default function SettingsPage() {
   };
 
   const loadSettingsTab = async (tab: string, signal: AbortSignal, includeStatusOnly = true): Promise<void> => {
-    const get = (path: string) => api.get(path, { signal });
+    const get = async (path: string) => {
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          return await api.get(path, { signal });
+        } catch (error) {
+          // A 429 means throttled, not unavailable: the stored value is unknown but
+          // readable. Letting it fail hydration makes Save Changes discard every
+          // edit, so back off and read again. A genuinely unavailable read still
+          // throws, which is what keeps an unhydrated tab from being written back.
+          const throttled = axios.isAxiosError(error) && error.response?.status === 429;
+          if (!throttled || attempt >= THROTTLED_READ_RETRIES || signal.aborted) throw error;
+          await waitBeforeRetryRead(signal, THROTTLED_READ_BACKOFF_MS * 2 ** attempt);
+        }
+      }
+    };
     const active = () => !signal.aborted;
     const hydrationTouchSnapshot = new Map(hydrationTouchVersions.current);
     const readOptional = async (path: string) => {
