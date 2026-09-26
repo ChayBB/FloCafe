@@ -2102,10 +2102,13 @@
     "workLogSat": "Sam",
     "workLogSun": "Dim",
     "emailOptionalPlaceholder": "E-mail (facultatif)",
-    "usernamePlaceholder": "Nom d'utilisateur",
-    "identifierHint": "Renseignez un e-mail ou un nom d'utilisateur — les deux permettent de se connecter.",
+    "usernamePlaceholder": "Nom d’utilisateur",
+    "identifierHint": "Renseignez un e-mail ou un nom d’utilisateur — les deux permettent de se connecter.",
     "identifierRequired": "Saisissez un e-mail ou un nom d'utilisateur",
-    "usernameInvalid": "Le nom d'utilisateur doit faire 3 à 32 caractères : lettres, chiffres, point, tiret ou tiret bas"
+    "usernameInvalid": "Le nom d’utilisateur accepte lettres, chiffres, point, tiret, tiret bas et espaces simples",
+    "usernameNoAt": "Un nom d’utilisateur ne peut pas contenir @",
+    "usernameTooShort": "Le nom d’utilisateur doit faire au moins {min} caractères",
+    "usernameTooLong": "Le nom d’utilisateur doit faire au plus {max} caractères"
   },
   "permissionMatrix": {
     "title": "Autorisations des rôles",

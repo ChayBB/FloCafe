@@ -147,6 +147,34 @@ async function main() {
   });
   assertEqual(result.status, 400, 'a username may not look like an email address');
 
+  // Staff type their own username at the start of a shift, so it has to be
+  // writable in their own script.
+  result = await request(app).post('/api/staff').set(managerAuth).send({
+    name: 'Thai nickname', username: 'นกสมใจ', password: 'StrongPass1', role: 'server',
+  });
+  assertEqual(result.status, 201, 'a Thai username is accepted');
+  assertEqual(result.body.staff.username, 'นกสมใจ', 'and stored as typed');
+
+  result = await request(app).post('/api/staff').set(managerAuth).send({
+    name: 'Two-letter nickname', username: 'ฝน', password: 'StrongPass1', role: 'server',
+  });
+  assertEqual(result.status, 201, 'a two-character Thai nickname is long enough');
+
+  result = await request(app).post('/api/staff').set(managerAuth).send({
+    name: 'Thai with space', username: 'นก สมใจ', password: 'StrongPass1', role: 'server',
+  });
+  assertEqual(result.status, 201, 'a single space between words is allowed');
+
+  result = await request(app).post('/api/staff').set(managerAuth).send({
+    name: 'Duplicate Thai', username: '  นกสมใจ  ', password: 'StrongPass1', role: 'server',
+  });
+  assertEqual(result.status, 400, 'surrounding whitespace does not make a new account');
+
+  result = await request(app).post('/api/staff').set(managerAuth).send({
+    name: 'Emoji username', username: 'นก🙂', password: 'StrongPass1', role: 'server',
+  });
+  assertEqual(result.status, 400, 'symbols and emoji are still refused');
+
   result = await request(app).post('/api/staff').set(managerAuth).send({
     name: 'Invalid email server', email: 'not-an-email', password: 'StrongPass1', role: 'server',
   });

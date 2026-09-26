@@ -2105,7 +2105,10 @@
     "usernamePlaceholder": "Benutzername",
     "identifierHint": "Geben Sie eine E-Mail-Adresse oder einen Benutzernamen ein — beides funktioniert zur Anmeldung.",
     "identifierRequired": "E-Mail-Adresse oder Benutzernamen eingeben",
-    "usernameInvalid": "Der Benutzername muss 3-32 Zeichen haben: Buchstaben, Ziffern, Punkt, Bindestrich oder Unterstrich"
+    "usernameInvalid": "Der Benutzername darf Buchstaben, Ziffern, Punkt, Bindestrich, Unterstrich und einzelne Leerzeichen enthalten",
+    "usernameNoAt": "Ein Benutzername darf kein @ enthalten",
+    "usernameTooShort": "Der Benutzername muss mindestens {min} Zeichen haben",
+    "usernameTooLong": "Der Benutzername darf höchstens {max} Zeichen haben"
   },
   "permissionMatrix": {
     "title": "Berechtigungsmatrix",

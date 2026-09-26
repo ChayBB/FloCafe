@@ -75,6 +75,11 @@ async function main() {
     INSERT INTO users (id, name, email, username, password, role, is_active, created_at, updated_at)
     VALUES ('wl-noemail', 'Fon', NULL, 'fon.server', ?, 'server', 1, ?, ?)
   `).run(hash, now(), now());
+  // Signs in with a Thai nickname, the way the shop's staff actually would.
+  db.prepare(`
+    INSERT INTO users (id, name, email, username, password, role, is_active, created_at, updated_at)
+    VALUES ('wl-thai', 'นกสมใจ', NULL, 'นกสมใจ', ?, 'server', 1, ?, ?)
+  `).run(hash, now(), now());
 
   await startServer();
   await startServerApp();
@@ -174,7 +179,26 @@ async function main() {
     });
     assert.equal(wrongCase.status, 200, 'a username is matched case-insensitively');
 
-    console.log('\n6. attendance is owner/manager only');
+    console.log('\n6. a Thai username signs in');
+    const thai = await call(appUrl, '/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email: 'นกสมใจ', password: 'WorkLog123!' }),
+    });
+    assert.equal(thai.status, 200, 'a Thai username works at the Server App login');
+    assert.equal(thai.body.user.name, 'นกสมใจ');
+    assert.equal(
+      (db.prepare("SELECT COUNT(*) c FROM staff_work_logs WHERE user_id = 'wl-thai'").get() as any).c,
+      1,
+      'and their hours are recorded like anyone else',
+    );
+
+    const padded = await call(appUrl, '/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email: '  นกสมใจ  ', password: 'WorkLog123!' }),
+    });
+    assert.equal(padded.status, 200, 'stray whitespace around a typed username is forgiven');
+
+    console.log('\n7. attendance is owner/manager only');
     const asServer = await call(posUrl, '/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email: 'nok@worklog.test', password: 'WorkLog123!' }),
@@ -184,7 +208,7 @@ async function main() {
     });
     assert.equal(denied.status, 403, 'a server cannot read the whole shop hours sheet');
 
-    console.log('\n7. a malformed month is refused');
+    console.log('\n8. a malformed month is refused');
     for (const query of ['?year=26&month=03', '?year=2026&month=13', '?year=2026&month=0']) {
       assert.equal((await call(posUrl, `/api/staff/work-logs${query}`, { headers: auth })).status, 400, query);
     }

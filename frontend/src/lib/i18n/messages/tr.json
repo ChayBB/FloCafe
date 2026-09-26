@@ -2105,7 +2105,10 @@
     "usernamePlaceholder": "Kullanıcı adı",
     "identifierHint": "Bir e-posta veya kullanıcı adı girin — ikisi de girişe yarar.",
     "identifierRequired": "E-posta veya kullanıcı adı girin",
-    "usernameInvalid": "Kullanıcı adı 3-32 karakter olmalı: harf, rakam, nokta, tire veya alt çizgi"
+    "usernameInvalid": "Kullanıcı adı harf, rakam, nokta, tire, alt çizgi ve tek boşluk içerebilir",
+    "usernameNoAt": "Kullanıcı adı @ içeremez",
+    "usernameTooShort": "Kullanıcı adı en az {min} karakter olmalı",
+    "usernameTooLong": "Kullanıcı adı en fazla {max} karakter olmalı"
   },
   "permissionMatrix": {
     "title": "Yetki ve İzin Matrisi",

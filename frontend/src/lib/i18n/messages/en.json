@@ -2103,9 +2103,12 @@
     "workLogSun": "Sun",
     "emailOptionalPlaceholder": "Email (optional)",
     "usernamePlaceholder": "Username",
-    "identifierHint": "Fill in an email address or a username — either one signs them in.",
+    "identifierHint": "Fill in an email address or a username — either one signs them in. Thai is fine.",
     "identifierRequired": "Enter an email address or a username",
-    "usernameInvalid": "Username must be 3-32 characters: letters, numbers, dot, dash or underscore"
+    "usernameInvalid": "Username may use letters, numbers, dot, dash, underscore and single spaces",
+    "usernameNoAt": "A username cannot contain @",
+    "usernameTooShort": "Username must be at least {min} characters",
+    "usernameTooLong": "Username must be at most {max} characters"
   },
   "permissionMatrix": {
     "title": "Role permissions",

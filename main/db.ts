@@ -7,6 +7,7 @@ import log from 'electron-log';
 import * as fs from 'fs';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
+import { usernameKey } from '../shared/username';
 import { BUNDLED_COUNTRY_PACKS, bundledPackVersionId } from './tax-packs/bundled';
 import { SHUTDOWN_TIMEOUT_MS } from './shutdown';
 import { resolveContainedPath } from './lib/path-containment';
@@ -1044,14 +1045,22 @@ export function isServerAppEnabled(): boolean {
  * two people.
  */
 export function findUserByLoginIdentifier(identifier: string): Record<string, unknown> | undefined {
-  const needle = String(identifier || '').trim().toLowerCase();
+  const needle = usernameKey(identifier);
   if (!needle) return undefined;
-  return db.prepare(`
-    SELECT * FROM users
-    WHERE is_active = 1
-      AND (LOWER(email) = ? OR LOWER(username) = ?)
-    LIMIT 1
-  `).get(needle, needle) as Record<string, unknown> | undefined;
+
+  // Matched in JS, not SQL: usernames may be in any script, and SQLite's
+  // LOWER() folds ASCII only. A shop's staff list is small enough that this
+  // costs nothing, and it keeps the comparison identical to the one used when
+  // the username was accepted.
+  const candidates = db.prepare(
+    'SELECT id, email, username FROM users WHERE is_active = 1',
+  ).all() as { id: string; email: string | null; username: string | null }[];
+
+  const match = candidates.find((row) =>
+    usernameKey(row.email || '') === needle || usernameKey(row.username || '') === needle);
+  if (!match) return undefined;
+
+  return db.prepare('SELECT * FROM users WHERE id = ?').get(match.id) as Record<string, unknown> | undefined;
 }
 
 /**

@@ -2105,7 +2105,10 @@
     "usernamePlaceholder": "Nome de usuário",
     "identifierHint": "Preencha um e-mail ou um nome de usuário — qualquer um serve para entrar.",
     "identifierRequired": "Informe um e-mail ou um nome de usuário",
-    "usernameInvalid": "O nome de usuário deve ter 3-32 caracteres: letras, números, ponto, hífen ou sublinhado"
+    "usernameInvalid": "O nome de usuário aceita letras, números, ponto, hífen, sublinhado e espaços simples",
+    "usernameNoAt": "O nome de usuário não pode conter @",
+    "usernameTooShort": "O nome de usuário deve ter pelo menos {min} caracteres",
+    "usernameTooLong": "O nome de usuário deve ter no máximo {max} caracteres"
   },
   "permissionMatrix": {
     "title": "Permissões por função",

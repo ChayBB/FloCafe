@@ -13,6 +13,7 @@ import { PermissionMatrix } from '@/components/settings/PermissionMatrix';
 import { ROLE_ACCESS, ROLE_KEYS, hasRole } from '@shared/role-permissions';
 import { ROLE_LABEL_KEYS } from '@/lib/i18n-enums';
 import { invalidEmailCharacters, isValidEmailInput, sanitizeEmailInput } from '@/lib/email-input';
+import { USERNAME_MAX, USERNAME_MIN, checkUsername, normalizeUsername } from '@shared/username';
 import { WorkCalendar } from '@/components/staff/WorkCalendar';
 
 const VALID_ROLES = ROLE_KEYS;
@@ -127,7 +128,7 @@ export default function StaffPage() {
     // Checked here rather than left to the browser: its own refusal names a
     // character the field does not visibly contain, which reads as a dead form.
     const email = sanitizeEmailInput(form.email).trim();
-    const username = form.username.trim();
+    const username = normalizeUsername(form.username);
     // Either identifier is enough, but not neither: an account with no way to
     // sign in can be created and then never used.
     if (!email && !username) {
@@ -141,8 +142,15 @@ export default function StaffPage() {
       toast.error(bad ? t('emailBadCharacters', { characters: bad }) : tSetup('errorInvalidEmail'));
       return;
     }
-    if (username && !/^[A-Za-z0-9._-]{3,32}$/.test(username)) {
-      toast.error(t('usernameInvalid'));
+    const usernameProblem = username ? checkUsername(username) : null;
+    if (usernameProblem) {
+      toast.error(t(
+        usernameProblem === 'looks_like_email' ? 'usernameNoAt'
+          : usernameProblem === 'too_short' ? 'usernameTooShort'
+          : usernameProblem === 'too_long' ? 'usernameTooLong'
+          : 'usernameInvalid',
+        { min: USERNAME_MIN, max: USERNAME_MAX },
+      ));
       return;
     }
     try {
@@ -327,10 +335,9 @@ export default function StaffPage() {
               />
               <input
                 type="text" placeholder={t('usernamePlaceholder')} value={form.username}
-                onChange={(e) => setForm({ ...form, username: e.target.value.replace(/[^A-Za-z0-9._-]/g, '') })}
+                onChange={(e) => setForm({ ...form, username: e.target.value })}
                 className="w-full px-3 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-brand"
                 autoComplete="username"
-                dir="ltr"
               />
               <p className="-mt-1 text-xs text-muted-foreground">{t('identifierHint')}</p>
               <div className="relative">

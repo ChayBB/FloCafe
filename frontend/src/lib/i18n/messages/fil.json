@@ -2105,7 +2105,10 @@
     "usernamePlaceholder": "Username",
     "identifierHint": "Maglagay ng email o username — pareho silang pang-login.",
     "identifierRequired": "Maglagay ng email o username",
-    "usernameInvalid": "Ang username ay dapat 3-32 karakter: letra, numero, tuldok, gitling o underscore"
+    "usernameInvalid": "Puwedeng letra, numero, tuldok, gitling, underscore at isahang espasyo ang username",
+    "usernameNoAt": "Hindi puwedeng may @ ang username",
+    "usernameTooShort": "Dapat hindi bababa sa {min} karakter ang username",
+    "usernameTooLong": "Dapat hindi hihigit sa {max} karakter ang username"
   },
   "permissionMatrix": {
     "title": "Matrix ng Pahintulot",

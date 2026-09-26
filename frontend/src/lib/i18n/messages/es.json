@@ -2105,7 +2105,10 @@
     "usernamePlaceholder": "Nombre de usuario",
     "identifierHint": "Completá un correo o un nombre de usuario: cualquiera de los dos sirve para entrar.",
     "identifierRequired": "Ingresá un correo o un nombre de usuario",
-    "usernameInvalid": "El nombre de usuario debe tener 3-32 caracteres: letras, números, punto, guion o guion bajo"
+    "usernameInvalid": "El nombre de usuario admite letras, números, punto, guion, guion bajo y espacios simples",
+    "usernameNoAt": "El nombre de usuario no puede contener @",
+    "usernameTooShort": "El nombre de usuario debe tener al menos {min} caracteres",
+    "usernameTooLong": "El nombre de usuario debe tener como máximo {max} caracteres"
   },
   "permissionMatrix": {
     "title": "Permisos por rol",

@@ -6,6 +6,7 @@ import { getDatabase, now, withTxn } from '../db';
 import { requireRole, validatePassword, authRateLimit, invalidateUserAuthCache } from '../middleware/security';
 import { isValidEmail } from './auth';
 import { ROLE_ACCESS, ROLE_KEYS, OPERATIONAL_ROLES, hasRole } from '../../shared/role-permissions';
+import { USERNAME_MAX, USERNAME_MIN, checkUsername, normalizeUsername, usernameKey } from '../../shared/username';
 
 const router = Router();
 
@@ -39,17 +40,6 @@ function normalizeStaffEmail(email: unknown): string {
   return String(email || '').trim().toLowerCase();
 }
 
-function normalizeUsername(value: unknown): string {
-  return String(value ?? '').trim();
-}
-
-/**
- * Letters, digits, dot, dash and underscore — no spaces and no `@`.
- *
- * The `@` matters: sign-in accepts either identifier, so a username shaped like
- * an email address would make one typed string ambiguous between two people.
- */
-const USERNAME_PATTERN = /^[A-Za-z0-9._-]{3,32}$/;
 
 /**
  * An account needs at least one way to sign in.
@@ -67,15 +57,28 @@ function identifierErrors(
 ): string | null {
   if (!email && !username) return 'An email address or a username is required';
   if (email && !isValidEmail(email)) return 'Enter a valid email address';
-  if (username && !USERNAME_PATTERN.test(username)) {
-    return 'Username must be 3-32 characters using letters, numbers, dot, dash or underscore';
+  const usernameProblem = username ? checkUsername(username) : null;
+  if (usernameProblem === 'looks_like_email') {
+    // Sign-in accepts either identifier, so a username shaped like an email
+    // would let one typed string resolve to two people.
+    return 'A username cannot contain @';
+  }
+  if (usernameProblem === 'too_short') return `Username must be at least ${USERNAME_MIN} characters`;
+  if (usernameProblem === 'too_long') return `Username must be at most ${USERNAME_MAX} characters`;
+  if (usernameProblem === 'bad_characters') {
+    return 'Username may use letters, numbers, dot, dash, underscore and single spaces';
   }
 
+  // Compared in JS rather than SQL: SQLite's LOWER() folds ASCII only, so
+  // `JOSÉ` and `josé` would slip past a SQL comparison as two accounts. Staff
+  // lists are small enough that scanning them costs nothing.
+  const existing = db.prepare('SELECT id, email, username FROM users').all() as {
+    id: string; email: string | null; username: string | null;
+  }[];
   const clash = (value: string) => {
-    const rows = excludeUserId
-      ? db.prepare('SELECT id FROM users WHERE (LOWER(email) = ? OR LOWER(username) = ?) AND id != ?').get(value.toLowerCase(), value.toLowerCase(), excludeUserId)
-      : db.prepare('SELECT id FROM users WHERE LOWER(email) = ? OR LOWER(username) = ?').get(value.toLowerCase(), value.toLowerCase());
-    return Boolean(rows);
+    const key = usernameKey(value);
+    return existing.some((row) => row.id !== excludeUserId
+      && (usernameKey(row.email || '') === key || usernameKey(row.username || '') === key));
   };
 
   // Checked across both columns: a username that matches someone's email (or
