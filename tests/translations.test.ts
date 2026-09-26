@@ -510,6 +510,7 @@ const FR_INTENTIONAL_IDENTICAL: ReadonlySet<string> = new Set([
   'setup.ownerEmailPlaceholder', // example email
   'setup.pinLabel', // technical acronym
   'staff.roleChef', // same loanword in French UI
+  'staff.tablesButton', // same word in French
   'permissionMatrix.areas.menu', // same word in French
   'support.restaurant', // same word in French
   'support.version', // same word in French
@@ -606,6 +607,7 @@ const FIL_INTENTIONAL_IDENTICAL = new Set<string>([
   'dashboard.exportCsv', // format label "CSV (.csv)"
   'dashboard.exportXlsx', // format label "Excel (.xlsx)"
   'dashboard.minutesValue',
+  'dashboard.profitMargin',
   'dashboard.title',
   'dashboard.walkIn',
   'kds.connectionLive',
