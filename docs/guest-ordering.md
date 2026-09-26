@@ -38,6 +38,31 @@ reference in front of the secret (`<store_ref>.<secret>`) so a shared server can
 tell one shop's codes from another's. Codes printed before that keep working —
 see [public-ordering-multitenant.md](public-ordering-multitenant.md).
 
+## A sitting ends when the bill is settled
+
+The printed code identifies the table forever; a **round token** identifies one
+sitting at it. Scanning exchanges the code for a round token
+(`round_token` in the session response), and reading the tab or sending an order
+requires it in an `X-Flo-Round` header — not in the URL, which is what ends up in
+screenshots and referrer logs.
+
+Settling the bill increments `tables.guest_round`, and every token issued to that
+sitting stops verifying. The sticker on the table is untouched: the next party
+scans the same QR and gets a token of their own.
+
+The round only ends once **nothing else is still open on the table**. A table can
+carry several orders at once, and ending the round while one is live would cut a
+diner off mid-meal.
+
+The binding is cryptographic rather than stored, so a sitting needs no row of its
+own:
+
+```
+roundToken = <nonce>.<HMAC(secret, nonce | tableId | round)>
+```
+
+The key lives in `settings.guest_round_secret` and is minted on first use.
+
 ## Serving customers on mobile data
 
 Out of the box the guest server listens on the shop network only, so codes work on

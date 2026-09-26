@@ -32,6 +32,7 @@ import {
   getCurrencyMinorUnitFactor,
   resolveTenantCurrency,
 } from '../countries';
+import { endGuestRound } from '../services/guest-tokens';
 
 const router = Router();
 const OWNER_MANAGER_ROLE_PLACEHOLDERS = ROLE_ACCESS.ownerManager.map(() => '?').join(', ');
@@ -2022,7 +2023,17 @@ function applyPaymentBatch(
       const canComplete = order && !['cancelled', 'completed'].includes(order.status);
       if (canComplete) {
         db.prepare("UPDATE orders SET status = 'completed', completed_at = ?, updated_at = ? WHERE id = ?").run(changedAt, changedAt, bill.order_id);
-        if (order.table_id) db.prepare("UPDATE tables SET status = 'available', updated_at = ? WHERE id = ?").run(changedAt, order.table_id);
+        if (order.table_id) {
+          db.prepare("UPDATE tables SET status = 'available', updated_at = ? WHERE id = ?").run(changedAt, order.table_id);
+          // The sitting is over, so the QR codes handed to this party stop
+          // working — but only once nothing else is still open on the table. A
+          // table can carry several orders at once, and ending the round while
+          // one is live would cut a diner off mid-meal.
+          const stillOpen = db.prepare(
+            "SELECT 1 FROM orders WHERE table_id = ? AND id != ? AND status NOT IN ('completed', 'cancelled') LIMIT 1"
+          ).get(order.table_id, bill.order_id);
+          if (!stillOpen) endGuestRound(db, order.table_id);
+        }
       }
     }
     const cashback = calculateCashback(db, bill, effectiveCustomerId);

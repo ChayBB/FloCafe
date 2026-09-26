@@ -2,7 +2,7 @@
 
 import axios from 'axios';
 import { Check, Loader2, Minus, Plus, Search, Send, ShoppingCart, UtensilsCrossed, X } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import toast, { Toaster } from 'react-hot-toast';
 import { formatCurrencyForTenant } from '@/lib/countries';
 import { nameToColor } from '@/lib/image-utils';
@@ -65,6 +65,12 @@ export default function GuestOrderPage() {
   const [cartOpen, setCartOpen] = useState(false);
   const [sending, setSending] = useState(false);
 
+  // Proof that this phone belongs to the sitting that is currently at the table.
+  // A ref rather than state: nothing renders from it, and it must not be in the
+  // URL, where it would end up in screenshots and referrer logs.
+  const roundTokenRef = useRef<string | null>(null);
+  const roundHeader = () => (roundTokenRef.current ? { 'X-Flo-Round': roundTokenRef.current } : undefined);
+
   // The token only exists in the URL the customer scanned, so it is read once on
   // mount; every state write happens in an async callback to keep the first
   // render free of cascading updates.
@@ -78,6 +84,10 @@ export default function GuestOrderPage() {
     axios.get(`/api/guest/${encodeURIComponent(scanned)}/session`)
       .then(({ data }) => {
         if (cancelled) return;
+        // Issued for this sitting only. Settling the bill retires it, so an old
+        // phone stops ordering while the printed code keeps working for the
+        // next party. Held in a ref, never in the URL.
+        roundTokenRef.current = data.round_token ?? null;
         setToken(scanned);
         setSession(data);
       })
@@ -94,7 +104,7 @@ export default function GuestOrderPage() {
   useEffect(() => {
     if (!token || !session) return;
     const timer = setInterval(() => {
-      axios.get(`/api/guest/${encodeURIComponent(token)}/ticket`)
+      axios.get(`/api/guest/${encodeURIComponent(token)}/ticket`, { headers: roundHeader() })
         .then(({ data }) => setSession((current) => (current ? { ...current, ticket: data.ticket } : current)))
         .catch(() => { /* a dropped poll retries on the next tick */ });
     }, 20_000);
@@ -142,7 +152,7 @@ export default function GuestOrderPage() {
     try {
       const { data } = await axios.post(`/api/guest/${encodeURIComponent(token)}/order`, {
         items: cartLines.map((line) => ({ product_id: line.product.id, quantity: line.quantity })),
-      });
+      }, { headers: roundHeader() });
       setCart({});
       setCartOpen(false);
       setSession((current) => (current ? { ...current, ticket: data.ticket } : current));

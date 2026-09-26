@@ -20,7 +20,7 @@ import { getDefaultGuestPort, getGuestPort as getActiveGuestPort, setGuestPort }
 import { API_JSON_BODY_LIMIT } from './http-limits';
 import { resolveContainedPath } from './lib/path-containment';
 import { GUEST_CHANNEL_HEADER, getGuestChannelSecret } from './services/guest-channel';
-import { isTokenForThisStore, parseGuestToken } from './services/guest-tokens';
+import { isRoundTokenCurrent, isTokenForThisStore, newRoundToken, parseGuestToken } from './services/guest-tokens';
 import { publicMenu } from './services/public-menu';
 
 let guestServer: http.Server | null = null;
@@ -32,6 +32,26 @@ const GUEST_PORT = getDefaultGuestPort();
 interface GuestTable {
   id: string;
   number: string;
+  guest_round: number;
+}
+
+// Issued when the code is scanned and required on everything that reads a
+// ticket or sends an order. It travels in a header, not the URL, so it does not
+// end up in a screenshot or a referrer log.
+const ROUND_HEADER = 'x-flo-round';
+
+/**
+ * Gate for anything tied to one sitting. The scanned code still identifies the
+ * table, but it is no longer enough on its own: settling the bill moves the
+ * table to a new round and the previous party's tokens stop verifying, while
+ * the printed sticker keeps working for whoever sits down next.
+ */
+function requireCurrentRound(req: Request, res: Response, next: NextFunction) {
+  const table = (req as any).guestTable as GuestTable;
+  if (!isRoundTokenCurrent(req.get(ROUND_HEADER), table.id, table.guest_round)) {
+    return res.status(409).json({ error: 'This table has been settled. Please scan the code again.' });
+  }
+  next();
 }
 
 function getStaticDir(): string | null {
@@ -57,7 +77,7 @@ function tableForToken(token: unknown): GuestTable | null {
   if (!parsed || !isTokenForThisStore(parsed.storeRef)) return null;
   try {
     const row = getDatabase()
-      .prepare('SELECT id, number FROM tables WHERE guest_token = ? AND is_active = 1')
+      .prepare('SELECT id, number, guest_round FROM tables WHERE guest_token = ? AND is_active = 1')
       .get(parsed.secret) as GuestTable | undefined;
     return row ?? null;
   } catch {
@@ -162,6 +182,7 @@ export function startGuestServer(): Promise<void> {
       const menu = publicMenu();
       res.json({
         table: { name: table.number },
+        round_token: newRoundToken(table.id, table.guest_round),
         currency: getSettingValue('currency') || 'THB',
         country: getSettingValue('country') || 'TH',
         language: getSettingValue('language') || 'en',
@@ -170,7 +191,7 @@ export function startGuestServer(): Promise<void> {
       });
     });
 
-    app.get('/api/guest/:token/ticket', guestReadLimit, requireGuestTable, (req: Request, res: Response) => {
+    app.get('/api/guest/:token/ticket', guestReadLimit, requireGuestTable, requireCurrentRound, (req: Request, res: Response) => {
       const table = (req as any).guestTable as GuestTable;
       res.json({ ticket: tableTicket(table.id) });
     });
@@ -197,7 +218,7 @@ export function startGuestServer(): Promise<void> {
       })());
     });
 
-    app.post('/api/guest/:token/order', guestOrderLimit, requireGuestTable, (req: Request, res: Response) => {
+    app.post('/api/guest/:token/order', guestOrderLimit, requireGuestTable, requireCurrentRound, (req: Request, res: Response) => {
       void trackHttpRequestWork(req, (async () => {
         const table = (req as any).guestTable as GuestTable;
         const rawItems = Array.isArray(req.body?.items) ? req.body.items : [];

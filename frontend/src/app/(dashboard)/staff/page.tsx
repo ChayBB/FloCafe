@@ -13,6 +13,7 @@ import { PermissionMatrix } from '@/components/settings/PermissionMatrix';
 import { ROLE_ACCESS, ROLE_KEYS, hasRole } from '@shared/role-permissions';
 import { ROLE_LABEL_KEYS } from '@/lib/i18n-enums';
 import { invalidEmailCharacters, isValidEmailInput, sanitizeEmailInput } from '@/lib/email-input';
+import { WorkCalendar } from '@/components/staff/WorkCalendar';
 
 const VALID_ROLES = ROLE_KEYS;
 
@@ -238,6 +239,10 @@ export default function StaffPage() {
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold text-foreground">{t('title')}</h1>
         <Button onClick={openAdd}><Plus size={16} className="me-1" /> {t('addButton')}</Button>
+      </div>
+
+      <div className="mb-6">
+        <WorkCalendar />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

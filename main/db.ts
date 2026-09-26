@@ -1031,6 +1031,22 @@ export function isServerAppEnabled(): boolean {
 }
 
 /** Customer self-ordering (guest QR) switch; defaults to OFF so a fresh install is never publicly writable. */
+/**
+ * Records a staff member arriving or leaving. Hours are derived from these
+ * events, so a missed logout shows as an open shift rather than as zero — the
+ * report can then say so instead of quietly under-counting someone's day.
+ */
+export function recordStaffWorkEvent(userId: string, eventType: 'login' | 'logout', source = 'server_app'): void {
+  try {
+    db.prepare(
+      'INSERT INTO staff_work_logs (user_id, event_type, source, created_at) VALUES (?, ?, ?, ?)'
+    ).run(userId, eventType, source, now());
+  } catch (error) {
+    // Never let attendance bookkeeping block a sign-in.
+    console.warn('[WorkLog] could not record', eventType, (error as Error).message);
+  }
+}
+
 export function isGuestOrderingEnabled(): boolean {
   return getSettingValue('guest_ordering_enabled') === 'true';
 }
@@ -4950,6 +4966,43 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       for (const row of rows) assign.run(crypto.randomBytes(24).toString('base64url'), row.id);
     },
   },
+  {
+    version: 92,
+    name: 'add_staff_work_logs',
+    up: () => {
+      // Hours are derived from a stream of login/logout events rather than
+      // stored as totals: a shift that is still running has no end yet, and a
+      // total would have to be rewritten on every logout. `source` records
+      // which surface the event came from so the same table can cover the POS
+      // later without another migration.
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS staff_work_logs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id TEXT NOT NULL,
+          event_type TEXT NOT NULL CHECK (event_type IN ('login', 'logout')),
+          source TEXT NOT NULL DEFAULT 'server_app',
+          created_at TEXT NOT NULL,
+          FOREIGN KEY (user_id) REFERENCES users(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_staff_work_logs_user_time
+          ON staff_work_logs (user_id, created_at);
+      `);
+    },
+  },
+  {
+    version: 93,
+    name: 'add_tables_guest_round',
+    up: () => {
+      // Which sitting a table is on. Settling the bill bumps it, which retires
+      // the round tokens handed to that sitting's phones without touching the
+      // printed code — the sticker on the table keeps working for the next
+      // party. See docs/guest-ordering.md.
+      const columns = getColumns(db, 'tables');
+      if (!columns.includes('guest_round')) {
+        db.exec(`ALTER TABLE tables ADD COLUMN guest_round INTEGER NOT NULL DEFAULT 1`);
+      }
+    },
+  },
 ];
 
 function syncBackupBeforeMigration(fromVersion: number, toVersion: number): void {
@@ -5183,9 +5236,22 @@ function createSchema(): void {
       kitchen_station_id TEXT,
       is_active INTEGER DEFAULT 1,
       guest_token TEXT,
+      guest_round INTEGER NOT NULL DEFAULT 1,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS staff_work_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      event_type TEXT NOT NULL CHECK (event_type IN ('login', 'logout')),
+      source TEXT NOT NULL DEFAULT 'server_app',
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_staff_work_logs_user_time
+      ON staff_work_logs (user_id, created_at);
 
     CREATE TABLE IF NOT EXISTS table_users (
       user_id TEXT NOT NULL,

@@ -95,6 +95,10 @@ async function main() {
 
     const session = await call(guestUrl, `/api/guest/${token}/session`);
     assert.equal(session.status, 200, 'a valid table token opens the menu');
+    // Scanning hands out a token for this sitting; ordering needs it.
+    const round = (t: string) => ({ 'X-Flo-Round': t });
+    let roundToken: string = session.body.round_token;
+    assert.ok(roundToken, 'the scan issues a round token');
     assert.equal(session.body.table.name, 'G1', 'the session names the scanned table');
     assert.equal(session.body.ticket, null, 'a fresh table has no ticket yet');
 
@@ -115,6 +119,7 @@ async function main() {
 
     const placed = await call(guestUrl, `/api/guest/${token}/order`, {
       method: 'POST',
+      headers: round(roundToken),
       body: JSON.stringify({ items: [{ product_id: 'guest-product', quantity: 2 }] }),
     });
     assert.equal(placed.status, 201, 'a guest can place an order');
@@ -123,6 +128,7 @@ async function main() {
 
     const appended = await call(guestUrl, `/api/guest/${token}/order`, {
       method: 'POST',
+      headers: round(roundToken),
       body: JSON.stringify({ items: [{ product_id: 'guest-product', quantity: 1 }] }),
     });
     assert.equal(appended.status, 201, 'a second order joins the open ticket');
@@ -140,7 +146,7 @@ async function main() {
       { items: [{ product_id: 'guest-product', quantity: 999 }] },
       { items: [{ product_id: 'guest-product', quantity: 1.5 }] },
     ]) {
-      const rejected = await call(guestUrl, `/api/guest/${token}/order`, { method: 'POST', body: JSON.stringify(payload) });
+      const rejected = await call(guestUrl, `/api/guest/${token}/order`, { method: 'POST', headers: round(roundToken), body: JSON.stringify(payload) });
       assert.equal(rejected.status, 400, `rejected: ${JSON.stringify(payload)}`);
     }
 
@@ -163,9 +169,42 @@ async function main() {
     db.prepare("UPDATE tables SET guest_token = 'rotated-token-g1-11111' WHERE id = 'tbl-guest'").run();
     const afterRotation = await call(guestUrl, `/api/guest/${token}/session`);
     assert.equal(afterRotation.status, 404, 'the old QR stops working the moment a new code is issued');
-    const withNewToken = await call(guestUrl, '/api/guest/rotated-token-g1-11111/session');
+    const rotatedToken = 'rotated-token-g1-11111';
+    const withNewToken = await call(guestUrl, `/api/guest/${rotatedToken}/session`);
     assert.equal(withNewToken.status, 200, 'the new code works');
     assert.equal(withNewToken.body.ticket.items.length, 2, 'the table keeps its open ticket across a rotation');
+
+    // Settling the bill ends the sitting: the round token dies, the printed
+    // code does not. This is the difference the merchant asked for — the
+    // sticker on the table must survive checkout.
+    const { endGuestRound } = await import('../main/services/guest-tokens');
+    endGuestRound(db, 'tbl-guest');
+
+    const afterCheckout = await call(guestUrl, `/api/guest/${rotatedToken}/order`, {
+      method: 'POST',
+      headers: round(roundToken),
+      body: JSON.stringify({ items: [{ product_id: 'guest-product', quantity: 1 }] }),
+    });
+    assert.equal(afterCheckout.status, 409, 'the previous sitting can no longer order');
+    const staleTicket = await call(guestUrl, `/api/guest/${rotatedToken}/ticket`, { headers: round(roundToken) });
+    assert.equal(staleTicket.status, 409, 'nor read the tab it left behind');
+
+    const rescan = await call(guestUrl, `/api/guest/${rotatedToken}/session`);
+    assert.equal(rescan.status, 200, 'the same printed code still opens the menu for the next party');
+    roundToken = rescan.body.round_token;
+    const nextParty = await call(guestUrl, `/api/guest/${rotatedToken}/order`, {
+      method: 'POST',
+      headers: round(roundToken),
+      body: JSON.stringify({ items: [{ product_id: 'guest-product', quantity: 1 }] }),
+    });
+    assert.equal(nextParty.status, 201, 'and the next party can order on it');
+
+    // A round token from another table, or a forged one, opens nothing.
+    for (const forged of ['not-a-round-token', 'AAAA.BBBB', '']) {
+      const refused = await call(guestUrl, `/api/guest/${rotatedToken}/ticket`, { headers: round(forged) });
+      assert.equal(refused.status, 409, `forged round token rejected: ${forged || '(empty)'}`);
+    }
+
   } finally {
     await stopGuestServer();
     await stopServer();

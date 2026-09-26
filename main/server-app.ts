@@ -8,7 +8,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { randomUUID } from 'node:crypto';
 import { closeServerResources, createShutdownCancellationError, getHttpRequestSignal, installHttpShutdownTracking, trackHttpRequestWork } from './shutdown';
-import { databaseMaintenanceMiddleware, getDatabase, getUserTableIds, isServerAppEnabled, isTableAllowedForUser } from './db';
+import { databaseMaintenanceMiddleware, getDatabase, getUserTableIds, isServerAppEnabled, isTableAllowedForUser, recordStaffWorkEvent } from './db';
 import { getJWTSecret } from './routes/auth';
 import { authRateLimit, staticRouteRateLimit, corsOptions, isTokenRevoked, isTokenStale, rateLimit, revokeToken } from './middleware/security';
 import { getServerPort } from './server';
@@ -429,6 +429,8 @@ export function startServerApp(): Promise<void> {
           { expiresIn: remember_me ? '10d' : '24h' },
         );
 
+        recordStaffWorkEvent(user.id, 'login');
+
         res.json({
           access_token: token,
           user: { id: user.id, name: user.name, email: user.email, role: user.role },
@@ -449,6 +451,7 @@ export function startServerApp(): Promise<void> {
     app.post('/api/auth/logout', requireServerAppAuth, (req: Request, res: Response) => {
       const token = req.headers.authorization?.split(' ')[1];
       if (token) revokeToken(token);
+      recordStaffWorkEvent(((req as any).user as ServerAppUser).userId, 'logout');
       res.json({ success: true });
     });
 

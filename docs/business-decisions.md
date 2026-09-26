@@ -109,6 +109,42 @@ switch still contains no write commands.
 
 ---
 
+## Staff hours come from Server App sign-ins
+
+**Rule:** Signing in and out of the Server App (`:3003`) records an attendance event, and Staff > Work hours turns those events into shifts. Hours are **derived** from the event stream, never stored as a running total.
+
+**Why:** a total has to be rewritten on every sign-out and cannot represent a shift that is still running. An event stream can, so the screen is able to show the difference between "still on the floor" and "forgot to sign out" instead of quietly under-counting someone's day.
+
+**What is deliberately not inferred:** a login with no logout stays open (`end: null`, `minutes: null`) rather than being closed at midnight or at an assumed shift length — the shop knows its own rounding rules and this screen does not guess them. A logout with no matching login is dropped rather than invented into a shift. A second login while one is open changes nothing; two devices, one person, is the normal cause.
+
+**Only the Server App is recorded**, under `source = 'server_app'`. The POS is not, because the merchant asked for tableside hours. The column exists so that can change without a migration.
+
+**Enforced by:** `main/server-app.ts` (login/logout call `recordStaffWorkEvent`), `main/db.ts` (`staff_work_logs`, migration v92), `main/routes/staff.ts` (`GET /work-logs`, owner/manager only, `pairShifts`).
+
+**How to verify:** `npm run test:staff-work-logs` — covers the arrival, a rejected password recording nothing, the departure, an open shift, an unmatched logout, the owner/manager gate and month validation.
+
+**Decided:** 2026-09-26.
+
+---
+
+## A guest's QR survives checkout; their session does not
+
+**Rule:** the printed code on a table is permanent. The **sitting** is not: settling the bill increments `tables.guest_round`, which retires the round tokens held by that party's phones. The next party scans the same sticker and gets a token of their own.
+
+**Why:** the merchant chose this over reissuing codes per sitting. A permanent sticker is the whole point of printing one, and reprinting every meal was not acceptable. Retiring the round is what stops a diner who has already paid from ordering again on the table they left.
+
+**The round only ends when nothing else is open on that table.** A table can carry several orders at once; ending the round while one is live would cut a diner off mid-meal.
+
+**What this does not defend against:** someone who photographs the sticker still holds the table code and can open a sitting of their own. That is inherent to a permanent printed code. See `docs/guest-ordering.md`.
+
+**Enforced by:** `main/services/guest-tokens.ts` (`newRoundToken`, `isRoundTokenCurrent`, `endGuestRound`), `main/guest-server.ts` (`requireCurrentRound` on the ticket and order routes), `main/routes/bills.ts` (ends the round when an order is fully paid and nothing else is open), migration v93.
+
+**How to verify:** `npm run test:guest-ordering` — covers ordering being refused after checkout, the tab no longer being readable, the same printed code still opening the menu for the next party, and forged round tokens.
+
+**Decided:** 2026-09-26.
+
+---
+
 ## Front-of-house staff can cancel a pending line
 
 **Rule:** A `cashier` or `server` can cancel an individual order item **only while that item is still `pending`** — the kitchen has not started it. Once an item reaches `preparing` or `ready`, cancelling it is a void and still requires an owner/manager approval PIN, exactly as before. Owner and manager keep their existing unrestricted item cancel.
