@@ -169,6 +169,7 @@ function businessShape(s: Record<string, string>) {
     bill_show_tax_breakdown: s.bill_show_tax_breakdown !== 'false',
     bill_show_customer_name: s.bill_show_customer_name !== 'false',
     bill_show_customer_phone: s.bill_show_customer_phone !== 'false',
+    bill_delivery_show_customer_phone_always: s.bill_delivery_show_customer_phone_always !== 'false',
     bill_show_table_number: s.bill_show_table_number !== 'false',
     currency_display: resolveStoredLocalePreference('currency_display', s.currency_display, s.country || ''),
     number_digits: resolveStoredLocalePreference('number_digits', s.number_digits, s.country || ''),
@@ -208,6 +209,7 @@ router.put('/business', requirePermission('settings.manage'), (req: Request, res
       billing_type, tables_required, tax_registered,
       bill_show_name, bill_show_address, bill_show_phone, bill_show_tax_id,
       bill_show_tax_breakdown, bill_show_customer_name, bill_show_customer_phone, bill_show_table_number,
+      bill_delivery_show_customer_phone_always,
       currency_display, number_digits, calendar } = req.body;
     const normalizedCurrency = typeof currency === 'string' ? currency.trim().toUpperCase() : currency;
 
@@ -282,6 +284,7 @@ router.put('/business', requirePermission('settings.manage'), (req: Request, res
       billing_type, tables_required, tax_registered,
       bill_show_name, bill_show_address, bill_show_phone, bill_show_tax_id,
       bill_show_tax_breakdown, bill_show_customer_name, bill_show_customer_phone, bill_show_table_number,
+      bill_delivery_show_customer_phone_always,
       ...localeUpdates,
       // Only mark country as user-confirmed if it actually changed in this submission.
       ...countryConfirmationPatch(country, currentSettings.country, req.body.country_selected),
@@ -959,6 +962,7 @@ const PRINTING_BOOLEAN_KEYS = [
   'bill_show_customer_name',
   'bill_show_customer_phone',
   'bill_show_table_number',
+  'bill_delivery_show_customer_phone_always',
 ] as const;
 
 const PRINTING_BATCH_KEYS = new Set<string>([

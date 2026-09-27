@@ -606,6 +606,7 @@
     "selectedItems": "Ausgewählte Artikel",
     "sendFailed": "Senden fehlgeschlagen",
     "sendReceipt": "Beleg senden",
+    "printDeliverySlip": "Lieferschein",
     "served": "Serviert",
     "settled": "Abgerechnet",
     "startNewOrderForCustomer": "Neue Bestellung für diesen Kunden starten",
@@ -917,6 +918,12 @@
       "type": "Typ",
       "noPendingItems": "Keine ausstehenden Artikel",
       "end": "ENDE"
+    },
+    "deliverySlip": {
+      "title": "LIEFERSCHEIN",
+      "banner": "LIEFERSCHEIN",
+      "address": "Lieferadresse",
+      "addressTruncated": "... {count} weitere Zeichen nicht angezeigt, Bestellung pruefen"
     },
     "hsn": "HSN",
     "zReport": {
@@ -1289,6 +1296,9 @@
     "backupSchemaVersion": "Schema v{version}",
     "billContent": "Rechnungsinhalt",
     "billContentHint": "Zusätzliche Details nur drucken, wenn Daten verfügbar sind.",
+    "deliveryCustomerPhoneWarning": "Wenn diese Option aktiv ist, zeigen Lieferbestellungen und Lieferscheine die Telefonnummer des Kunden, auch wenn Telefonnummer des Kunden deaktiviert ist. Der Kurier braucht sie, um den Kunden anzurufen.",
+    "deliveryShowCustomerPhoneAlways": "Kundennummer bei Lieferbestellungen und Lieferscheinen anzeigen",
+    "deliveryShowCustomerPhoneAlwaysHint": "Gilt für Lieferbestellungen und Lieferscheine. Ausschalten, damit die Einstellung oben auch für Lieferbestellungen gilt.",
     "billTemplate": "Rechnungsvorlage",
     "billTemplateClassicDesc": "Personalisierte Gestaltung mit Kundenname und Mobilnummer, Zusatzdetails, Rabatten sowie gesammelten und eingelösten Treuepunkten. Am besten für Restaurantbestellungen.",
     "billTemplateClassicName": "Klassisch",

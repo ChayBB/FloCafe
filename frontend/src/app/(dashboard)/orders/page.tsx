@@ -93,7 +93,7 @@ interface DiscountModal {
 
 export default function OrdersPage() {
   const { currentTenant, user } = useAuthStore();
-  const { printBill } = usePrinterStore();
+  const { printBill, printDeliverySlip } = usePrinterStore();
   const heldOrdersStore = useHeldOrdersStore();
   const router = useRouter();
   const cartStore = useCartStore();
@@ -152,6 +152,7 @@ export default function OrdersPage() {
   // Print states
   const [generatingBill, setGeneratingBill] = useState<number | null>(null);
   const [printingBillId, setPrintingBillId] = useState<number | null>(null);
+  const [printingSlipOrderId, setPrintingSlipOrderId] = useState<number | null>(null);
   const [sendingWaOrderId, setSendingWaOrderId] = useState<number | null>(null);
   const [confirmPrintBillId, setConfirmPrintBillId] = useState<number | null>(null);
 
@@ -567,6 +568,36 @@ export default function OrdersPage() {
     } finally {
       setPrintingBillId(null);
       setConfirmPrintBillId(null);
+    }
+  };
+
+  const handlePrintDeliverySlip = async (order: Order) => {
+    const customer = order.customer;
+    const phone = customer?.phone
+      ? (customer.country_code && !customer.phone.startsWith(customer.country_code)
+        ? `${customer.country_code} ${customer.phone}`
+        : customer.phone)
+      : '';
+    setPrintingSlipOrderId(order.id);
+    try {
+      const warnings = await printDeliverySlip(
+        order,
+        {
+          name: customer?.name || '',
+          phone,
+          // The order's own address wins; pre-column orders take the fallback,
+          // so that is the common case rather than the rare one.
+          address: order.delivery_address || customer?.address || '',
+        },
+      );
+      showPrintWarningsToast(warnings);
+      toast.success(tOrders('printDeliverySlip'));
+      fetchOrders();
+    } catch (err) {
+      const detail = extractPrinterErrorMessage(err);
+      toast.error(formatReceiptErrorToast(detail, tOrders('printReceiptFailed')));
+    } finally {
+      setPrintingSlipOrderId(null);
     }
   };
 
@@ -1025,6 +1056,8 @@ export default function OrdersPage() {
               printHistory={printHistory}
               generatingBillId={generatingBill}
               printingBillId={printingBillId}
+              onPrintDeliverySlip={handlePrintDeliverySlip}
+              printingSlipOrderId={printingSlipOrderId}
               sendingWaOrderId={sendingWaOrderId}
               cancellingOrderId={cancellingOrderId}
               convertingOrderId={convertingOrderId}

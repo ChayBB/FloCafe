@@ -44,6 +44,7 @@ export interface PosSettingsState {
   billShowTaxBreakdown: boolean;
   billShowCustomerName: boolean;
   billShowCustomerPhone: boolean;
+  billDeliveryShowCustomerPhoneAlways: boolean;
   billShowTableNumber: boolean;
   // Thermal printer unicode support
   printerUseUnicode: boolean;
@@ -84,6 +85,7 @@ export interface PosSettingsState {
   setBillShowTaxBreakdown: (v: boolean) => void;
   setBillShowCustomerName: (v: boolean) => void;
   setBillShowCustomerPhone: (v: boolean) => void;
+  setBillDeliveryShowCustomerPhoneAlways: (v: boolean) => void;
   setBillShowTableNumber: (v: boolean) => void;
   setBillingType: (v: 'postpaid' | 'prepaid') => void;
   setTablesRequired: (v: boolean) => void;
@@ -129,6 +131,7 @@ export const usePosSettingsStore = create<PosSettingsState>()(
       billShowTaxBreakdown: true,
       billShowCustomerName: true,
       billShowCustomerPhone: true,
+    billDeliveryShowCustomerPhoneAlways: true,
       billShowTableNumber: true,
       printerUseUnicode: false,
       printerArabicShaping: false,
@@ -167,6 +170,7 @@ export const usePosSettingsStore = create<PosSettingsState>()(
       setBillShowTaxBreakdown: (v) => set({ billShowTaxBreakdown: v }),
       setBillShowCustomerName: (v) => set({ billShowCustomerName: v }),
       setBillShowCustomerPhone: (v) => set({ billShowCustomerPhone: v }),
+      setBillDeliveryShowCustomerPhoneAlways: (v) => set({ billDeliveryShowCustomerPhoneAlways: v }),
       setBillShowTableNumber: (v) => set({ billShowTableNumber: v }),
       setBillingType: (v) => set({ billingType: v }),
       setTablesRequired: (v) => set({ tablesRequired: v }),
@@ -186,7 +190,7 @@ export const usePosSettingsStore = create<PosSettingsState>()(
         Object.entries(s).filter(([k]) => k !== 'whatsappEnabled' && k !== 'billLanguagePolicy' && k !== 'kotLanguagePolicy'),
       ) as PosSettingsState,
       // Migrates legacy store keys (GSTIN rename, removed A4/A5 paper sizes).
-      version: 3,
+      version: 4,
       migrate: (persisted, version) => {
         const state = persisted as Record<string, unknown>;
         if (version < 1) {
@@ -212,6 +216,11 @@ export const usePosSettingsStore = create<PosSettingsState>()(
           state.billShowCustomerName ??= true;
           state.billShowCustomerPhone ??= true;
           state.billShowTableNumber ??= true;
+        }
+        if (version < 4) {
+          // Added after v3, which a store already at v3 never runs, so the field
+          // would stay undefined and the save would send nothing for it.
+          state.billDeliveryShowCustomerPhoneAlways ??= true;
         }
         return state as unknown as PosSettingsState;
       },

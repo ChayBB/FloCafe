@@ -78,6 +78,7 @@ export interface WebPrintOptions {
   showTaxBreakdown?: boolean;
   showCustomerName?: boolean;
   showCustomerPhone?: boolean;
+  deliveryShowCustomerPhoneAlways?: boolean;
   showTableNumber?: boolean;
   /** Ignored for browser receipts: HTML uses locale currency formatting and code fallback. */
   useUnicode?: boolean;
@@ -225,6 +226,7 @@ export function generateBillHtml(
     showTaxBreakdown = true,
     showCustomerName = true,
     showCustomerPhone = true,
+    deliveryShowCustomerPhoneAlways,
     showTableNumber = true,
     isReprint = false,
     trimDecimals = false,
@@ -246,6 +248,7 @@ export function generateBillHtml(
     showTaxBreakdown,
     showCustomerName,
     showCustomerPhone,
+    deliveryShowCustomerPhoneAlways,
     showTableNumber,
     isReprint,
     trimDecimals,

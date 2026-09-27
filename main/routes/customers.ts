@@ -4,6 +4,7 @@ import { randomUUID } from 'crypto';
 import { getDatabase, now, getSettingValue } from '../db';
 import { requirePermission } from '../services/authorization';
 import { parsePhoneE164, stripPhoneDigits } from '../lib/phone';
+import { validateCustomerAddress } from './orders-validation';
 
 export function parseCustomer(c: any): any {
   if (!c) return c;
@@ -305,6 +306,14 @@ router.post('/', customerWriteRateLimit, requirePermission('customers.create'), 
 
     const db = getDatabase();
 
+    // The delivery slip prints the address in full, so an over-long address is
+    // refused on the way in rather than on a courier's paper.
+    try {
+      validateCustomerAddress(db, address === undefined || address === null ? null : String(address));
+    } catch (err: unknown) {
+      return res.status(400).json({ error: err instanceof Error ? err.message : 'Invalid address' });
+    }
+
     const originalPhone = phone ? String(phone).trim() : '';
     let finalPhone = originalPhone || null;
     let finalCountryCode = country_code ? String(country_code).trim() : null;
@@ -425,6 +434,16 @@ router.put('/:id', customerWriteRateLimit, requirePermission('customers.edit'), 
     const finalEmail = email !== undefined ? (email ? String(email).trim() : null) : customer.email;
     const finalAddress = address !== undefined ? (address ? String(address).trim() : null) : customer.address;
     const finalNotes = notes !== undefined ? (notes ? String(notes).trim() : null) : customer.notes;
+
+    // Only a newly supplied address is checked, so a legacy long row stays
+    // editable and printable.
+    if (address !== undefined) {
+      try {
+        validateCustomerAddress(db, finalAddress);
+      } catch (err: any) {
+        return res.status(400).json({ error: err.message });
+      }
+    }
 
     db.prepare(`
       UPDATE customers SET

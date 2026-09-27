@@ -294,3 +294,70 @@ npm run test:supplies-service         # negative stock, ledger, pagination
 **Change policy:** allowing negative stock and snapshot-keyed restoration are the load-bearing
 parts. Clamping stock or restoring from the live recipe would break historical correctness, so
 either needs explicit confirmation.
+
+---
+
+## A receipt and a courier slip are not secure artefacts
+
+**Rule:** A printed receipt and a printed delivery slip are both **handouts, not secure
+artefacts**. Neither is treated as a confidentiality boundary, and the system never gates printing
+on the belief that the printed page is controlled.
+
+Two consequences follow, and they are separate decisions:
+
+1. **The delivery slip prints the customer's full phone number and delivery address whenever
+   either of the two number settings allows it.** A courier who cannot call the customer, or
+   cannot find the house, is the failure this document exists to prevent.
+2. **The receipt keeps masking the customer number**, shortening it to its last four digits. This
+   is privacy hygiene for a page the customer carries away, not an access control.
+
+A delivery document shows the number when **either** setting allows it. `bill_delivery_show
+_customer_phone_always` ships **on**, so out of the box a delivery order and its courier slip show
+the number even when `bill_show_customer_phone` is off. Turning the delivery override off hands
+delivery documents back to `bill_show_customer_phone`, which is the point of the override: a
+merchant who wants the number hidden on receipts has one control to reach for, and one control to
+undo. The number is withheld only when both say hide. The two documents are resolved by the same
+rule, so a delivery receipt and its courier slip cannot disagree.
+
+The Printers settings panel, under Bill Content, states this beside the toggle it contradicts,
+and the warning is always present rather than appearing only once the merchant has turned the
+number off.
+
+**Reason:** the masking is inconsistent by construction and never was a boundary. The
+backend-native receipt path and the browser-HTML path both print the full number today, and
+`GET /api/customers` returns every customer's `phone` **and** `address` to any role holding
+`customers.view`, whose shipped defaults include `cashier` and `server`. An ordinary cashier can
+therefore already read every customer phone number and address in the shop on one screen, and
+`printing.execute` ships to the same roles. Adding a permission to the slip would close one door
+in a room with three open ones while claiming a protection that does not exist.
+
+**The divergence is deliberate and visible, not accidental.** The slip is a separate document kind
+with its own builder, so it never passes through `buildBillDocument`; it resolves the number
+through `shouldShowCustomerNumber` instead, which is why a slip and a delivery receipt can never
+disagree. A merchant who hides the number on receipts gets a slip that differs by default, and can
+change that from the same panel. Do not "fix" it by routing the slip through the receipt document,
+which would make the two documents share one default and reopen the question.
+
+**Enforced by:** `shouldShowCustomerNumber()` in `shared/print/document.ts`, the one rule both
+delivery surfaces resolve; `buildDeliverySlipDocument`, which has no mask parameter to flip;
+`main/printers/document-delivery-slip.ts`, which imports neither the mask helper nor the shared
+option name; `resolveReceiptPhone()` in `frontend/src/lib/printer/receipt-encoder.ts`, where the
+receipt's mask is a named option that defaults to masked. The slip's route is `POST /api/printers/print-delivery-slip` in
+`main/routes/printers.ts`, gated on the same `printing.execute` permission as every other print.
+
+**How to verify:**
+
+```sh
+npm run test:delivery-slip   # both settings allow it, receipt still masks, no shared default
+```
+
+A legacy customer address written before the length boundary existed can be any length. The slip
+bounds it so one row cannot monopolise the paper, and it prints how many characters were not shown
+and where to look. Truncating in silence is not an available outcome: a courier holding a partial
+address that looks complete is worse than one holding a marked one.
+
+**Change policy:** making either document confidential is a product migration, not a flag.
+`shared/permissions.ts` states the rule in the file: changing a shipped default is reviewed as a
+product migration because store-local overrides live in sparse tables. It would also have to
+address `customers.view`, which is the wider exposure. Raise it as its own issue rather than
+narrowing one print route.

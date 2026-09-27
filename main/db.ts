@@ -5349,6 +5349,25 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       `);
     },
   },
+  {
+    version: 94,
+    name: 'add_order_delivery_address',
+    up: () => {
+      // A fresh install gets this column from the CREATE TABLE, so the ALTER is
+      // guarded the way the online_platform migration guards its own columns.
+      const orderColumns = getColumns(db, 'orders');
+      if (!orderColumns.includes('delivery_address')) {
+        db.exec(`ALTER TABLE orders ADD COLUMN delivery_address TEXT DEFAULT NULL`);
+      }
+      // On by default: delivery documents show the number unless the merchant
+      // turns it off. See docs/reference/product-invariants.md.
+      db.prepare('INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, ?)').run(
+        'bill_delivery_show_customer_phone_always',
+        'true',
+        now(),
+      );
+    },
+  },
 ];
 
 function syncBackupBeforeMigration(fromVersion: number, toVersion: number): void {
@@ -5631,6 +5650,7 @@ function createSchema(): void {
       customer_id TEXT,
       user_id TEXT,
       type TEXT DEFAULT 'takeaway',
+      delivery_address TEXT DEFAULT NULL,
       guest_count INTEGER,
       special_instructions TEXT,
       packaging_charge REAL DEFAULT 0,
@@ -6126,6 +6146,7 @@ function seedInstallDefaults(): void {
   insert('bill_show_tax_breakdown', 'true');
   insert('bill_show_customer_name', 'true');
   insert('bill_show_customer_phone', 'true');
+  insert('bill_delivery_show_customer_phone_always', 'true');
   insert('bill_show_table_number', 'true');
   insert('order_number_prefix', 'ORD');
   insert('order_number_include_date', 'true');

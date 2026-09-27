@@ -480,6 +480,11 @@ function kotOrderTypeValue(labels: LabelContext, value: string): string {
   return resolveSemanticLabel(labels, conceptId).primary;
 }
 
+function toTruncatedCount(value: unknown): number {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : 0;
+}
+
 function optionalDirectional(text: string | undefined | null, base: TextDirection): DirectionalText | null {
   if (text === undefined || text === null || String(text).length === 0) return null;
   return directionalText(String(text), base);
@@ -869,6 +874,111 @@ export interface KotDocument {
   readonly blocks: readonly KotDocumentBlock[];
 }
 
+// ---------------------------------------------------------------------------
+// Delivery slip document v1
+// ---------------------------------------------------------------------------
+
+export type DeliverySlipAddressSource = 'order' | 'customer';
+
+/** Inputs to the customer-number visibility rule, all caller-resolved. */
+export interface CustomerNumberVisibility {
+  /** The merchant's `bill_show_customer_phone` setting. */
+  readonly showOnReceipts: boolean;
+  /** The merchant's `bill_delivery_show_customer_phone_always` override. */
+  readonly alwaysForDeliveryOrders: boolean;
+  /** The order type being printed, e.g. `delivery`. */
+  readonly orderType: string;
+}
+
+export function shouldShowCustomerNumber(visibility: CustomerNumberVisibility): boolean {
+  if (visibility.showOnReceipts) return true;
+  return visibility.alwaysForDeliveryOrders && visibility.orderType.trim() === 'delivery';
+}
+
+export interface DeliverySlipContactBlock {
+  readonly kind: 'delivery-slip-contact';
+  readonly direction: TextDirection;
+  readonly name: DirectionalText | null;
+  /** Always the full number. The slip is the one document where it is the point. */
+  readonly phone: DirectionalText | null;
+  readonly address: DirectionalText | null;
+  /** Which record the printed address came from, when an address is present. */
+  readonly addressSource: DeliverySlipAddressSource | null;
+  readonly addressTruncatedChars: number;
+  readonly nameLabel: SemanticLabel;
+  readonly phoneLabel: SemanticLabel;
+  readonly addressLabel: SemanticLabel;
+}
+
+export interface DeliverySlipItemRow {
+  readonly direction: TextDirection;
+  readonly name: DirectionalText;
+  readonly quantity: number;
+  readonly addons: readonly DeliverySlipItemAddon[];
+  readonly specialInstructions: DirectionalText | null;
+}
+
+export interface DeliverySlipItemAddon extends DirectionalText {
+  readonly quantity?: number;
+}
+
+export interface DeliverySlipItemsBlock {
+  readonly kind: 'delivery-slip-items';
+  readonly direction: TextDirection;
+  readonly rows: readonly DeliverySlipItemRow[];
+}
+
+export interface DeliverySlipHeaderBlock {
+  readonly kind: 'delivery-slip-header';
+  readonly direction: TextDirection;
+  readonly banner: SemanticLabel;
+  readonly title: SemanticLabel;
+  readonly orderNumberLabel: SemanticLabel;
+  readonly orderNumber: DirectionalText;
+  readonly orderType: { readonly label: SemanticLabel; readonly value: DirectionalText; readonly code: string } | null;
+  readonly timeLabel: SemanticLabel;
+  readonly timestamp: DirectionalText;
+}
+
+export type DeliverySlipDocumentBlock =
+  | DeliverySlipHeaderBlock
+  | DeliverySlipContactBlock
+  | DeliverySlipItemsBlock;
+
+export interface DeliverySlipPrintData {
+  readonly order: {
+    readonly orderNumber: string;
+    readonly createdAt: string;
+    readonly orderType: string;
+  };
+  readonly contact: {
+    readonly name: string;
+    /** Full number, country code already prefixed by the caller. */
+    readonly phone: string;
+    readonly address: string;
+    readonly addressSource: DeliverySlipAddressSource | null;
+    /** Characters dropped from a legacy over-long address, 0 when it printed whole. */
+    readonly addressTruncatedChars?: number;
+  };
+  readonly items: readonly {
+    readonly productName: string;
+    readonly quantity: number;
+    readonly addons: readonly { readonly name: string; readonly quantity?: number }[];
+    readonly specialInstructions: string;
+  }[];
+}
+
+/**
+ * Renderer-independent semantic delivery slip, version 1. Single-primary
+ * language like the KOT: a courier reads one sheet, not a bilingual receipt.
+ */
+export interface DeliverySlipDocument {
+  readonly version: 1;
+  readonly direction: DirectionSpec;
+  readonly languages: ResolvedPrintLanguages;
+  readonly blocks: readonly DeliverySlipDocumentBlock[];
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object';
 }
@@ -1111,5 +1221,123 @@ export function buildKotDocument(printData: KotPrintData, printContext: PrintCon
     direction: resolveDirectionSpec(base),
     languages: printContext.languages,
     blocks: Object.freeze([header, items] as readonly KotDocumentBlock[]),
+  });
+}
+
+function isDeliverySlipDocumentBlock(value: unknown): value is DeliverySlipDocumentBlock {
+  if (!isRecord(value) || !isDirection(value.direction) || typeof value.kind !== 'string') return false;
+  if (value.kind === 'delivery-slip-contact') {
+    return (value.name === null || isDirectionalText(value.name))
+      && (value.phone === null || isDirectionalText(value.phone))
+      && (value.address === null || isDirectionalText(value.address))
+      && (value.addressSource === null || value.addressSource === 'order' || value.addressSource === 'customer')
+      && isFiniteNumber(value.addressTruncatedChars)
+      && isSemanticLabel(value.nameLabel)
+      && isSemanticLabel(value.phoneLabel)
+      && isSemanticLabel(value.addressLabel);
+  }
+  if (value.kind === 'delivery-slip-header') {
+    return isSemanticLabel(value.banner)
+      && isSemanticLabel(value.title)
+      && isSemanticLabel(value.orderNumberLabel)
+      && isDirectionalText(value.orderNumber)
+      && (value.orderType === null || (isRecord(value.orderType)
+        && isSemanticLabel(value.orderType.label)
+        && isDirectionalText(value.orderType.value)
+        && typeof value.orderType.code === 'string'))
+      && isSemanticLabel(value.timeLabel)
+      && isDirectionalText(value.timestamp);
+  }
+  if (value.kind !== 'delivery-slip-items' || !Array.isArray(value.rows)) return false;
+  return value.rows.every((row) => isRecord(row)
+    && isDirectionalText(row.name)
+    && isFiniteNumber(row.quantity)
+    && Array.isArray(row.addons)
+    && row.addons.every((addon) => isRecord(addon) && isDirectionalText(addon)
+      && (addon.quantity === undefined || isFiniteNumber(addon.quantity)))
+    && isOptionalDirectionalText(row.specialInstructions));
+}
+
+export function isDeliverySlipDocument(value: unknown): value is DeliverySlipDocument {
+  return isRecord(value)
+    && value.version === 1
+    && isDirectionSpec(value.direction)
+    && isLanguages(value.languages)
+    && value.languages.length === 1
+    && Array.isArray(value.blocks)
+    && value.blocks.length === 3
+    && value.blocks[0].kind === 'delivery-slip-header'
+    && value.blocks[1].kind === 'delivery-slip-contact'
+    && value.blocks[2].kind === 'delivery-slip-items'
+    && value.blocks.filter((block) => isRecord(block) && block.kind === 'delivery-slip-contact').length === 1
+    && value.blocks.every(isDeliverySlipDocumentBlock);
+}
+
+export function buildDeliverySlipDocument(
+  printData: DeliverySlipPrintData,
+  printContext: PrintContext,
+): DeliverySlipDocument {
+  const base = printContext.baseDirection;
+  const labels: LabelContext = { ctx: printContext, primary: printContext.languages[0] };
+
+  const orderTypeCode = String(printData.order?.orderType ?? '').trim();
+
+  const header: DeliverySlipHeaderBlock = Object.freeze({
+    kind: 'delivery-slip-header',
+    direction: base,
+    banner: resolveSemanticLabel(labels, 'print.deliverySlip.banner'),
+    title: resolveSemanticLabel(labels, 'print.deliverySlip.title'),
+    orderNumberLabel: resolveSemanticLabel(labels, 'pos.orderNumber'),
+    orderNumber: directionalText(String(printData.order?.orderNumber ?? ''), base),
+    orderType: orderTypeCode.length > 0
+      ? Object.freeze({
+        label: resolveSemanticLabel(labels, 'print.kot.type'),
+        value: directionalText(kotOrderTypeValue(labels, orderTypeCode), base),
+        code: orderTypeCode,
+      })
+      : null,
+    timeLabel: resolveSemanticLabel(labels, 'print.time'),
+    timestamp: directionalText(String(printData.order?.createdAt ?? ''), base),
+  });
+
+  const address = String(printData.contact?.address ?? '');
+
+  const contact: DeliverySlipContactBlock = Object.freeze({
+    kind: 'delivery-slip-contact',
+    direction: base,
+    name: optionalDirectional(printData.contact?.name, base),
+    phone: optionalDirectional(printData.contact?.phone, base),
+    address: optionalDirectional(address, base),
+    addressSource: address.length > 0 ? (printData.contact?.addressSource ?? 'customer') : null,
+    addressTruncatedChars: address.length > 0 ? toTruncatedCount(printData.contact?.addressTruncatedChars) : 0,
+    nameLabel: resolveSemanticLabel(labels, 'pos.customer'),
+    phoneLabel: resolveSemanticLabel(labels, 'print.numberShort'),
+    addressLabel: resolveSemanticLabel(labels, 'print.deliverySlip.address'),
+  });
+
+  const items: DeliverySlipItemsBlock = Object.freeze({
+    kind: 'delivery-slip-items',
+    direction: base,
+    rows: Object.freeze((Array.isArray(printData.items) ? printData.items : []).map((item) => Object.freeze({
+      direction: base,
+      name: directionalText(String(item?.productName ?? ''), base),
+      quantity: Number(item?.quantity) || 0,
+      addons: Object.freeze((item?.addons ?? [])
+        .filter((addon: { readonly name?: string } | undefined) => typeof addon?.name === 'string' && addon.name.length > 0)
+        .map((addon: { readonly name: string; readonly quantity?: number }) => Object.freeze({
+          ...directionalText(String(addon.name), base),
+          ...(typeof addon.quantity === 'number' && Number.isFinite(addon.quantity) && addon.quantity > 0
+            ? { quantity: addon.quantity }
+            : {}),
+        }))),
+      specialInstructions: optionalDirectional(item?.specialInstructions, base),
+    }))),
+  });
+
+  return Object.freeze({
+    version: 1 as const,
+    direction: resolveDirectionSpec(base),
+    languages: printContext.languages,
+    blocks: Object.freeze([header, contact, items] as readonly DeliverySlipDocumentBlock[]),
   });
 }

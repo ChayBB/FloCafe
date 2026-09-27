@@ -606,6 +606,7 @@
     "selectedItems": "Selected Items",
     "sendFailed": "Send failed",
     "sendReceipt": "Send Receipt",
+    "printDeliverySlip": "Delivery Slip",
     "served": "Served",
     "settled": "Settled",
     "startNewOrderForCustomer": "Start new order for this customer",
@@ -917,6 +918,12 @@
       "type": "Type",
       "noPendingItems": "No pending items",
       "end": "END"
+    },
+    "deliverySlip": {
+      "title": "DELIVERY SLIP",
+      "banner": "DELIVERY SLIP",
+      "address": "Delivery address",
+      "addressTruncated": "... {count} more characters not shown, check the order"
     },
     "hsn": "HSN",
     "zReport": {
@@ -1289,6 +1296,9 @@
     "backupSchemaVersion": "schema v{version}",
     "billContent": "Bill Content",
     "billContentHint": "Enabled details print only when data is available.",
+    "deliveryCustomerPhoneWarning": "With this option on, delivery orders and courier slips show the customer's number even while Customer Number is off. The courier needs it to call the customer.",
+    "deliveryShowCustomerPhoneAlways": "Show the customer number on delivery orders and courier slips",
+    "deliveryShowCustomerPhoneAlwaysHint": "Governs delivery orders and courier slips. Turn it off to let Customer Number decide for delivery orders too.",
     "billTemplate": "Bill Template",
     "billTemplateClassicDesc": "Personalized layout with customer name/mobile, addon details, discounts, and loyalty points earned/balance. Best for dine-in.",
     "billTemplateClassicName": "Classic",

@@ -294,6 +294,9 @@ function sanitizeOrderSnapshot(value: unknown): unknown {
   const safe = { ...snapshot };
   delete safe.customer;
   delete safe.customer_id;
+  // PII: the snapshot is a SELECT * spread, so a new free-text address column
+  // leaves the machine unless it is named here. A test enforces that.
+  delete safe.delivery_address;
   delete safe.special_instructions;
   delete safe.discount_reason;
   delete safe.cancellation_reason;

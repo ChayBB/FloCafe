@@ -606,6 +606,7 @@
     "selectedItems": "Seçilen Ürünler",
     "sendFailed": "Gönderme başarısız",
     "sendReceipt": "Fiş Gönder",
+    "printDeliverySlip": "Teslimat Makbuzu",
     "served": "Servis Edildi",
     "settled": "Kapatıldı",
     "startNewOrderForCustomer": "Bu müşteri için yeni sipariş başlat",
@@ -917,6 +918,12 @@
       "type": "Tür",
       "noPendingItems": "Bekleyen ürün yok",
       "end": "SON"
+    },
+    "deliverySlip": {
+      "title": "TESLİMAT MAKBUZU",
+      "banner": "TESLİMAT MAKBUZU",
+      "address": "Teslimat Adresi",
+      "addressTruncated": "... {count} karakter daha gosterilmedi, siparisi kontrol edin"
     },
     "hsn": "HSN / GTİP",
     "zReport": {
@@ -1289,6 +1296,9 @@
     "backupSchemaVersion": "şema v{version}",
     "billContent": "Fiş İçeriği",
     "billContentHint": "Etkinleştirilen detaylar yalnızca veri mevcut olduğunda yazdırılır.",
+    "deliveryCustomerPhoneWarning": "Bu seçenek açıkken, Müşteri Telefonu kapalı olsa bile teslimat siparişlerinde ve kurye fişlerinde müşteri telefonu gösterilir. Kuryerin müşteriyi araması için gerekir.",
+    "deliveryShowCustomerPhoneAlways": "Teslimat siparişlerinde ve kurye fişlerinde müşteri numarasını göster",
+    "deliveryShowCustomerPhoneAlwaysHint": "Teslimat siparişlerini ve kurye fişlerini kapsar. Kapatırsanız yukarıdaki müşteri telefonu ayarı teslimat siparişleri için de geçerli olur.",
     "billTemplate": "Fiş Tasarımı / Şablonu",
     "billTemplateClassicDesc": "Müşteri adı, eklenti detayları, indirimler ve sadakat puanlarını içeren ayrıntılı düzen. Masada servis için en iyisidir.",
     "billTemplateClassicName": "Klasik",

@@ -656,6 +656,7 @@ export default function POSPage() {
           special_instructions: cart.orderNotes || undefined,
           online_platform: cart.orderType === 'online' ? cart.onlinePlatform || undefined : undefined,
           external_order_id: cart.orderType === 'online' ? cart.externalOrderId || undefined : undefined,
+          delivery_address: cart.orderType === 'delivery' ? cart.deliveryAddress || undefined : undefined,
           items: cart.items.map((item) => ({
             product_id: item.product.id,
             quantity: item.quantity,
@@ -819,6 +820,7 @@ export default function POSPage() {
           special_instructions: cart.orderNotes || undefined,
           online_platform: cart.orderType === 'online' ? cart.onlinePlatform || undefined : undefined,
           external_order_id: cart.orderType === 'online' ? cart.externalOrderId || undefined : undefined,
+          delivery_address: cart.orderType === 'delivery' ? cart.deliveryAddress || undefined : undefined,
           items: orderItems,
         }, { headers: { 'Idempotency-Key': attempt.orderIdempotencyKey } });
         orderData = data;

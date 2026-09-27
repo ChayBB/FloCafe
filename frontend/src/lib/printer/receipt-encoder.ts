@@ -55,6 +55,13 @@ export interface ReceiptOptions {
   showCustomerName?: boolean;
   /** Show the customer phone when available. Default: true */
   showCustomerPhone?: boolean;
+  /**
+   * Whether to shorten the customer number to its last four digits. Default
+   * `true`, so a caller wanting the full number has to say so out loud.
+   */
+  maskCustomerPhone?: boolean;
+  /** Default on. Resolved by `shouldShowCustomerNumber`, the shared rule. */
+  deliveryShowCustomerPhoneAlways?: boolean;
   /** Show the table number when available. Default: true */
   showTableNumber?: boolean;
   /** If false (default), replace ₹/€/£/etc. with ASCII (Rs, EUR, GBP…). */
@@ -156,6 +163,11 @@ const CHARS: Record<58 | 80, number> = { 58: columnsForReceiptPaperSize(58), 80:
 function maskPhoneOnReceipt(phone: string): string {
   if (!phone || phone.length < 4) return phone;
   return 'x'.repeat(phone.length - 4) + phone.slice(-4);
+}
+
+/** Masked unless a caller opts out, so existing receipt bytes do not move. */
+function resolveReceiptPhone(phone: string, maskCustomerPhone?: boolean): string {
+  return maskCustomerPhone === false ? phone : maskPhoneOnReceipt(phone);
 }
 
 // Document render environment (shared by classic + compact)
@@ -261,6 +273,7 @@ function buildReceiptEnvironment(
     showBusinessName: opts.showBusinessName,
     showCustomerName: opts.showCustomerName,
     showCustomerPhone: opts.showCustomerPhone,
+    deliveryShowCustomerPhoneAlways: opts.deliveryShowCustomerPhoneAlways,
     showTableNumber: opts.showTableNumber,
     isReprint: opts.isReprint,
     trimDecimals: opts.trimDecimals,
@@ -461,7 +474,7 @@ export function buildClassicReceiptBytes(
     safePrinterText(enc, customer.name.text, warnings, false, arabicShaping, cols).newline();
   }
   if (customer?.phone) {
-    enc.text(maskPhoneOnReceipt(customer.phone.text)).newline();
+    enc.text(resolveReceiptPhone(customer.phone.text, opts?.maskCustomerPhone)).newline();
   }
 
   if (meta) {
@@ -701,7 +714,7 @@ export function buildCompactReceiptBytes(
     safePrinterText(enc, `${printLabelResolver('print.customerShort', primaryLang)}: ${truncate(customer.name.text, cols - 6)}`, warnings, false, arabicShaping, undefined, cols).newline();
   }
   if (customer?.phone) {
-    safePrinterText(enc, `${printLabelResolver('print.numberShort', primaryLang)}: ${maskPhoneOnReceipt(customer.phone.text)}`, warnings, false, arabicShaping).newline();
+    safePrinterText(enc, `${printLabelResolver('print.numberShort', primaryLang)}: ${resolveReceiptPhone(customer.phone.text, opts?.maskCustomerPhone)}`, warnings, false, arabicShaping).newline();
   }
 
   enc.rule({ style: 'single' });
@@ -893,7 +906,7 @@ export function buildDetailedReceiptBytes(
     ).newline();
   }
   if (showCustomerPhone && order?.customer?.phone) {
-    safePrinterText(enc, `Customer No: ${maskPhoneOnReceipt(order.customer.phone)}`, warnings, false, arabicShaping).newline();
+    safePrinterText(enc, `Customer No: ${resolveReceiptPhone(order.customer.phone, opts.maskCustomerPhone)}`, warnings, false, arabicShaping).newline();
   }
   if (showTableNumber && order?.table?.name) {
     safePrinterText(enc, `Table: ${order.table.name}`, warnings, false, arabicShaping, undefined, cols).newline();

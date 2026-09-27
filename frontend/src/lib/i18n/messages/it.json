@@ -606,6 +606,7 @@
     "selectedItems": "Articoli selezionati",
     "sendFailed": "Invio non riuscito",
     "sendReceipt": "Invia ricevuta",
+    "printDeliverySlip": "Ricevuta di consegna",
     "served": "Servito",
     "settled": "Saldato",
     "startNewOrderForCustomer": "Avvia un nuovo ordine per questo cliente",
@@ -917,6 +918,12 @@
       "type": "Tipo",
       "noPendingItems": "Nessun articolo in attesa",
       "end": "FINE"
+    },
+    "deliverySlip": {
+      "title": "RICEVUTA DI CONSEGNA",
+      "banner": "RICEVUTA DI CONSEGNA",
+      "address": "Indirizzo di consegna",
+      "addressTruncated": "... altri {count} caratteri non mostrati, controlla lordine"
     },
     "hsn": "HSN",
     "zReport": {
@@ -1289,6 +1296,9 @@
     "backupSchemaVersion": "schema v{version}",
     "billContent": "Contenuto conto",
     "billContentHint": "I dettagli abilitati vengono stampati solo quando i dati sono disponibili.",
+    "deliveryCustomerPhoneWarning": "Con questa opzione attiva, gli ordini di consegna e le ricevute di consegna mostrano il numero del cliente anche quando Numero cliente è disattivato. Il corriere ne ha bisogno per chiamare il cliente.",
+    "deliveryShowCustomerPhoneAlways": "Mostra il numero del cliente su ordini di consegna e ricevute di consegna",
+    "deliveryShowCustomerPhoneAlwaysHint": "Vale per gli ordini di consegna e le ricevute di consegna. Disattivalo perché Numero cliente valga anche per gli ordini di consegna.",
     "billTemplate": "Modello conto",
     "billTemplateClassicDesc": "Layout personalizzato con nome/mobile del cliente, dettagli extra, sconti e punti fedeltà guadagnati/saldo. Ideale per il servizio al tavolo.",
     "billTemplateClassicName": "Classico",
