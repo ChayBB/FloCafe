@@ -63,11 +63,14 @@ function resolveProfile(req: Request) {
   return isAuthenticatedRequest(req) ? supportProfile(req) : BLANK_PROFILE;
 }
 
-function resolveCategory(value: unknown): string {
+/** Shared with the diagnostics screen so both surfaces classify a category identically. */
+export function resolveCategory(value: unknown): string {
   return ALLOWED_CATEGORIES.has(String(value || '')) ? String(value) : 'general';
 }
 
-function buildSystemDiagnostics(req: Request, category: string) {
+// Shared with the diagnostics screen so both report the same system state,
+// rather than the screen carrying a second implementation.
+export function buildSystemDiagnostics(req: Request, category: string) {
   const db = getDatabase();
   const schemaVersion = db.pragma('user_version', { simple: true }) as number;
   const profile = resolveProfile(req);
