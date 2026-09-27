@@ -11,6 +11,10 @@ const ROOT = path.resolve(__dirname, '..', '..');
 const DOCS = path.join(ROOT, 'docs');
 const INDEX = path.join(DOCS, 'README.md');
 
+// Documentation outside docs/ that still answers the same questions, so the
+// link and policy checks cover it. Index completeness stays scoped to docs/.
+const EXTRA_DOC_ROOTS = [path.join(ROOT, 'frontend')];
+
 // Skipped everywhere: generated trees, vendored output, and machine-owned
 // changelogs whose links are not authored by hand.
 const IGNORED_DIRS = new Set(['node_modules', 'dist', '.next', 'out', '.git']);
@@ -121,6 +125,12 @@ function rootFiles() {
     .map((e) => path.join(ROOT, e.name));
 }
 
+// Link and policy scope. Index completeness reads docFiles() directly, since
+// only docs/ owns the index.
+function checkedFiles() {
+  return [...docFiles(), ...rootFiles(), ...EXTRA_DOC_ROOTS.flatMap((dir) => listMarkdown(dir))];
+}
+
 // Strips fenced code blocks and inline code so policy rules read prose only.
 function proseLines(file) {
   const raw = fs.readFileSync(file, 'utf8').split(/\r?\n/);
@@ -152,7 +162,7 @@ function isExternal(target) {
 function checkLinks() {
   const errors = [];
   let checked = 0;
-  for (const file of [...docFiles(), ...rootFiles()]) {
+  for (const file of checkedFiles()) {
     const raw = fs.readFileSync(file, 'utf8');
     let match;
     LINK_RE.lastIndex = 0;
@@ -227,7 +237,7 @@ function policyAllowList(file, prose) {
 
 function checkPolicy() {
   const errors = [];
-  const files = [...docFiles(), ...rootFiles()];
+  const files = checkedFiles();
   for (const file of files) {
     const relPath = toPosix(path.relative(ROOT, file));
     const entries = proseLines(file);
