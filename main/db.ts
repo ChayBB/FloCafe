@@ -5460,6 +5460,13 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       `);
     },
   },
+  {
+    version: 97,
+    name: 'add_kitchen_delivery_settlement_setting',
+    up: () => {
+      insertSettingIfMissing('require_kitchen_delivered_before_settlement', 'false');
+    },
+  },
 ];
 
 function syncBackupBeforeMigration(fromVersion: number, toVersion: number): void {
@@ -6225,6 +6232,7 @@ function seedInstallDefaults(): void {
   insert('telemetry_scope', 'usage_stats,country,app_version,platform,session_duration,feature_usage,error_diagnostics');
   insert('diagnostics_consent', 'true');
   insert('kds_enabled', 'true');
+  insert('require_kitchen_delivered_before_settlement', 'false');
   insert('server_app_enabled', 'true');
   insert('kot_printing_enabled', 'true');
   insert('server_app_bill_printing_enabled', 'false');
