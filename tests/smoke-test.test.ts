@@ -43,6 +43,14 @@ async function run() {
     assert(res2.status === 200, 'KDS Server health check responds with 200');
     assert(res2.body.status === 'ok', 'KDS Server health check body is ok');
 
+    // Companion ports are reported unauthenticated, because a device that found
+    // this POS by QR, subnet sweep or a typed address has no other way to learn
+    // them before signing in — /api/pos-info carries the same values but needs a
+    // token. docs/mobile-discovery.md relies on this.
+    assert(res1.body.service === 'Flo Local API', 'health reports the service marker clients match on');
+    assert(res1.body.kds_port === kdsPort, 'health reports the KDS port');
+    assert(typeof res1.body.server_app_port === 'number', 'health reports the Server App port');
+
     // 2. Seed owner user and test setup/auth state on Main API
     const db = getDatabase();
     const bcrypt = require('bcryptjs');

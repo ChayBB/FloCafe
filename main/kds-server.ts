@@ -13,6 +13,7 @@ import { setupKdsWebSocket, notifyKdsUpdate } from './services/kds';
 import { getJWTSecret, parseCategoryIds } from './routes/auth';
 import { rateLimit, authRateLimit, staticRouteRateLimit, corsOptions, isTokenRevoked, isTokenStale, revokeToken } from './middleware/security';
 import { buildCspHeader } from './csp';
+import { getDefaultKdsPort, getKdsPort as getActiveKdsPort, setKdsPort } from './kds-server-state';
 import { resolveContainedPath } from './lib/path-containment';
 import { ROLE_ACCESS, hasRole } from '../shared/role-permissions';
 
@@ -21,8 +22,7 @@ let kdsWss: WebSocketServer | null = null;
 let stopPromise: Promise<void> | null = null;
 let startReject: ((error: Error) => void) | null = null;
 let stopping = false;
-const KDS_PORT = parseInt(process.env.KDS_PORT || '3002', 10);
-let activeKdsPort = KDS_PORT;
+const KDS_PORT = getDefaultKdsPort();
 
 type KdsRequestUser = {
   userId: string;
@@ -588,8 +588,8 @@ export function startKdsServer(): Promise<void> {
         startReject = null;
         listeningServer.off('error', onError);
         const address = listeningServer.address();
-        activeKdsPort = address && typeof address !== 'string' ? address.port : attemptedPort;
-        console.log(`[KDS Server] HTTP server running on http://localhost:${activeKdsPort}`);
+        setKdsPort(address && typeof address !== 'string' ? address.port : attemptedPort);
+        console.log(`[KDS Server] HTTP server running on http://localhost:${getActiveKdsPort()}`);
 
         if (listeningServer) {
           // Manual upgrade handler allows rejecting WebSocket connections when KDS is disabled.
@@ -627,7 +627,7 @@ export function startKdsServer(): Promise<void> {
             }
           });
 
-          console.log(`[KDS Server] WebSocket running on ws://localhost:${activeKdsPort}/kds`);
+          console.log(`[KDS Server] WebSocket running on ws://localhost:${getActiveKdsPort()}/kds`);
         }
 
         resolve();
@@ -683,5 +683,5 @@ export function stopKdsServer(): Promise<void> {
 }
 
 export function getKdsPort(): number {
-  return activeKdsPort;
+  return getActiveKdsPort();
 }

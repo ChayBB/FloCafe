@@ -46,9 +46,14 @@ corporate networks do not provide.
 
 **mDNS is not reliable everywhere.** Guest WiFi with client isolation, mesh
 routers that do not forward multicast, and enterprise APs all break it. The
-order to try is QR pairing (`GET /api/pos-info`), then mDNS, then a subnet
-sweep of `/api/health`, then manual entry — QR first because it is the only one
-a network cannot defeat.
+order to try is QR pairing, then mDNS, then a subnet sweep of `/api/health`,
+then manual entry — QR first because it is the only one a network cannot defeat.
+
+`GET /api/health` is unauthenticated and reports `kds_port` and
+`server_app_port` as well as `status`, `service` and `version`, so a client that
+arrived by any route — not only mDNS — can reach the companion surfaces before
+anyone signs in. `GET /api/pos-info` carries the same ports but requires a
+token, which is too late for a device still trying to connect.
 
 On mobile this needs platform declarations or discovery silently returns
 nothing: iOS requires `NSLocalNetworkUsageDescription` and `NSBonjourServices`

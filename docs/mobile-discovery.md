@@ -291,18 +291,25 @@ export async function probe(baseUrl: string, timeoutMs = 1_500): Promise<FloInst
     if (body?.service !== 'Flo Local API') return null;
 
     // `/api/health` is the only route reachable before sign-in, and it reports
-    // no companion ports. So a POS found this way has an API URL and a version
-    // and nothing else: the KDS and Server App ports come from the mDNS TXT
-    // record, or from `/api/pos-info` once the user has a token.
+    // the companion ports for exactly this reason — `/api/pos-info` carries the
+    // same values but is authenticated, which is too late to be useful here.
+    const origin = new URL(baseUrl);
+    const sibling = (port: unknown): string | null => {
+      const value = Number(port);
+      return Number.isInteger(value) && value > 0 && value < 65536
+        ? `http://${origin.hostname}:${value}`
+        : null;
+    };
+
     return {
       name: 'Flo POS',
       host: baseUrl,
       addresses: [],
-      port: Number(new URL(baseUrl).port || 80),
+      port: Number(origin.port || 80),
       version: body.version ?? 'unknown',
       apiUrl: baseUrl,
-      kdsUrl: null,
-      serverAppUrl: null,
+      kdsUrl: sibling(body.kds_port),
+      serverAppUrl: sibling(body.server_app_port),
     };
   } catch {
     return null;
@@ -334,10 +341,12 @@ screen; the endpoint behind it (`GET /api/pos-info`, returning `ip_url` and
 `qr_data_url`) is authenticated, so the app reads the code with its camera
 rather than fetching it.
 
-Only `/api/health` is reachable without a token, and it reports status, service
-name and version — no ports. mDNS is therefore the only route that hands a
-client the KDS and Server App ports before anyone signs in; after the subnet
-sweep they stay unknown until login.
+`/api/health` is the only route reachable without a token, and it reports
+`kds_port` and `server_app_port` alongside status, service name and version — so
+every discovery path, not just mDNS, yields a complete set of URLs. Nothing is
+disclosed that was not already public: both ports are in the unauthenticated
+mDNS TXT record, and a port scan finds them in seconds. The services themselves
+still demand a staff token.
 
 ---
 

@@ -15,6 +15,8 @@ import expressRateLimit from 'express-rate-limit';
 import { staticRouteRateLimit, corsOptions, getUserAuthStatus, isAllowedPrivateIp, isTokenRevoked, isTokenStale } from './middleware/security';
 import { initFromDb as initWhatsAppFromDb } from './services/whatsapp';
 import { API_JSON_BODY_LIMIT } from './http-limits';
+import { getKdsPort } from './kds-server-state';
+import { getServerAppPort } from './server-app-state';
 import { buildCspHeader } from './csp';
 import { resolveContainedPath } from './lib/path-containment';
 import { setServerPort } from './server-state';
@@ -201,6 +203,16 @@ export function startServer(): Promise<void> {
         db: db.ok ? 'ok' : db.error,
         service: 'Flo Local API',
         version: process.env.npm_package_version || '2.4.7',
+        // Companion surfaces, so a device that found this POS without mDNS —
+        // by QR, by subnet sweep, by a typed address — can reach the KDS and
+        // the Server App without first signing in. `/api/pos-info` carries the
+        // same ports but is authenticated, which is too late to be useful here.
+        //
+        // Nothing is disclosed that was not already public: both ports are in
+        // the unauthenticated mDNS TXT record, and a port scan finds them in
+        // seconds. The services themselves still demand a staff token.
+        kds_port: getKdsPort(),
+        server_app_port: getServerAppPort(),
         timestamp: new Date().toISOString(),
       });
     });
