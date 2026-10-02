@@ -135,10 +135,14 @@ function resolveItemAddons(
 ): { id: string; name: string; price: number; quantity: number }[] {
   const addonInputs = Array.isArray(addons) ? addons : [];
 
-  const linkedGroupIds = new Set(
-    (db.prepare('SELECT addon_group_id FROM addon_group_product WHERE product_id = ?').all(productId) as { addon_group_id: string }[])
-      .map((row) => row.addon_group_id),
-  );
+  const product = db.prepare('SELECT category_id FROM products WHERE id = ?').get(productId) as { category_id: string | null } | undefined;
+  const productGroupIds = (db.prepare('SELECT addon_group_id FROM addon_group_product WHERE product_id = ?').all(productId) as { addon_group_id: string }[])
+    .map((row) => row.addon_group_id);
+  const categoryGroupIds = product?.category_id
+    ? (db.prepare('SELECT addon_group_id FROM category_addon_groups WHERE category_id = ?').all(product.category_id) as { addon_group_id: string }[])
+      .map((row) => row.addon_group_id)
+    : [];
+  const linkedGroupIds = new Set([...productGroupIds, ...categoryGroupIds]);
 
   const resolved: { id: string; name: string; price: number; quantity: number }[] = [];
   const groupSelections = new Map<string, { totalQty: number; hasMultiQty: boolean }>();
@@ -148,16 +152,21 @@ function resolveItemAddons(
     if (!addon.id || typeof addon.id !== 'string') {
       throw new Error('Each add-on must reference a valid catalog add-on ID');
     }
-    const catalog = db.prepare('SELECT * FROM addons WHERE id = ?').get(addon.id) as
-      | { id: string; addon_group_id: string; name: string; price: number; is_active: number }
+    const catalog = db.prepare(`
+      SELECT addons.*, addon_groups.is_active AS addon_group_is_active
+      FROM addons LEFT JOIN addon_groups ON addon_groups.id = addons.addon_group_id
+      WHERE addons.id = ?
+    `).get(addon.id) as
+      | { id: string; addon_group_id: string | null; name: string; price: number; is_active: number; addon_group_is_active: number | null }
       | undefined;
     if (!catalog) {
       throw new Error(`Add-on "${addon.id}" was not found`);
     }
-    if (catalog.is_active !== 1) {
+    if (catalog.is_active !== 1 || (catalog.addon_group_id !== null && catalog.addon_group_is_active !== 1)) {
       throw new Error(`Add-on "${catalog.name}" is not available`);
     }
-    if (!linkedGroupIds.has(catalog.addon_group_id)) {
+    const addonGroupId = catalog.addon_group_id;
+    if (!addonGroupId || !linkedGroupIds.has(addonGroupId)) {
       throw new Error(`Add-on "${catalog.name}" is not available for this product`);
     }
 
@@ -169,8 +178,8 @@ function resolveItemAddons(
     resolved.push({ id: catalog.id, name: catalog.name, price: Number(catalog.price) || 0, quantity });
 
     const qty = Math.max(1, Math.floor(quantity));
-    const current = groupSelections.get(catalog.addon_group_id) || { totalQty: 0, hasMultiQty: false };
-    groupSelections.set(catalog.addon_group_id, {
+    const current = groupSelections.get(addonGroupId) || { totalQty: 0, hasMultiQty: false };
+    groupSelections.set(addonGroupId, {
       totalQty: current.totalQty + qty,
       hasMultiQty: current.hasMultiQty || qty > 1,
     });

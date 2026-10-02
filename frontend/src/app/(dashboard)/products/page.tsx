@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import api from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
 import { Button } from '@/components/ui/button';
@@ -82,6 +82,8 @@ export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [addonGroups, setAddonGroups] = useState<AddonGroup[]>([]);
+  const [productInactiveAddonGroups, setProductInactiveAddonGroups] = useState<AddonGroup[]>([]);
+  const [categoryAddonGroups, setCategoryAddonGroups] = useState<AddonGroup[]>([]);
   const [loyaltyEnabled, setLoyaltyEnabled] = useState(false);
   const [globalCashbackPercent, setGlobalCashbackPercent] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -90,7 +92,8 @@ export default function ProductsPage() {
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const { confirm, ConfirmDialog } = useConfirm();
   const [editingAddonGroup, setEditingAddonGroup] = useState<AddonGroup | null>(null);
-  const [categoryForm, setCategoryForm] = useState({ name: '', description: '', color: '', is_active: true });
+  const [categoryForm, setCategoryForm] = useState({ name: '', description: '', color: '', is_active: true, addon_group_ids: [] as string[] });
+  const editRequestId = useRef(0);
   const [addonForm, setAddonForm] = useState({ name: '', description: '', is_required: false, allow_multiple_quantities: false, min_selection: 0, max_selection: 10 });
   const [showAddonModal, setShowAddonModal] = useState(false);
 
@@ -128,6 +131,8 @@ export default function ProductsPage() {
   const amountFormat = useAmountFormat();
   const isRestaurant = (currentTenant?.business_type ?? 'restaurant') === 'restaurant';
   const isOwnerOrManager = tenantCan(currentTenant, 'catalog.manage');
+  const productAddonGroupOptions = [...addonGroups, ...productInactiveAddonGroups];
+  const categoryAddonGroupOptions = [...addonGroups, ...categoryAddonGroups];
 
   const fetchData = async () => {
     try {
@@ -243,6 +248,8 @@ export default function ProductsPage() {
   };
 
   const resetForm = () => {
+    editRequestId.current += 1;
+    setProductInactiveAddonGroups([]);
     setForm({
       name: '', category_id: '', price: '', cost_price: '', cb_percent: '', sku: '', barcode: '',
       sale_unit: 'each', allow_fractional_quantity: false, weight_precision: '3',
@@ -262,7 +269,22 @@ export default function ProductsPage() {
     setShowForm(true);
   };
 
-  const openEdit = (product: Product) => {
+  const openEdit = async (product: Product) => {
+    const requestId = ++editRequestId.current;
+    const addonGroupIds = product.addon_group_ids ?? product.addon_groups?.map((group) => group.id) ?? [];
+    const inactiveGroupIds = addonGroupIds.filter((id) => !addonGroups.some((group) => group.id === id));
+    let inactiveGroups: AddonGroup[] = [];
+    if (inactiveGroupIds.length > 0) {
+      try {
+        const response = await api.get('/addon-groups?include_inactive=true');
+        inactiveGroups = ((response.data.addon_groups as AddonGroup[]) || [])
+          .filter((group) => !group.is_active && inactiveGroupIds.includes(group.id));
+      } catch {
+        if (requestId === editRequestId.current) toast.error(t('failedToLoad'));
+      }
+    }
+    if (requestId !== editRequestId.current) return;
+    setProductInactiveAddonGroups(inactiveGroups);
     setEditingProduct(product);
     setForm({
       name: product.name,
@@ -286,7 +308,7 @@ export default function ProductsPage() {
       is_active: product.is_active,
       tags: product.tags || [],
       customTag: '',
-      addon_group_ids: product.addon_groups?.map((g) => g.id) || [],
+      addon_group_ids: addonGroupIds,
       image_url: product.has_image ? 'EXISTING' : null,
     });
     setShowForm(true);
@@ -364,21 +386,52 @@ export default function ProductsPage() {
   };
 
   const resetCategoryForm = () => {
-    setCategoryForm({ name: '', description: '', color: '', is_active: true });
+    editRequestId.current += 1;
+    setProductInactiveAddonGroups([]);
+    setCategoryForm({ name: '', description: '', color: '', is_active: true, addon_group_ids: [] });
+    setCategoryAddonGroups([]);
     setEditingCategory(null);
     setShowForm(false);
   };
 
-  const openEditCategory = (cat: Category) => {
+  const openEditCategory = async (cat: Category) => {
+    const requestId = ++editRequestId.current;
+    setProductInactiveAddonGroups([]);
+    const addonGroupIds = cat.addon_group_ids || [];
+    const inactiveGroupIds = addonGroupIds.filter((id) => !addonGroups.some((group) => group.id === id));
+    let inactiveGroups: AddonGroup[] = [];
+    if (inactiveGroupIds.length > 0) {
+      try {
+        const response = await api.get('/addon-groups?include_inactive=true');
+        inactiveGroups = ((response.data.addon_groups as AddonGroup[]) || [])
+          .filter((group) => !group.is_active && inactiveGroupIds.includes(group.id));
+      } catch {
+        if (requestId === editRequestId.current) toast.error(t('failedToLoad'));
+      }
+    }
+    if (requestId !== editRequestId.current) return;
+    setCategoryAddonGroups(inactiveGroups);
     setEditingCategory(cat);
-    setCategoryForm({ name: cat.name, description: cat.description || '', color: cat.color || '', is_active: cat.is_active });
+    setCategoryForm({
+      name: cat.name,
+      description: cat.description || '',
+      color: cat.color || '',
+      is_active: cat.is_active,
+      addon_group_ids: addonGroupIds,
+    });
     setShowForm(true);
   };
 
   const handleCategorySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const payload = { name: categoryForm.name, description: categoryForm.description || null, color: categoryForm.color || null, is_active: categoryForm.is_active };
+      const payload = {
+        name: categoryForm.name,
+        description: categoryForm.description || null,
+        color: categoryForm.color || null,
+        is_active: categoryForm.is_active,
+        addon_group_ids: categoryForm.addon_group_ids,
+      };
       if (editingCategory) {
         await api.put(`/categories/${editingCategory.id}`, payload);
         toast.success(t('categoryUpdated'));
@@ -937,12 +990,13 @@ export default function ProductsPage() {
                   </button>
                 </div>
               </div>
-              {isRestaurant && addonGroups.length > 0 && (
+              {isRestaurant && productAddonGroupOptions.length > 0 && (
                 <div>
                   <label className="block text-sm font-medium text-foreground mb-2">{t('fieldAddonGroups')}</label>
                   <div className="space-y-2 max-h-40 overflow-y-auto border border-border rounded-lg p-3">
-                    {addonGroups.map((group) => {
+                    {productAddonGroupOptions.map((group) => {
                       const isChecked = form.addon_group_ids.includes(group.id);
+                      const isInherited = categories.find((category) => category.id === form.category_id)?.addon_group_ids?.includes(group.id) || false;
                       return (
                         <div key={group.id} className="flex items-center gap-2">
                           <input
@@ -961,7 +1015,8 @@ export default function ProductsPage() {
                             className="rounded border-gray-300 dark:border-border text-brand focus:ring-brand"
                           />
                           <label htmlFor={`addon-group-${group.id}`} className="flex items-center gap-2 cursor-pointer select-none">
-                            <span className="text-sm text-foreground">{group.name}</span>
+                            <span className="text-sm text-foreground">{group.name}{group.is_active ? '' : ` (${tCommon('inactive')})`}</span>
+                            {isInherited && <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">{t('inheritedFromCategory')}</span>}
                             <span className={`text-[10px] px-1.5 py-0.5 rounded ${group.is_required ? 'bg-red-100 text-red-700' : 'bg-muted text-muted-foreground'}`}>
                               {group.is_required ? t('required') : t('optional')}
                             </span>
@@ -1024,6 +1079,7 @@ export default function ProductsPage() {
               <thead className="bg-muted">
                 <tr>
                   <th className="text-start p-4 text-xs font-medium text-muted-foreground uppercase">{t('categoryName')}</th>
+                  <th className="text-center p-4 text-xs font-medium text-muted-foreground uppercase">{t('fieldAddonGroups')}</th>
                   <th className="text-start p-4 text-xs font-medium text-muted-foreground uppercase">{t('categoryColor')}</th>
                   <th className="text-center p-4 text-xs font-medium text-muted-foreground uppercase">{t('columnStatus')}</th>
                   <th className="text-end p-4 text-xs font-medium text-muted-foreground uppercase">{t('columnActions')}</th>
@@ -1035,6 +1091,13 @@ export default function ProductsPage() {
                   return (
                     <tr key={cat.id} className="hover:bg-muted">
                       <td className="p-4 font-medium text-foreground">{cat.name}</td>
+                      <td className="p-4 text-center">
+                        {cat.addon_group_ids?.length ? (
+                          <span className="inline-flex px-2 py-1 rounded-full bg-muted text-xs font-medium text-muted-foreground">
+                            {t('addonGroupCount', { count: cat.addon_group_ids.length })}
+                          </span>
+                        ) : <span className="text-gray-400 text-sm">—</span>}
+                      </td>
                       <td className="p-4">
                         {colorObj ? (
                           <span className={`inline-flex px-2 py-1 rounded-lg text-xs font-medium ${colorObj.bg} ${colorObj.text}`}>{t(colorObj.labelKey)}</span>
@@ -1087,6 +1150,33 @@ export default function ProductsPage() {
                       ))}
                     </div>
                   </div>
+                  {isRestaurant && categoryAddonGroupOptions.length > 0 && (
+                    <div>
+                      <label className="block text-sm font-medium text-foreground mb-2">{t('fieldAddonGroups')}</label>
+                      <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto border border-border rounded-lg p-3">
+                        {categoryAddonGroupOptions.map((group) => (
+                          <label key={group.id} htmlFor={`category-addon-group-${group.id}`} className="flex items-center gap-2 cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              id={`category-addon-group-${group.id}`}
+                              checked={categoryForm.addon_group_ids.includes(group.id)}
+                              onChange={(e) => {
+                                const checked = e.target.checked;
+                                setCategoryForm((prev) => ({
+                                  ...prev,
+                                  addon_group_ids: checked
+                                    ? [...prev.addon_group_ids, group.id]
+                                    : prev.addon_group_ids.filter((id) => id !== group.id),
+                                }));
+                              }}
+                              className="rounded border-gray-300 dark:border-border text-brand focus:ring-brand"
+                            />
+                            <span className="text-sm text-foreground">{group.name}{group.is_active ? '' : ` (${tCommon('inactive')})`}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <label className="flex items-center gap-2">
                     <input type="checkbox" checked={categoryForm.is_active} onChange={(e) => setCategoryForm({ ...categoryForm, is_active: e.target.checked })} className="rounded border-gray-300 dark:border-border text-brand focus:ring-brand" />
                     <span className="text-sm text-foreground">{t('fieldActive')}</span>
