@@ -942,7 +942,14 @@
       "title": "COMPROBANTE DE ENTREGA",
       "banner": "COMPROBANTE DE ENTREGA",
       "address": "Dirección de entrega",
-      "addressTruncated": "... {count} caracteres mas no mostrados, revisa el pedido"
+      "addressTruncated": "... {count} caracteres mas no mostrados, revisa el pedido",
+      "paid": "PAGADO",
+      "toCollect": "POR COBRAR",
+      "refunded": "REEMBOLSADO",
+      "partiallyRefunded": "REEMBOLSO PARCIAL",
+      "cashOnDelivery": "Pago contra entrega",
+      "amountDue": "Importe pendiente",
+      "multiplePaymentMethods": "Varios métodos de pago"
     },
     "hsn": "HSN",
     "zReport": {

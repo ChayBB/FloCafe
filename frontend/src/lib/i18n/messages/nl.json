@@ -942,7 +942,14 @@
       "title": "BEZORGbon",
       "banner": "BEZORGbon",
       "address": "Afleveradres",
-      "addressTruncated": "... nog {count} tekens niet weergegeven, controleer de bestelling"
+      "addressTruncated": "... nog {count} tekens niet weergegeven, controleer de bestelling",
+      "paid": "BETAALD",
+      "toCollect": "TE ONTVANGEN",
+      "refunded": "TERUGBETAALD",
+      "partiallyRefunded": "GEDEELTELIJK TERUGBETAALD",
+      "cashOnDelivery": "Rembours",
+      "amountDue": "Verschuldigd bedrag",
+      "multiplePaymentMethods": "Meerdere betaalmethoden"
     },
     "hsn": "HSN",
     "zReport": {

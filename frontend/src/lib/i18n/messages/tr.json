@@ -942,7 +942,14 @@
       "title": "TESLİMAT MAKBUZU",
       "banner": "TESLİMAT MAKBUZU",
       "address": "Teslimat Adresi",
-      "addressTruncated": "... {count} karakter daha gosterilmedi, siparisi kontrol edin"
+      "addressTruncated": "... {count} karakter daha gosterilmedi, siparisi kontrol edin",
+      "paid": "ÖDENDİ",
+      "toCollect": "TAHSİL EDİLECEK",
+      "refunded": "İADE EDİLDİ",
+      "partiallyRefunded": "KISMEN İADE EDİLDİ",
+      "cashOnDelivery": "Kapıda ödeme",
+      "amountDue": "Ödenecek tutar",
+      "multiplePaymentMethods": "Birden fazla ödeme yöntemi"
     },
     "hsn": "HSN / GTİP",
     "zReport": {
