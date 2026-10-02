@@ -13,6 +13,7 @@ import { telemetry, sendEvent as sendTelemetryEvent } from './services/telemetry
 import { googleDrive } from './services/google-drive';
 import { startKdsServer, stopKdsServer, getKdsPort, isKdsServerRunning } from './kds-server';
 import { startServerApp, stopServerApp, getServerAppPort, isServerAppRunning } from './server-app';
+import { FLO_SERVICE_TYPE, floServiceName, floTxtRecord } from './services/flo-discovery';
 import { startGuestServer, stopGuestServer } from './guest-server';
 import { initPrinter } from './printers/thermal';
 import { destroySharedRasterRenderer } from './printers/raster-renderer';
@@ -982,14 +983,35 @@ function createTray(): void {
 function startMdns(): void {
   try {
     bonjour = new Bonjour();
+
+    // Dedicated type: a companion device browses _flo-pos._tcp and every answer
+    // is a FloCafe POS. Browsing _http._tcp instead means sifting through every
+    // printer and NAS on the LAN and guessing from TXT keys.
+    bonjour.publish({
+      name: floServiceName(),
+      type: FLO_SERVICE_TYPE,
+      port: getServerPort(),
+      host: 'flo',   // resolves as flo.local on the LAN
+      txt: floTxtRecord({
+        version: app.getVersion(),
+        kdsPort: getKdsPort(),
+        serverAppPort: getServerAppPort(),
+      }),
+    });
+
+    // Kept as well, unchanged: anything already looking for _http._tcp with the
+    // name 'Flo' keeps working. Removing it would be a silent break for a
+    // client we cannot see from here.
     bonjour.publish({
       name: 'Flo',
       type: 'http',
       port: getServerPort(),
-      host: 'flo',   // resolves as flo.local on the LAN
+      host: 'flo',
       txt: { version: app.getVersion(), kds: `/kds`, kds_port: String(getKdsPort()), server_app: '/server-standalone', server_app_port: String(getServerAppPort()) },
     });
+
     const ip = getLocalIP();
+    console.log(`[mDNS] Advertising _${FLO_SERVICE_TYPE}._tcp as "${floServiceName()}"`);
     console.log(`[mDNS] Advertising flo.local:${getServerPort()}  (IP fallback: http://${ip}:${getServerPort()})`);
     console.log(`[mDNS] KDS available at http://flo.local:${getKdsPort()}  (IP fallback: http://${ip}:${getKdsPort()})`);
     console.log(`[mDNS] Server App available at http://flo.local:${getServerAppPort()}  (IP fallback: http://${ip}:${getServerAppPort()})`);

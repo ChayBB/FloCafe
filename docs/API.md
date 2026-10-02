@@ -11,6 +11,51 @@ The `POST /api/printers/print-kot` and `POST /api/printers/print-bill`
 forwarders share a limit of 30 requests per minute per client IP. These limits
 run before Server App authentication and return HTTP `429` when exceeded.
 
+### Finding the POS on the network (mDNS)
+
+The app advertises itself over mDNS so a companion device need not be told an IP
+address. Two records describe the same server:
+
+| Service type | Advertised name | Purpose |
+|---|---|---|
+| `_flo-pos._tcp` | `Flo POS (<machine>)` | Browse this. Every answer is a FloCafe POS. |
+| `_http._tcp` | `Flo` | Kept for clients that already look for it. |
+
+The machine name is part of the advertised name because mDNS names must be
+unique: two tills both called `Flo` collide, and the loser is silently renamed.
+
+TXT record on `_flo-pos._tcp` — every value is a string, because TXT records
+carry bytes and a number is stringified by one implementation and dropped by
+another:
+
+| Key | Example | Meaning |
+|---|---|---|
+| `version` | `3.9.0` | App version |
+| `api` | `/api` | API path prefix |
+| `kds_port` | `3002` | Kitchen Display port |
+| `server_app_port` | `3003` | Server App port |
+
+The guest ordering port (3004) is deliberately **not** advertised. It is the one
+surface that may be published beyond the shop, and announcing it on the LAN
+serves no one who should be reaching it.
+
+`main/services/flo-discovery.ts` is the client half — `watchForFlo()`,
+`findFloOnce()` and `findAllFlo()`. Prefer the IPv4 address it returns over
+`flo.local`: resolving an mDNS hostname needs a resolver that Android and many
+corporate networks do not provide.
+
+**mDNS is not reliable everywhere.** Guest WiFi with client isolation, mesh
+routers that do not forward multicast, and enterprise APs all break it. The
+order to try is QR pairing (`GET /api/pos-info`), then mDNS, then a subnet
+sweep of `/api/health`, then manual entry — QR first because it is the only one
+a network cannot defeat.
+
+On mobile this needs platform declarations or discovery silently returns
+nothing: iOS requires `NSLocalNetworkUsageDescription` and `NSBonjourServices`
+(listing `_flo-pos._tcp`) in `Info.plist`; Android requires
+`CHANGE_WIFI_MULTICAST_STATE` plus a multicast lock, and a cleartext-HTTP
+exemption for private ranges since the POS is plain `http://` on the LAN.
+
 ---
 
 ## Authentication
