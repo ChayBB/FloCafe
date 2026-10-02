@@ -325,7 +325,15 @@
     "exportXlsx": "Excel（.xlsx）",
     "exportCsv": "CSV（.csv）",
     "exportCsvHint": "CSVでは概要と明細の2つのファイルをダウンロードします。",
-    "exportCsvStarted": "概要と明細のCSVファイルをダウンロードしています…"
+    "exportCsvStarted": "概要と明細のCSVファイルをダウンロードしています…",
+    "grossProfit": "粗利",
+    "profitCost": "原価",
+    "profitMargin": "利益率",
+    "profitMissingCost": "原価が未設定の商品が{count}件あります",
+    "profitNoCost": "原価未設定",
+    "profitProduct": "商品",
+    "profitQuantity": "数量",
+    "profitRevenue": "売上"
   },
   "kds": {
     "addonsLabel": "追加項目",
@@ -369,7 +377,9 @@
     "updating": "更新中…",
     "viewKanban": "カンバン",
     "viewTabs": "タブ",
-    "wsConnected": "WebSocket接続済み"
+    "wsConnected": "WebSocket接続済み",
+    "stationAll": "すべての調理場",
+    "stationFilter": "調理場"
   },
   "nav": {
     "collapse": "折りたたむ",
@@ -780,7 +790,8 @@
     "exitFullscreen": "フルスクリーンPOSを終了",
     "fullscreenUnavailable": "フルスクリーンモードは利用できません",
     "backspaceAmount": "金額を1文字削除",
-    "numericKeypad": "数字キーパッド"
+    "numericKeypad": "数字キーパッド",
+    "takeawayItemNote": "テイクアウト"
   },
   "printTest": {
     "amt": "金額",
@@ -1169,7 +1180,12 @@
     "statusWaiting": "待機中",
     "tableLabel": "テーブル {name}",
     "tables": "テーブル",
-    "title": "サーバーアプリ"
+    "title": "サーバーアプリ",
+    "billLoadFailed": "会計を読み込めませんでした",
+    "itemReadyAlert": "{item}ができあがりました — {table}",
+    "noOpenOrder": "このテーブルに未会計の注文はありません",
+    "soundOff": "呼び出し音オフ",
+    "soundOn": "呼び出し音オン"
   },
   "settings": {
     "aboutDescription": "FloPOSは、カフェ、レストラン、ベーカリー、フードトラック、クラウドキッチン、バー向けの無料でオープンソースのレストランPOSです。注文、テーブル、メニュー、キッチンディスプレイ、レシート印刷、スタッフアクセス、ローカルデータ保存に対応しています。ダウンロードして営業を行い、データとPOSを自分で管理できます。",
@@ -1910,7 +1926,23 @@
     "themeTitle": "テーマ",
     "themeLight": "ライト",
     "themeDark": "ダーク",
-    "themeSystem": "システム"
+    "themeSystem": "システム",
+    "guestCodeIssued": "コードを発行しました",
+    "guestCodeRevoked": "コードを無効にしました",
+    "guestCreateCode": "コードを発行",
+    "guestCurrentBase": "コードの現在のリンク先:",
+    "guestLanOnlyWarning": "公開アドレスが未設定のため、コードは店舗のWi-Fiでのみ使えます。モバイル回線から注文を受けるには、ご自身のサーバーでポート{port}を公開してください。",
+    "guestLoadFailed": "お客様注文の設定を読み込めませんでした",
+    "guestOrdering": "QRコードでのお客様注文",
+    "guestOrderingHint": "お客様がテーブルのコードを読み取り、ご自身のスマートフォンから注文できます。注文はそのまま厨房へ送られます。",
+    "guestPublicUrl": "公開アドレス",
+    "guestPublicUrlHint": "お客様がモバイル回線から接続するアドレスで、ご自身のサーバーで配信します。空欄のままなら店舗のWi-Fi内でのみ動作します。",
+    "guestRevokeCode": "無効にする",
+    "guestRotateCode": "新しいコード",
+    "guestSaveFailed": "保存できませんでした",
+    "guestTableCodes": "テーブルのコード",
+    "guestTableCodesHint": "テーブルを作成すると、そのテーブル専用の恒久的なコードが発行されます。印刷してテーブルに貼ってください。新しいコードを発行するのはコードが漏れたときだけで、発行した時点で古い印刷物は使えなくなります。",
+    "noTablesYet": "テーブルがまだありません"
   },
   "setup": {
     "alreadyCompleted": "このインストールではセットアップが完了しています。ログインへ移動します…",
@@ -2043,7 +2075,40 @@
     "roleServer": "サーバー担当",
     "title": "スタッフ",
     "updateButton": "更新",
-    "updatedToast": "スタッフを更新しました"
+    "updatedToast": "スタッフを更新しました",
+    "emailBadCharacters": "メールアドレスに使用できない文字が含まれています: {characters}",
+    "tablesAllTables": "すべてのテーブルを許可",
+    "tablesButton": "テーブル",
+    "tablesEmpty": "テーブルがまだ作成されていません。",
+    "tablesHint": "このホールスタッフが注文を取れるテーブルを選びます。すべて未選択のままにすると、全テーブルが対象になります。",
+    "tablesModalTitle": "{name}のテーブル権限",
+    "tablesSavedToast": "テーブル権限を更新しました",
+    "workLogTitle": "勤務時間",
+    "workLogLoading": "読み込み中...",
+    "workLogLoadFailed": "勤務時間を読み込めませんでした",
+    "workLogPrevMonth": "前の月",
+    "workLogNextMonth": "次の月",
+    "workLogHoursShort": "{hours}時間{minutes}分",
+    "workLogNoShifts": "この日の出勤はありません。",
+    "workLogStillOpen": "勤務中",
+    "workLogMonthTotals": "今月",
+    "workLogNoneThisMonth": "今月の勤務記録はありません。",
+    "workLogOpenCount": "{count, plural, other {未退勤 #件}}",
+    "workLogMon": "月",
+    "workLogTue": "火",
+    "workLogWed": "水",
+    "workLogThu": "木",
+    "workLogFri": "金",
+    "workLogSat": "土",
+    "workLogSun": "日",
+    "emailOptionalPlaceholder": "メールアドレス (任意)",
+    "usernamePlaceholder": "ユーザー名",
+    "identifierHint": "メールアドレスかユーザー名のどちらかを入力してください。どちらでもログインできます。",
+    "identifierRequired": "メールアドレスかユーザー名を入力してください",
+    "usernameInvalid": "ユーザー名に使えるのは文字、数字、ピリオド、ハイフン、アンダースコア、単一のスペースです",
+    "usernameNoAt": "ユーザー名に@は使えません",
+    "usernameTooShort": "ユーザー名は{min}文字以上で入力してください",
+    "usernameTooLong": "ユーザー名は{max}文字以内で入力してください"
   },
   "permissionMatrix": {
     "title": "ロール権限",

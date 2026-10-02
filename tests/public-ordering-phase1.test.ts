@@ -59,6 +59,11 @@ async function main() {
     INSERT INTO products (id, name, price, cost, stock_quantity, sku, is_active, created_at, updated_at)
     VALUES ('prod-mt', 'Snapshot Coffee', 70, 31, 12, 'SKU-MT-1', 1, ?, ?)
   `).run(now(), now());
+  // Order creation resolves a regional snapshot and refuses when the shop's
+  // country is unset, so a bare test database cannot place one.
+  db.prepare("INSERT INTO settings (key, value, updated_at) VALUES ('country', 'TH', ?) ON CONFLICT(key) DO UPDATE SET value='TH', updated_at=excluded.updated_at").run(now());
+  db.prepare("INSERT INTO settings (key, value, updated_at) VALUES ('currency', 'THB', ?) ON CONFLICT(key) DO UPDATE SET value='THB', updated_at=excluded.updated_at").run(now());
+
   upsertSettings({ guest_ordering_enabled: 'true' });
 
   await startServer();

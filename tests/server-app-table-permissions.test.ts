@@ -63,6 +63,11 @@ async function main() {
 
   initDatabase();
   const db = getDatabase();
+
+  // Order creation resolves a regional snapshot and refuses when the shop's
+  // country is unset, so a bare test database cannot place one.
+  db.prepare("INSERT INTO settings (key, value, updated_at) VALUES ('country', 'TH', ?) ON CONFLICT(key) DO UPDATE SET value='TH', updated_at=excluded.updated_at").run(now());
+  db.prepare("INSERT INTO settings (key, value, updated_at) VALUES ('currency', 'THB', ?) ON CONFLICT(key) DO UPDATE SET value='THB', updated_at=excluded.updated_at").run(now());
   const passwordHash = bcrypt.hashSync('ServerPass123!', 10);
 
   const insertUser = db.prepare(`

@@ -328,7 +328,12 @@
     "walkIn": "ลูกค้าทั่วไป (Walk-in)",
     "xReport": "รายงาน X (X report)",
     "xReportSales": "ยอดขายวันนี้",
-    "zReport": "รายงาน Z (Z report)"
+    "zReport": "รายงาน Z (Z report)",
+    "exportSales": "ส่งออกยอดขาย",
+    "exportXlsx": "Excel (.xlsx)",
+    "exportCsv": "CSV (.csv)",
+    "exportCsvHint": "CSV จะดาวน์โหลด 2 ไฟล์ คือ สรุปยอด และ รายการสินค้า",
+    "exportCsvStarted": "กำลังดาวน์โหลดไฟล์สรุปยอดและรายการสินค้า…"
   },
   "kds": {
     "addonsLabel": "รายการเสริม",
@@ -785,7 +790,8 @@
     "totalDue": "ยอดที่ต้องชำระทั้งหมด",
     "unpaid": "ยังไม่ได้ชำระ",
     "updateDiscount": "อัปเดตส่วนลด",
-    "walletMaxAmount": "ยอดในกระเป๋าเงินเกินวงเงินที่มีอยู่ สูงสุด: {max}"
+    "walletMaxAmount": "ยอดในกระเป๋าเงินเกินวงเงินที่มีอยู่ สูงสุด: {max}",
+    "orderStorageUnavailable": "บันทึกออเดอร์ไม่สำเร็จ เพราะเครื่องนี้ไม่อนุญาตให้เก็บข้อมูลในเครื่อง กรุณาเพิ่มพื้นที่ว่างหรือเปิด FloCafe ใหม่ แล้วลองอีกครั้ง"
   },
   "printTest": {
     "amt": "จำนวนเงิน",
@@ -1462,7 +1468,6 @@
     "googleDriveRetentionHint": "ข้อมูลสำรองที่เก่ากว่าจำนวนนี้จะถูกลออกจาก Drive โดยอัตโนมัติหลังจากการอัปโหลดแต่ละครั้งสำเร็จ",
     "googleDriveSavePreferencesFailed": "บันทึกการตั้งค่า Google Drive ไม่สำเร็จ",
     "googleDriveSecureStorageUnavailable": "พื้นที่จัดเก็บข้อมูลที่ปลอดภัยไม่พร้อมใช้งานบนอุปกรณ์นี้ จึงไม่สามารถจัดเก็บการเชื่อมต่อ Google Drive อย่างปลอดภัยที่นี่ได้",
-    "googleDriveUploadedBadge": "ซิงค์กับ Drive แล้ว",
     "guestCodeIssued": "สร้าง QR แล้ว",
     "guestCodeRevoked": "ปิดใช้ QR แล้ว",
     "guestCreateCode": "สร้าง QR",
@@ -1900,7 +1905,44 @@
     "yes": "ใช่",
     "zReportLanguage": "ภาษาของรายงาน Z",
     "zReportLanguageHint": "รายงาน Z จะใช้ภาษาของร้านค้า เว้นแต่จะเลือกภาษาที่กำหนดไว้",
-    "zeroNoLimit": "(0 = ไม่จำกัด)"
+    "zeroNoLimit": "(0 = ไม่จำกัด)",
+    "googleDriveReauthenticate": "เชื่อมต่อ Google Drive ใหม่",
+    "googleDriveRetryDisconnect": "ลองยกเลิกการเชื่อมต่ออีกครั้ง",
+    "googleDriveRevokePending": "Google Drive ยังเข้าถึงข้อมูลได้อยู่ กดลองยกเลิกการเชื่อมต่ออีกครั้งเพื่อเพิกถอนสิทธิ์",
+    "googleDriveUnencryptedWarning": "ไฟล์สำรองบน Google Drive คือฐานข้อมูล SQLite ทั้งก้อน และ FloCafe ยังไม่ได้เข้ารหัสให้ ไฟล์อาจมีข้อมูลลูกค้า พนักงาน ข้อมูลการเข้าสู่ระบบ และการตั้งค่า ใครก็ตามที่เข้าถึงบัญชีหรือโฟลเดอร์ Drive ที่เลือกไว้ได้ ก็เปิดไฟล์เหล่านี้ได้ — รหัส Master PIN ของ FloCafe ไม่ใช่กุญแจเข้ารหัสที่ติดไปกับไฟล์",
+    "googleDrivePrivacyWarningTitle": "คำเตือนสำคัญเรื่องการสำรองข้อมูลขึ้น Google Drive",
+    "googleDrivePrivacyAcknowledgement": "ก่อนดำเนินการต่อ กรุณารับทราบว่าไฟล์นี้คือฐานข้อมูล SQLite ทั้งก้อน ซึ่ง FloCafe ยังไม่ได้เข้ารหัสให้ และผู้ที่เข้าถึงบัญชีหรือโฟลเดอร์ Google Drive ที่เลือกไว้ได้ ก็อาจเปิดดูได้ รหัส Master PIN ของ FloCafe ไม่ได้เข้ารหัสหรือปลดล็อกไฟล์สำเนาบนคลาวด์",
+    "googleDriveAcknowledge": "รับทราบ",
+    "googleDriveBackupQueued": "เข้าคิวสำรองข้อมูลขึ้น Google Drive แล้ว",
+    "googleDriveDestination": "ปลายทางบน Drive",
+    "googleDriveCreateDestination": "สร้างโฟลเดอร์ใหม่บน Drive",
+    "googleDriveDestinationCreated": "สร้างปลายทางบน Drive แล้ว",
+    "googleDriveDestinationCreateFailed": "สร้างปลายทางบน Drive ไม่สำเร็จ",
+    "googleDriveDestinationLoadFailed": "โหลดรายการปลายทางบน Drive ไม่สำเร็จ",
+    "googleDriveDestinationSelectFailed": "เลือกปลายทางบน Drive ไม่สำเร็จ",
+    "googleDriveLastError": "สถานะ Drive ล่าสุด: {code}",
+    "googleDriveJobStatus": "งานบน Drive: {state}",
+    "googleDriveBackupRetryPending": "การสำรองข้อมูลขึ้น Google Drive ยังค้างอยู่ ระบบจะลองใหม่ให้อัตโนมัติ",
+    "googleDriveRetentionPending": "อัปโหลดไฟล์สำรองแล้ว แต่การลบไฟล์เก่าอัตโนมัติยังค้างอยู่ ระบบจะลองใหม่ให้อัตโนมัติ",
+    "googleDriveRemoteHistory": "ไฟล์สำรองบน Drive",
+    "googleDriveLoadingRemoteHistory": "กำลังโหลด...",
+    "googleDriveRefreshRemoteHistory": "รีเฟรช",
+    "googleDriveNoRemoteBackups": "ไม่พบไฟล์สำรองของ FloCafe บน Drive",
+    "googleDriveRemoteHistoryFailed": "โหลดไฟล์สำรองบน Drive ไม่สำเร็จ",
+    "googleDriveAutomaticBadge": "อัตโนมัติ",
+    "googleDriveManualBadge": "ด้วยตนเอง - เก็บไว้ถาวร",
+    "googleDriveRestore": "กู้คืน",
+    "googleDriveRestorePrompt": "พิมพ์ RESTORE GOOGLE DRIVE BACKUP เพื่อดำเนินการต่อ",
+    "googleDriveRestoreTitle": "กู้คืนข้อมูลจาก Google Drive",
+    "googleDriveRestoreQueued": "เข้าคิวกู้คืนข้อมูลจาก Google Drive แล้ว",
+    "googleDriveRestoreFailed": "เริ่มกู้คืนข้อมูลจาก Google Drive ไม่สำเร็จ",
+    "googleDriveRestoreNotice": "การกู้คืนจะแทนที่ข้อมูลปัจจุบันทั้งหมด และจะตัดการเชื่อมต่อ Google Drive ให้อัตโนมัติเพื่อความปลอดภัยของข้อมูล หลังจากนั้นต้องเชื่อมต่อ Google Drive ใหม่",
+    "googleDrivePermissionNotice": "สำคัญ: ในหน้าต่าง Google ที่เปิดขึ้นมา อย่าลืมติ๊กช่องอนุญาตให้เข้าถึงไฟล์บน Google Drive",
+    "googleDrivePermissionDenied": "ยังไม่ได้รับสิทธิ์เข้าถึงไฟล์บน Google Drive กรุณาติ๊กช่องอนุญาตในหน้าเข้าสู่ระบบของ Google",
+    "noChefsYet": "ยังไม่มีบัญชีเชฟที่ใช้งานอยู่ กรุณาเพิ่มเชฟในหน้าพนักงานก่อน",
+    "stationChef": "เชฟที่รับผิดชอบ",
+    "stationChefRequiresKds": "เปิดใช้งาน KDS ก่อน จึงจะกำหนดเชฟให้สถานีนี้ได้",
+    "stationNoChef": "ยังไม่ได้กำหนดเชฟ"
   },
   "setup": {
     "alreadyCompleted": "การตั้งค่าเสร็จสมบูรณ์แล้วในการติดตั้งนี้ กำลังเปลี่ยนเส้นทางไปยังหน้าเข้าสู่ระบบ…",
@@ -2000,7 +2042,8 @@
     "termsIntro": "ฉันยอมรับข้อกำหนดของ FloPOS",
     "timezoneHint": "เติมล่วงหน้าจากประเทศของคุณ ร้านค้าในประเทศที่มีหลายเขตเวลาสามารถเลือกเขตเวลาท้องถิ่นจริงได้",
     "timezoneLabel": "เขตเวลา",
-    "welcome": "ยินดีต้อนรับสู่ FloCafe"
+    "welcome": "ยินดีต้อนรับสู่ FloCafe",
+    "chooseCountryRequired": "กรุณาเลือกประเทศเพื่อดำเนินการต่อ"
   },
   "staff": {
     "addButton": "เพิ่มพนักงาน",
@@ -2137,7 +2180,8 @@
       "cloudAccountData": "จัดการบัญชีคลาวด์และการควบคุมข้อมูล",
       "databaseTools": "ใช้เครื่องมือฐานข้อมูลและการสำรองข้อมูล",
       "serverApp": "ใช้แอปเซิร์ฟเวอร์แบบสแตนด์อโลน",
-      "support": "ติดต่อฝ่ายสนับสนุนและดูการวินิจฉัย"
+      "support": "ติดต่อฝ่ายสนับสนุนและดูการวินิจฉัย",
+      "googleDrive": "จัดการการสำรองข้อมูลบน Google Drive"
     }
   },
   "support": {
