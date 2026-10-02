@@ -35,6 +35,7 @@ This index classifies documentation in `docs/` so contributors and AI agents kno
 | [title-bar-phase1.md](title-bar-phase1.md) | Native-controls title-bar implementation note for the main POS Electron window, including Phase 2 Linux verification and HTML fallback controls (#457). | CURRENT |
 | [title-bar-platform-matrix.md](title-bar-platform-matrix.md) | Cross-platform verification matrix for the custom title bar, runner/local evidence, and findings (#457/#462). | CURRENT |
 | [guest-ordering.md](guest-ordering.md) | Customer QR ordering: table tokens, the separate guest port, and publishing it safely over mobile data. | CURRENT |
+| [mobile-discovery.md](mobile-discovery.md) | Reference implementation for finding the POS from a React Native app over mDNS, with the iOS/Android prerequisites and the fallbacks for networks that block multicast. Not built or run in this repository. | REFERENCE |
 | [roles-and-permissions.md](roles-and-permissions.md) | Fixed staff roles, the read-only in-app permission matrix, and its code source of truth. | CURRENT |
 | [business-decisions.md](business-decisions.md) | Running, verifiable log of explicit product/business decisions (e.g. orders are never ownership-gated) that code must not silently contradict. | CURRENT |
 | [floadmin-support-ticket-log-handoff.md](floadmin-support-ticket-log-handoff.md) | Handoff for the external cloud/floadmin service: the optional `log_tail` field now included in support ticket submissions, its size cap, and storage/retention recommendations. | CURRENT |
