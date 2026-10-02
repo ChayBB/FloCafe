@@ -111,7 +111,7 @@ export default function GuestOrderPage() {
     return () => clearInterval(timer);
   }, [token, session]);
 
-  const money = (value: number) => formatCurrencyForTenant(value, session?.country, session?.currency || 'THB');
+  const money = (value: number) => formatCurrencyForTenant(value, session?.country || '', session?.currency || 'THB');
 
   const products = useMemo(() => {
     if (!session) return [];
