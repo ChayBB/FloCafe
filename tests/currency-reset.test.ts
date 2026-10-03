@@ -76,7 +76,13 @@ async function main() {
 
   const fresh = getDatabase();
   const count = (table: string) => (fresh.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number }).count;
-  assert.equal(count('users'), 0, 'staff accounts are erased');
+  // 'guest-ordering' is a locked system account created by migration, so it is
+  // present on any migrated database including a freshly reset one. auth.ts
+  // (needsSetup) and staff.ts exclude it from user counts for the same reason.
+  const staffCount = (fresh
+    .prepare("SELECT COUNT(*) AS count FROM users WHERE id <> 'guest-ordering'")
+    .get() as { count: number }).count;
+  assert.equal(staffCount, 0, 'staff accounts are erased');
   assert.equal(count('orders'), 0, 'orders are erased');
   assert.equal(count('bills'), 0, 'invoices are erased');
   assert.equal(count('customers'), 0, 'customers are erased');

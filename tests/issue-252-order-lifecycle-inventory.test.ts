@@ -353,7 +353,11 @@ async function main() {
       body: { type: 'takeaway', items: [{ product_id: 'prod-untrack', quantity: 1 }] },
     });
     const roleRaceItemId = roleRaceOrder.data.order.items[0].id;
-    db.prepare("UPDATE users SET role = 'cashier', updated_at = ? WHERE id = 'owner-test-001'").run(new Date().toISOString());
+    // Demoted to a kitchen role rather than cashier: what this case proves is
+    // that a stale token carries no stale privilege, and on this fork a cashier
+    // legitimately holds `orders.item.cancel` for a line the kitchen has not
+    // started, so it would no longer be a refusal to observe.
+    db.prepare("UPDATE users SET role = 'chef', updated_at = ? WHERE id = 'owner-test-001'").run(new Date().toISOString());
     const staleRoleCancel = await api(baseUrl, `/api/orders/${roleRaceOrder.data.order.id}/items/${roleRaceItemId}/cancel`, {
       method: 'PATCH',
       headers: authHeader,

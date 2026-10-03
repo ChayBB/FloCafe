@@ -889,7 +889,12 @@ async function runTests() {
     assert(!!ok.body.backupPath, 'response includes the forced pre-wipe backup path');
 
     const freshDb = getDatabase();
-    const userCount = (freshDb.prepare('SELECT COUNT(*) as c FROM users').get() as { c: number }).c;
+    // Excludes the 'guest-ordering' system account, which a migration recreates
+    // on every database — it is schema, not a staff record. Matches how auth.ts
+    // computes needsSetup.
+    const userCount = (freshDb
+      .prepare("SELECT COUNT(*) as c FROM users WHERE id <> 'guest-ordering'")
+      .get() as { c: number }).c;
     assert(userCount === 0, 'no users remain after initialize — back to first-run state');
     assert(getCurrentSchemaVersion() === MIGRATIONS[MIGRATIONS.length - 1].version, 'the recreated database is at the latest schema version');
 

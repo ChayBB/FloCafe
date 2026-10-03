@@ -85,8 +85,14 @@ async function run() {
     const { backupPath } = await resetDatabaseWithBackup();
     assert.equal(fs.existsSync(backupPath), true, 'reset takes a safety backup before wiping');
     assert.equal(fs.existsSync(dbPath), true, 'reset recreates the database file');
+    // 'guest-ordering' is a locked system account created by migration, so it
+    // exists on every database the migrations have touched — including a freshly
+    // reset one. It is schema, not data. auth.ts (needsSetup) and staff.ts
+    // exclude it from their user counts for the same reason.
     assert.equal(
-      (getDatabase().prepare('SELECT COUNT(*) AS count FROM users').get() as { count: number }).count,
+      (getDatabase()
+        .prepare("SELECT COUNT(*) AS count FROM users WHERE id <> 'guest-ordering'")
+        .get() as { count: number }).count,
       0,
       'reset produces a genuinely blank database',
     );
