@@ -5,7 +5,7 @@
  * the menu, the table list — arrives on it, and every order goes back out on
  * it. See ../../docs/guest-relay-protocol.md.
  */
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { sql } from './db';
 
 const HELLO_WINDOW_MS = 5 * 60_000;
@@ -69,6 +69,53 @@ export function attach(socket: WebSocket, shopId: string): void {
 
 export function detach(socket: WebSocket): void {
   if (link?.socket === socket) link = null;
+  // Anything waiting on the till is answered rather than left hanging: the admin
+  // page shows the disconnection instead of spinning until the timeout.
+  for (const [key, resolve] of pending) {
+    pending.delete(key);
+    resolve(null);
+  }
+}
+
+/** How long an admin action waits for the till before the page gives up. */
+const REQUEST_TIMEOUT_MS = 15_000;
+
+/**
+ * Outstanding admin requests, keyed by the id the POS echoes back.
+ *
+ * Keyed by id rather than by frame type because two owners can be signing in at
+ * the same moment, and matching on type alone would hand one of them the other's
+ * answer — including, for a sign-in, somebody else's success.
+ */
+const pending = new Map<string, (reply: any) => void>();
+
+/** Asks the till something and waits for the reply carrying the same id. */
+export function request(type: string, payload: object, replyType: string): Promise<any | null> {
+  if (!isPosConnected()) return Promise.resolve(null);
+
+  const id = randomUUID();
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (reply: any) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      pending.delete(id);
+      resolve(reply && reply.type === replyType ? reply : null);
+    };
+
+    pending.set(id, finish);
+    const timer = setTimeout(() => finish(null), REQUEST_TIMEOUT_MS);
+    link!.socket.send(JSON.stringify({ type, id, ...payload }));
+  });
+}
+
+/** Routes an `*_result` frame back to whoever asked for it. */
+export function deliverReply(message: { type: string; id?: string }): boolean {
+  const resolve = pending.get(String(message.id ?? ''));
+  if (!resolve) return false;
+  resolve(message);
+  return true;
 }
 
 /** Replaces the cached menu with the snapshot the till just sent. */

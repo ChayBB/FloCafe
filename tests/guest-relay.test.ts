@@ -83,6 +83,12 @@ async function main() {
               VALUES ('prod-relay', 'Relay Coffee', 60, 1, ?, ?)`).run(now(), now());
   db.prepare(`INSERT INTO products (id, name, price, is_active, created_at, updated_at)
               VALUES ('prod-retired', 'Retired', 50, 0, ?, ?)`).run(now(), now());
+  const bcrypt = require('bcryptjs');
+  const hash = bcrypt.hashSync('RelayAdmin1', 10);
+  db.prepare(`INSERT INTO users (id, name, email, password, role, is_active, created_at, updated_at)
+              VALUES ('relay-owner', 'Chay', 'owner@relay.test', ?, 'owner', 1, ?, ?)`).run(hash, now(), now());
+  db.prepare(`INSERT INTO users (id, name, email, password, role, is_active, created_at, updated_at)
+              VALUES ('relay-server', 'Nok', 'nok@relay.test', ?, 'server', 1, ?, ?)`).run(hash, now(), now());
   db.prepare("INSERT INTO settings (key, value, updated_at) VALUES ('country', 'TH', ?) ON CONFLICT(key) DO UPDATE SET value='TH'").run(now());
   db.prepare("INSERT INTO settings (key, value, updated_at) VALUES ('currency', 'THB', ?) ON CONFLICT(key) DO UPDATE SET value='THB'").run(now());
 
@@ -186,7 +192,58 @@ async function main() {
     assert.equal(stale.reason, 'stale', 'an hour-old order is refused rather than sent to the kitchen');
     ok('a stale order is refused so the customer can be told instead of fed late');
 
-    console.log('\n8. plaintext to a remote host is refused');
+    console.log('\n8. the owner signs in through the hosted server');
+    const login = async (email: string, password: string) => {
+      const id = `login-${Math.random().toString(36).slice(2)}`;
+      socket.send(JSON.stringify({ type: 'admin_login', id, email, password }));
+      return nextMessage('admin_login_result');
+    };
+
+    const wrong = await login('owner@relay.test', 'not-the-password');
+    assert.equal(wrong.ok, false);
+    assert.equal(wrong.reason, 'invalid_credentials');
+
+    const unknown = await login('nobody@relay.test', 'RelayAdmin1');
+    assert.equal(unknown.ok, false);
+    assert.equal(unknown.reason, 'invalid_credentials', 'a missing address is indistinguishable from a wrong password');
+
+    // A waiter may take orders; reconfiguring what the public internet sees is
+    // not the same job.
+    const waiter = await login('nok@relay.test', 'RelayAdmin1');
+    assert.equal(waiter.ok, false);
+    assert.equal(waiter.reason, 'not_permitted');
+
+    const owner = await login('  Owner@Relay.Test  ', 'RelayAdmin1');
+    assert.equal(owner.ok, true, 'the owner signs in, address trimmed and case-folded');
+    assert.equal(owner.name, 'Chay');
+    assert.equal(owner.role, 'owner');
+    ok('only an owner or manager with the right password gets in');
+
+    console.log('\n9. signing in publishes the menu and releases the printable codes');
+    await nextMessage('snapshot');
+    const codesId = 'codes-1';
+    socket.send(JSON.stringify({ type: 'admin_table_codes', id: codesId }));
+    const codes = await nextMessage('admin_table_codes_result');
+    assert.equal(codes.ok, true);
+    const printable = codes.tables.find((t: any) => t.id === 'tbl-relay');
+    assert.equal(printable.code, tableCode, 'the real code is handed over for printing');
+    assert.equal(printable.number, 'R1');
+    ok('signing in pushes the menu and hands over the codes a QR needs');
+
+    console.log('\n10. the codes are not available without signing in');
+    await stopGuestRelay();
+    const reconnected = new Promise<WebSocket>((resolve) => wss.once('connection', (ws) => resolve(ws)));
+    startGuestRelay();
+    const fresh = await reconnected;
+    const freshNext = collect(fresh);
+    await freshNext('hello');
+    fresh.send(JSON.stringify({ type: 'admin_table_codes', id: 'codes-2' }));
+    const refused = await freshNext('admin_table_codes_result');
+    assert.equal(refused.ok, false);
+    assert.equal(refused.reason, 'not_signed_in', 'a reconnect never inherits the previous session');
+    ok('a new connection starts unprivileged');
+
+    console.log('\n11. plaintext to a remote host is refused');
     await stopGuestRelay();
     upsertSettings({ guest_relay_url: 'ws://198.51.100.7:9000' });
     startGuestRelay();
@@ -203,7 +260,7 @@ async function main() {
     try { fs.rmSync(testDir, { recursive: true, force: true }); } catch { /* SQLite may still hold it */ }
   }
 
-  console.log(`\nResults: ${passed}/8 passed, 0 failed`);
+  console.log(`\nResults: ${passed}/11 passed, 0 failed`);
 }
 
 main().catch((error) => {

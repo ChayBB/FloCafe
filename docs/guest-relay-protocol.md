@@ -148,6 +148,82 @@ causes exactly the duplicate it was trying to avoid.
 
 ---
 
+## Signing the shop in
+
+The owner publishes their shop by signing in on the hosted server with the same
+email and password they use on the till. That act is what pushes the menu up and
+what produces the printable table codes.
+
+**The hosted server holds no passwords and no hashes.** What is typed is
+forwarded here, checked against this POS's own `users` table, and discarded.
+Losing the hosted database therefore gives nobody anything to crack.
+
+What it does mean is that the hosted server sees the password as it is typed. A
+compromised server could capture it. That is unavoidable once sign-in happens
+somewhere other than the till, and it is the trade this flow makes in exchange
+for the owner never touching the POS to publish. If that server is not somewhere
+you fully control, use a pairing code shown on the POS screen instead —
+[public-ordering-multitenant.md](public-ordering-multitenant.md).
+
+### Server → POS: `admin_login`
+
+```json
+{ "type": "admin_login", "id": "req-1", "email": "owner@shop.com", "password": "…" }
+```
+
+### POS → server: `admin_login_result`
+
+```json
+{ "type": "admin_login_result", "id": "req-1", "ok": true,
+  "name": "Ploy", "role": "owner", "expires_in_ms": 1800000 }
+```
+
+| `reason` on `ok: false` | Meaning |
+|---|---|
+| `invalid_credentials` | wrong password **or** no such address — deliberately the same answer, so this page cannot be used to find out which addresses exist |
+| `not_permitted` | the account is real but is not an owner or a manager |
+
+bcrypt runs even when no user matched, so the two failures also take the same
+time. A reply is `ok: true` only for an active user holding an owner or manager
+role.
+
+The POS pushes a full `snapshot` immediately after a successful sign-in rather
+than waiting for the next digest check — the owner signed in to publish, so
+publishing is what should happen.
+
+### Server → POS: `admin_table_codes`
+
+```json
+{ "type": "admin_table_codes", "id": "req-2" }
+```
+
+### POS → server: `admin_table_codes_result`
+
+```json
+{ "type": "admin_table_codes_result", "id": "req-2", "ok": true,
+  "tables": [{ "id": "tbl-7", "number": "T9", "code": "shop7.AAAABBBB…" }] }
+```
+
+`reason: "not_signed_in"` when the session has lapsed.
+
+**This is the one frame that carries real codes rather than hashes**, because a
+QR cannot be printed from a hash. It is answered only while a sign-in is live,
+and the hosted server must not persist what comes back: storing it would undo
+the reason snapshots carry hashes at all. Serve it `no-store` too — each code is
+a working credential for its table.
+
+### Session rules
+
+- 30 minutes, extended by nothing; signing in again is the way to continue.
+- **Every reconnect drops the session.** A dropped socket may mean the hosted
+  server restarted, and a session that outlived the connection would let a
+  freshly started server inherit one it never authenticated.
+- `id` is the hosted server's own and is echoed back untouched. Replies are
+  matched on it, not on frame type: two owners signing in at the same moment
+  must not be able to receive each other's answer.
+
+---
+
 ## Redelivery
 
 A server that does not hear an `ack` **must** resend with the same `id`.
@@ -173,8 +249,10 @@ Not in this repository, and not optional:
   passes rather than delivering it hours later
 - telling the customer the truth: *sent to the kitchen* only after an `ack`,
   never before
-- rate limiting per table and per IP
+- rate limiting per table and per IP, and separately on the sign-in form — the
+  POS cannot see how many attempts an address has had
 - rejecting replayed `hello` frames
+- holding admin sessions in memory only, and never writing a table code down
 
 The last one is the POS's security boundary and cannot be enforced from this
 side.

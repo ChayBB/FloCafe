@@ -21,7 +21,8 @@ import { WebSocket } from 'ws';
 import log from 'electron-log';
 import { ensureCloudIdentity, getSettingValue, isGuestOrderingEnabled } from '../db';
 import { getDatabase } from '../db';
-import { isRoundTokenCurrent, isTokenForThisStore, parseGuestToken } from './guest-tokens';
+import { isRoundTokenCurrent, isTokenForThisStore, parseGuestToken, qualifyGuestToken } from './guest-tokens';
+import { ROLE_ACCESS } from '../../shared/role-permissions';
 import { placeGuestOrder, validateGuestItems } from './guest-orders';
 import { publicOrderingSnapshot, snapshotDigest } from './public-menu';
 import { getTenantCurrency } from './refund';
@@ -33,6 +34,18 @@ const PING_INTERVAL_MS = 25_000;
 const MAX_ORDER_AGE_MS = 10 * 60_000;
 /** How often to check whether the menu changed while connected. */
 const SNAPSHOT_INTERVAL_MS = 60_000;
+/**
+ * How long a verified admin sign-in keeps this socket privileged.
+ *
+ * Short, because the privilege it grants — reading the real table codes — is
+ * the one thing the hosted server is otherwise never trusted with.
+ */
+const ADMIN_SESSION_MS = 30 * 60_000;
+
+const ADMIN_ROLES = new Set<string>(ROLE_ACCESS.ownerManager);
+
+/** When the current socket's admin sign-in expires. Reset on every reconnect. */
+let adminSessionUntil = 0;
 
 let socket: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -111,6 +124,63 @@ function pushSnapshot(force = false): void {
   } catch (error) {
     log.warn('[GuestRelay] snapshot push failed', (error as Error).message);
   }
+}
+
+/**
+ * Verifies a shop owner's own credentials on behalf of the hosted server.
+ *
+ * The password is checked here and nowhere else. The hosted server forwards
+ * what was typed and keeps none of it: staff password hashes never leave this
+ * machine, so a compromise of the VPS cannot be turned into offline cracking of
+ * the shop's logins.
+ *
+ * Only owner and manager. A server account that may take orders has no business
+ * reconfiguring what the public internet can see.
+ */
+function verifyAdmin(email: unknown, password: unknown): { ok: true; name: string; role: string } | { ok: false; reason: string } {
+  const normalized = String(email ?? '').trim().toLowerCase();
+  if (!normalized || typeof password !== 'string' || !password) {
+    return { ok: false, reason: 'invalid_credentials' };
+  }
+
+  const user = getDatabase()
+    .prepare('SELECT name, role, password FROM users WHERE LOWER(email) = ? AND is_active = 1')
+    .get(normalized) as { name: string; role: string; password: string } | undefined;
+
+  // bcrypt is run even when no user matched, so a missing address and a wrong
+  // password take the same time and cannot be told apart by timing.
+  const bcrypt = require('bcryptjs');
+  const hash = user?.password ?? '$2a$10$invalidinvalidinvalidinvalidinvalidinvalidinvalidinvalidinv';
+  let matches = false;
+  try { matches = bcrypt.compareSync(password, hash); } catch { matches = false; }
+
+  if (!user || !matches) return { ok: false, reason: 'invalid_credentials' };
+  if (!ADMIN_ROLES.has(user.role)) return { ok: false, reason: 'not_permitted' };
+  return { ok: true, name: user.name, role: user.role };
+}
+
+/**
+ * The printable codes, handed over only to a signed-in owner or manager.
+ *
+ * Snapshots carry hashes precisely so a breach of the hosted database yields no
+ * working QR. This is the deliberate exception: an admin asking to print the
+ * codes needs the real ones. The hosted server is told to render and discard
+ * them rather than store them — it cannot be forced to, which is why the
+ * privilege is short-lived and role-gated here.
+ */
+function tableCodesPayload(): { tables: { id: string; number: string; code: string }[] } {
+  const rows = getDatabase().prepare(`
+    SELECT id, number, guest_token FROM tables
+    WHERE is_active = 1 AND guest_token IS NOT NULL AND guest_token <> ''
+    ORDER BY number
+  `).all() as { id: string; number: string; guest_token: string }[];
+  return {
+    tables: rows.map((row) => ({
+      id: row.id,
+      number: row.number,
+      code: qualifyGuestToken(row.guest_token),
+    })),
+  };
 }
 
 type RelayOrder = {
@@ -246,6 +316,9 @@ function connect(): void {
     // The server may have been restarted or deployed fresh; never assume it
     // still holds what was sent last time.
     lastSnapshotDigest = '';
+    // A reconnect is a new server as far as this POS knows; privilege never
+    // carries across one.
+    adminSessionUntil = 0;
     pushSnapshot(true);
     pingTimer = setInterval(() => {
       if (opening.readyState === WebSocket.OPEN) opening.ping();
@@ -264,7 +337,36 @@ function connect(): void {
     }
     if (message.type === 'order') { void handleOrder(message); return; }
     // A server that lost its cache asks rather than waiting for a change.
-    if (message.type === 'need_snapshot') pushSnapshot(true);
+    if (message.type === 'need_snapshot') { pushSnapshot(true); return; }
+
+    if (message.type === 'admin_login') {
+      const id = String((message as any).id || '');
+      const result = verifyAdmin((message as any).email, (message as any).password);
+      if (!result.ok) {
+        adminSessionUntil = 0;
+        log.warn('[GuestRelay] admin sign-in refused:', result.reason);
+        reply({ type: 'admin_login_result', id, ok: false, reason: result.reason });
+        return;
+      }
+      adminSessionUntil = Date.now() + ADMIN_SESSION_MS;
+      reply({ type: 'admin_login_result', id, ok: true, name: result.name, role: result.role,
+              expires_in_ms: ADMIN_SESSION_MS });
+      log.info('[GuestRelay] admin signed in:', result.role);
+      // Signing in is what the merchant does to publish; send everything at once
+      // rather than waiting for the next digest check.
+      pushSnapshot(true);
+      return;
+    }
+
+    if (message.type === 'admin_table_codes') {
+      const id = String((message as any).id || '');
+      if (Date.now() > adminSessionUntil) {
+        reply({ type: 'admin_table_codes_result', id, ok: false, reason: 'not_signed_in' });
+        return;
+      }
+      reply({ type: 'admin_table_codes_result', id, ok: true, ...tableCodesPayload() });
+      return;
+    }
   });
 
   opening.on('close', () => {

@@ -9,13 +9,13 @@ out to, and carries orders between the two.
 
 **None of this has been executed.** Bun is not installed on the machine where it
 was written, so it has not been started, and no order has ever gone through it.
-The POS end is the tested half (`npm run test:guest-relay`, 8 cases including
+The POS end is the tested half (`npm run test:guest-relay`, 11 cases including
 the ones this server's correctness depends on). Treat this as a worked example
 of the contract, not as something proven.
 
 ```
 customer phone ──HTTPS──> Caddy ──> Bun/Elysia ──> PostgreSQL
-                                        ▲
+shop owner     ──HTTPS──>   ″           ▲
                                         │ WSS, dialled by the POS
                                         │
                                    FloCafe POS (behind NAT)
@@ -34,10 +34,45 @@ down the socket, and it holds table codes only as hashes — the phone presents
 the real code and the POS re-checks it, so losing this database does not hand
 anyone a working QR.
 
+**Signing in is how a shop publishes itself.** The owner opens `/admin`, enters
+the email and password they use on the till, and that pushes the menu up and
+produces the printable QR sheet. No shop is configured on this server by hand.
+
 **It never tells a customer their food is coming until the POS says so.** The
 phone shows "sending" until an `ack` arrives. That is the single rule most
 worth keeping: a queue that silently swallows an order is worse than one that
 admits it failed.
+
+## The owner's password, and what this server can do with it
+
+Worth being exact about, because it decides whether you should run this at all.
+
+This server **stores no password and no hash**. What the owner types at `/admin`
+is forwarded down the socket, checked by the POS against its own `users` table,
+and dropped. Sessions are a token in memory, 30 minutes, gone on restart. A
+stolen copy of this database contains nothing you can crack and no working QR
+code.
+
+But this server **does see the password as it is typed**, and an attacker who
+owns this box can capture it — and that password also unlocks the till. That is
+inherent to signing in on a server instead of on the POS; no amount of care in
+this code removes it.
+
+So: run this on infrastructure you control, or switch to the pairing-code flow,
+where the POS displays a short-lived code the owner types here and no password
+ever leaves the shop. See
+[`docs/public-ordering-multitenant.md`](../../docs/public-ordering-multitenant.md).
+
+Three things here are load-bearing and should not be "optimised" later:
+
+- The sign-in form is rate limited per IP (10 per 15 minutes). The POS cannot
+  see how many attempts an address has had; only this server can.
+- A wrong password and an unknown address return the same message, because the
+  POS returns the same reason. Splitting them turns the form into a way of
+  discovering which addresses are real.
+- Table codes fetched for printing are **never written down** and are served
+  `no-store`. Snapshots carry hashes exactly so this database is worthless to a
+  thief; caching the real codes gives back what the hashing protected.
 
 ## Install
 
@@ -122,12 +157,17 @@ In the order they will bite:
    the POS as `stale`. The customer must be told, not left believing it arrived.
 4. **Rate limits.** `/api/order` is the expensive route. The limits here are a
    starting point, not a measured value.
+5. **The admin session.** Held in memory and dropped whenever the socket drops.
+   A session that outlives the connection lets a restarted server inherit one it
+   never authenticated.
 
 ## Files
 
 | | |
 |---|---|
 | `schema.sql` | PostgreSQL tables |
-| `src/index.ts` | Elysia app: customer HTTP + the POS socket |
-| `src/pos-link.ts` | the POS connection, hello verification, order dispatch |
+| `src/index.ts` | Elysia app: customer HTTP, the admin routes, the POS socket |
+| `src/pos-link.ts` | the POS connection, hello verification, order dispatch, admin requests |
+| `src/admin.ts` | sign-in against the till, in-memory sessions, table codes |
+| `src/admin-pages.ts` | the three server-rendered pages, including the QR sheet |
 | `src/db.ts` | queries |

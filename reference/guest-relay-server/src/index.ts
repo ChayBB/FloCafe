@@ -1,20 +1,25 @@
 /**
  * FloCafe guest relay — Bun + Elysia.
  *
- * Two surfaces on one port:
+ * Three surfaces on one port:
  *   /relay          the socket the POS dials out to and holds open
  *   /api/guest/*    what a customer's phone talks to over 4G
+ *   /admin/*        where the shop owner signs in and gets the printable QRs
  *
  * Caddy terminates TLS in front of both. See ../README.md.
  */
 import { Elysia, t } from 'elysia';
 import { createHash, randomUUID } from 'node:crypto';
 import { loadMenu, shopProfile, sql, tableByHash } from './db';
-import { applySnapshot, attach, detach, dispatch, isPosConnected, settle, verifyHello } from './pos-link';
+import { applySnapshot, attach, deliverReply, detach, dispatch, isPosConnected, settle, verifyHello } from './pos-link';
+import { sessionFor, signIn, signOut, tableCodes } from './admin';
+import { adminPage, loginPage, printPage } from './admin-pages';
 
 const RELAY_SECRET = process.env.RELAY_SECRET;
 if (!RELAY_SECRET) throw new Error('RELAY_SECRET is required');
 const PORT = Number(process.env.PORT || 3000);
+/** The address the customer's phone will reach, baked into every QR. */
+const PUBLIC_URL = process.env.PUBLIC_URL || `http://localhost:${PORT}`;
 
 /** The POS sends `sha256(code)`; the phone sends the code itself. */
 const hashCode = (code: string) => createHash('sha256').update(code).digest('hex');
@@ -26,8 +31,34 @@ const hashCode = (code: string) => createHash('sha256').update(code).digest('hex
 const RATE: Record<string, { windowMs: number; max: number }> = {
   read: { windowMs: 60_000, max: 120 },
   order: { windowMs: 60_000, max: 10 },
+  // Tight on purpose. This page accepts the shop's real POS password, so it is
+  // the one surface here worth guessing at, and the till cannot see how many
+  // attempts an IP has made — only this server can.
+  login: { windowMs: 15 * 60_000, max: 10 },
 };
 const hits = new Map<string, { count: number; resetAt: number }>();
+
+/**
+ * Who is calling.
+ *
+ * Caddy proxies from localhost, so the socket address is the same for everybody
+ * and rate limiting it would put the whole internet in one bucket — including
+ * the sign-in form. The last hop in `X-Forwarded-For` is the one Caddy appended
+ * and is the only entry a client cannot forge; earlier ones are the client's own
+ * claim and are ignored.
+ *
+ * This assumes requests only ever arrive through the proxy. Bind Bun to
+ * localhost, or an attacker reaching it directly sets any address they like.
+ */
+function clientIp(server: { requestIP?: (r: Request) => { address: string } | null } | null, request: Request): string {
+  const forwarded = request.headers.get('x-forwarded-for');
+  if (forwarded) {
+    const hops = forwarded.split(',');
+    const last = hops[hops.length - 1]!.trim();
+    if (last) return last;
+  }
+  return server?.requestIP?.(request)?.address ?? 'unknown';
+}
 
 function overLimit(kind: keyof typeof RATE, ip: string): boolean {
   const limit = RATE[kind];
@@ -47,6 +78,13 @@ function overLimit(kind: keyof typeof RATE, ip: string): boolean {
 
 /** The single shop this reference serves; set by the first accepted hello. */
 let shopId: string | null = null;
+
+const page503 = (reason: string) =>
+  `<!doctype html><meta charset="utf-8"><p>${
+    reason === 'session_expired'
+      ? 'Your session expired. <a href="/admin">Sign in again</a>.'
+      : 'Your till did not answer. <a href="/admin/print">Try again</a>.'
+  }</p>`;
 
 const app = new Elysia()
 
@@ -86,7 +124,12 @@ const app = new Elysia()
         return;
       }
 
-      if (message.type === 'ack' || message.type === 'nack') settle(message);
+      if (message.type === 'ack' || message.type === 'nack') { settle(message); return; }
+
+      // admin_login_result, admin_table_codes_result: answers to something the
+      // owner clicked. Unrecognised types are ignored, so a newer POS speaking
+      // frames this build has never heard of does not break the connection.
+      deliverReply(message);
     },
 
     close(ws) {
@@ -99,7 +142,7 @@ const app = new Elysia()
 
   /** Opens a session from a scanned code: the menu, and who they are ordering as. */
   .get('/api/guest/:code/session', async ({ params, set, server, request }) => {
-    const ip = server?.requestIP(request)?.address ?? 'unknown';
+    const ip = clientIp(server, request);
     if (overLimit('read', ip)) { set.status = 429; return { error: 'Too many requests' }; }
     if (!shopId) { set.status = 503; return { error: 'The shop is not connected' }; }
 
@@ -123,7 +166,7 @@ const app = new Elysia()
    * never told the kitchen has their order before the kitchen does.
    */
   .post('/api/guest/:code/order', async ({ params, body, set, server, request }) => {
-    const ip = server?.requestIP(request)?.address ?? 'unknown';
+    const ip = clientIp(server, request);
     if (overLimit('order', ip)) { set.status = 429; return { error: 'Too many orders in a short time' }; }
     if (!shopId) { set.status = 503; return { error: 'The shop is not connected' }; }
 
@@ -161,6 +204,97 @@ const app = new Elysia()
         special_instructions: t.Optional(t.String()),
       })),
     }),
+  })
+
+  // ── Where the shop owner signs in ─────────────────────────────────────────
+
+  /** Reads our own session cookie. Not a parser for anybody else's cookies. */
+  .derive(({ request }) => {
+    const header = request.headers.get('cookie') ?? '';
+    const match = /(?:^|;\s*)flo_admin=([^;]+)/.exec(header);
+    return { adminToken: match ? decodeURIComponent(match[1]) : undefined };
+  })
+
+  .get('/admin', ({ adminToken, set }) => {
+    set.headers['content-type'] = 'text/html; charset=utf-8';
+    const session = sessionFor(adminToken);
+    return session ? adminPage(session.name, isPosConnected()) : loginPage();
+  })
+
+  .post('/admin/login', async ({ body, set, server, request }) => {
+    const ip = clientIp(server, request);
+    set.headers['content-type'] = 'text/html; charset=utf-8';
+
+    if (overLimit('login', ip)) {
+      set.status = 429;
+      return loginPage('Too many attempts. Please wait a few minutes.');
+    }
+    if (!isPosConnected()) {
+      set.status = 503;
+      return loginPage('The till is offline, so your password cannot be checked right now.');
+    }
+
+    const result = await signIn(String((body as any).email ?? ''), String((body as any).password ?? ''));
+    if ('error' in result) {
+      set.status = 401;
+      return loginPage(result.error === 'not_permitted'
+        ? 'That account is not an owner or a manager.'
+        : 'Wrong email or password.');
+    }
+
+    // HttpOnly so page scripts cannot read it, SameSite=Lax so a form on another
+    // site cannot act as the owner. Secure unless this is a local dry run.
+    const secure = PUBLIC_URL.startsWith('https://') ? ' Secure;' : '';
+    set.headers['set-cookie'] =
+      `flo_admin=${encodeURIComponent(result.token)}; Path=/admin; HttpOnly;${secure} SameSite=Lax; Max-Age=${Math.floor(result.expiresInMs / 1000)}`;
+    set.status = 303;
+    set.headers['location'] = '/admin';
+    return '';
+  }, {
+    body: t.Object({ email: t.String(), password: t.String() }),
+  })
+
+  .post('/admin/logout', ({ adminToken, set }) => {
+    signOut(adminToken);
+    set.headers['set-cookie'] = 'flo_admin=; Path=/admin; HttpOnly; SameSite=Lax; Max-Age=0';
+    set.status = 303;
+    set.headers['location'] = '/admin';
+    return '';
+  })
+
+  /**
+   * The printable codes.
+   *
+   * Asked of the till on every call and never stored here. The snapshot holds
+   * only hashes precisely so that a breach of this box yields no working QR;
+   * caching this response would hand over what the hashing was protecting.
+   */
+  .get('/admin/tables', async ({ adminToken, set }) => {
+    if (!sessionFor(adminToken)) { set.status = 401; return { error: 'not_signed_in' }; }
+    if (!isPosConnected()) { set.status = 503; return { error: 'pos_offline' }; }
+
+    const tables = await tableCodes(PUBLIC_URL);
+    if ('error' in tables) { set.status = tables.error === 'session_expired' ? 401 : 503; return tables; }
+
+    // Codes are live credentials for a table. Keep them out of every cache
+    // between here and the owner's browser.
+    set.headers['cache-control'] = 'no-store';
+    return { tables };
+  })
+
+  /** The same codes as a printable sheet of QR images. */
+  .get('/admin/print', async ({ adminToken, set }) => {
+    set.headers['content-type'] = 'text/html; charset=utf-8';
+    if (!sessionFor(adminToken)) { set.status = 303; set.headers['location'] = '/admin'; return ''; }
+
+    const tables = await tableCodes(PUBLIC_URL);
+    if ('error' in tables) {
+      set.status = tables.error === 'session_expired' ? 401 : 503;
+      return page503(tables.error);
+    }
+
+    set.headers['cache-control'] = 'no-store';
+    return printPage(tables);
   })
 
   .get('/api/health', () => ({ status: 'ok', pos_connected: isPosConnected(), shop: shopId }))
