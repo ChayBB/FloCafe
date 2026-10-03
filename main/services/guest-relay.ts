@@ -23,16 +23,22 @@ import { ensureCloudIdentity, getSettingValue, isGuestOrderingEnabled } from '..
 import { getDatabase } from '../db';
 import { isRoundTokenCurrent, isTokenForThisStore, parseGuestToken } from './guest-tokens';
 import { placeGuestOrder, validateGuestItems } from './guest-orders';
+import { publicOrderingSnapshot, snapshotDigest } from './public-menu';
+import { getTenantCurrency } from './refund';
 
 const RECONNECT_BASE_MS = 2_000;
 const RECONNECT_MAX_MS = 60_000;
 const PING_INTERVAL_MS = 25_000;
 /** A relayed order older than this is stale: the kitchen should not cook it. */
 const MAX_ORDER_AGE_MS = 10 * 60_000;
+/** How often to check whether the menu changed while connected. */
+const SNAPSHOT_INTERVAL_MS = 60_000;
 
 let socket: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let pingTimer: ReturnType<typeof setInterval> | null = null;
+let snapshotTimer: ReturnType<typeof setInterval> | null = null;
+let lastSnapshotDigest = '';
 let attempts = 0;
 let stopped = true;
 
@@ -80,6 +86,31 @@ function tableForCode(code: unknown): { id: string; number: string; guest_round:
     .prepare('SELECT id, number, guest_round FROM tables WHERE guest_token = ? AND is_active = 1')
     .get(parsed.secret) as { id: string; number: string; guest_round: number } | undefined;
   return row ?? null;
+}
+
+/**
+ * Sends the hosted server the menu it serves to phones.
+ *
+ * The server has no database of its own worth trusting for this: prices and
+ * availability are the shop's, and a stale copy sells something that is off or
+ * at last week's price. Table codes go up as hashes only — the phone presents
+ * the real code and the POS re-checks it, so a breach of the hosted server
+ * yields no working QR.
+ *
+ * `force` ignores the digest, for a server that has just reconnected and has
+ * nothing cached.
+ */
+function pushSnapshot(force = false): void {
+  if (socket?.readyState !== WebSocket.OPEN) return;
+  try {
+    const snapshot = publicOrderingSnapshot(getTenantCurrency(getDatabase()), getSettingValue('language') || 'en');
+    const digest = snapshotDigest(snapshot);
+    if (!force && digest === lastSnapshotDigest) return;
+    lastSnapshotDigest = digest;
+    reply({ type: 'snapshot', digest, ...snapshot, captured_at: new Date().toISOString() });
+  } catch (error) {
+    log.warn('[GuestRelay] snapshot push failed', (error as Error).message);
+  }
 }
 
 type RelayOrder = {
@@ -212,10 +243,16 @@ function connect(): void {
     attempts = 0;
     reply(buildHello(config));
     log.info('[GuestRelay] connected to', config.url);
+    // The server may have been restarted or deployed fresh; never assume it
+    // still holds what was sent last time.
+    lastSnapshotDigest = '';
+    pushSnapshot(true);
     pingTimer = setInterval(() => {
       if (opening.readyState === WebSocket.OPEN) opening.ping();
     }, PING_INTERVAL_MS);
     pingTimer.unref?.();
+    snapshotTimer = setInterval(() => pushSnapshot(false), SNAPSHOT_INTERVAL_MS);
+    snapshotTimer.unref?.();
   });
 
   opening.on('message', (data) => {
@@ -225,11 +262,14 @@ function connect(): void {
     } catch {
       return;
     }
-    if (message.type === 'order') void handleOrder(message);
+    if (message.type === 'order') { void handleOrder(message); return; }
+    // A server that lost its cache asks rather than waiting for a change.
+    if (message.type === 'need_snapshot') pushSnapshot(true);
   });
 
   opening.on('close', () => {
     if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
+    if (snapshotTimer) { clearInterval(snapshotTimer); snapshotTimer = null; }
     socket = null;
     if (!stopped) scheduleReconnect();
   });
@@ -250,6 +290,7 @@ export function stopGuestRelay(): Promise<void> {
   stopped = true;
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
   if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
+  if (snapshotTimer) { clearInterval(snapshotTimer); snapshotTimer = null; }
   const open = socket;
   socket = null;
   attempts = 0;

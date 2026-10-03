@@ -36,6 +36,7 @@ This index classifies documentation in `docs/` so contributors and AI agents kno
 | [title-bar-platform-matrix.md](title-bar-platform-matrix.md) | Cross-platform verification matrix for the custom title bar, runner/local evidence, and findings (#457/#462). | CURRENT |
 | [guest-ordering.md](guest-ordering.md) | Customer QR ordering: table tokens, the separate guest port, and publishing it safely over mobile data. | CURRENT |
 | [guest-relay-protocol.md](guest-relay-protocol.md) | How customer orders reach a till behind NAT: the POS dials out to a hosted QR server and holds the socket. Frame-by-frame contract, refusal reasons, and redelivery rules. | CURRENT (POS side) |
+| [../reference/guest-relay-server/](../reference/guest-relay-server/) | Worked example of the hosted half of the relay — Bun, Elysia, PostgreSQL, Caddy. Never run by its authors; the POS end is the tested half. | REFERENCE |
 | [mobile-discovery.md](mobile-discovery.md) | Reference implementation for finding the POS from a React Native app over mDNS, with the iOS/Android prerequisites and the fallbacks for networks that block multicast. Not built or run in this repository. | REFERENCE |
 | [roles-and-permissions.md](roles-and-permissions.md) | Fixed staff roles, the read-only in-app permission matrix, and its code source of truth. | CURRENT |
 | [business-decisions.md](business-decisions.md) | Running, verifiable log of explicit product/business decisions (e.g. orders are never ownership-gated) that code must not silently contradict. | CURRENT |

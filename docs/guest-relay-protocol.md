@@ -61,6 +61,43 @@ The secret is never transmitted. A server **must** reject a `timestamp` outside 
 few minutes and **must** refuse a `nonce` it has seen, or a captured hello can be
 replayed to impersonate the till.
 
+### POS → server: `snapshot`
+
+Sent on connect, whenever the menu changes, and on request. The hosted server
+has no menu of its own worth trusting: prices and availability belong to the
+shop, and a stale copy sells something that is off, or at last week's price.
+
+```json
+{
+  "type": "snapshot",
+  "digest": "9f12…",
+  "currency": "THB",
+  "language": "th",
+  "categories": [{ "id": "c-1", "name": "Drinks" }],
+  "products": [{ "id": "p-12", "category_id": "c-1", "name": "Iced tea",
+                 "description": null, "price": 65, "has_image": true }],
+  "tables": [{ "id": "tbl-7", "number": "T9", "token_hash": "4c9b…" }],
+  "captured_at": "2026-10-03T10:31:25.363Z"
+}
+```
+
+Cost, stock, SKU and supplier are not in it — they are never selected, not
+selected and stripped. **Tables carry only `sha256(code)`.** The phone presents
+the real code, the server hashes it to find the table, and forwards the original
+for the POS to re-check, so a breach of the hosted database yields no working QR.
+
+Replace rather than merge: a product deleted upstream has to disappear, and a
+diff that misses a deletion keeps selling it.
+
+### Server → POS: `need_snapshot`
+
+```json
+{ "type": "need_snapshot" }
+```
+
+Sent when the server has no cached menu — a fresh deploy, a restarted process.
+The POS answers with a `snapshot` regardless of whether anything changed.
+
 ### Server → POS: `order`
 
 ```json

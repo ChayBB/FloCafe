@@ -39,23 +39,26 @@ async function freePort(): Promise<number> {
   return port;
 }
 
-/** Waits for one message of the given type, or fails loudly rather than hanging. */
-function nextMessage(socket: WebSocket, type: string, timeoutMs = 5_000): Promise<any> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      socket.off('message', onMessage);
-      reject(new Error(`timed out waiting for "${type}"`));
-    }, timeoutMs);
-    function onMessage(data: unknown) {
-      let payload: any;
-      try { payload = JSON.parse(String(data)); } catch { return; }
-      if (payload.type !== type) return;
-      clearTimeout(timer);
-      socket.off('message', onMessage);
-      resolve(payload);
-    }
-    socket.on('message', onMessage);
+/**
+ * Buffers everything the POS sends, so a test can ask for a frame that already
+ * arrived. The POS sends its hello and its first snapshot in the same tick, and
+ * a listener attached after awaiting the first would never see the second.
+ */
+function collect(socket: WebSocket) {
+  const seen: any[] = [];
+  socket.on('message', (data) => {
+    try { seen.push(JSON.parse(String(data))); } catch { /* not ours */ }
   });
+
+  return async function take(type: string, timeoutMs = 5_000): Promise<any> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const index = seen.findIndex((message) => message.type === type);
+      if (index !== -1) return seen.splice(index, 1)[0];
+      if (Date.now() > deadline) throw new Error(`timed out waiting for "${type}"`);
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  };
 }
 
 async function main() {
@@ -113,7 +116,8 @@ async function main() {
     console.log('\n2. the POS dials out and proves who it is');
     startGuestRelay();
     const socket = await connected;
-    const hello = await nextMessage(socket, 'hello');
+    const nextMessage = collect(socket);
+    const hello = await nextMessage('hello');
     assert.ok(hello.pos_hash, 'the hello identifies the till');
     assert.equal(
       hello.signature,
@@ -123,12 +127,25 @@ async function main() {
     assert.equal(String(hello.signature).includes(secret), false, 'the shared secret itself is never sent');
     ok('the POS connects outbound and signs its hello');
 
+    console.log('\n3. the POS sends the menu the server will serve');
+    const snapshot = await nextMessage('snapshot');
+    assert.ok(snapshot.products.some((p: any) => p.id === 'prod-relay'), 'the sellable product is in the snapshot');
+    assert.equal(snapshot.products.some((p: any) => p.id === 'prod-retired'), false, 'a retired product is not');
+    const listed = snapshot.products.find((p: any) => p.id === 'prod-relay');
+    for (const forbidden of ['cost', 'cost_price', 'stock_quantity', 'sku']) {
+      assert.equal(forbidden in listed, false, `${forbidden} is never sent to a hosted server`);
+    }
+    const relayTable = snapshot.tables.find((t: any) => t.id === 'tbl-relay');
+    assert.ok(relayTable?.token_hash, 'tables are identified by a hash');
+    assert.equal(JSON.stringify(snapshot).includes(tableCode), false, 'the real code never leaves the POS');
+    ok('the menu goes up with no cost, stock or usable table code');
+
     const round = newRoundToken('tbl-relay', 1);
     const send = (payload: Record<string, unknown>) => socket.send(JSON.stringify({ type: 'order', ...payload }));
 
-    console.log('\n3. a relayed order reaches the kitchen');
+    console.log('\n4. a relayed order reaches the kitchen');
     send({ id: 'o-1', table_code: tableCode, round_token: round, items: [{ product_id: 'prod-relay', quantity: 2 }] });
-    const ack = await nextMessage(socket, 'ack');
+    const ack = await nextMessage('ack');
     assert.equal(ack.id, 'o-1');
     assert.equal(ack.table_name, 'R1', 'the acknowledgement names the table');
     assert.ok(ack.order_number, 'and carries the order number staff will see');
@@ -136,14 +153,14 @@ async function main() {
     assert.equal(placed.c, 1, 'the line really exists');
     ok('an order sent down the relay becomes a real order');
 
-    console.log('\n4. a redelivery does not become a second round of food');
+    console.log('\n5. a redelivery does not become a second round of food');
     send({ id: 'o-1', table_code: tableCode, round_token: round, items: [{ product_id: 'prod-relay', quantity: 2 }] });
-    await nextMessage(socket, 'ack');
+    await nextMessage('ack');
     const afterReplay = db.prepare("SELECT COUNT(*) c FROM order_items WHERE product_id = 'prod-relay'").get() as any;
     assert.equal(afterReplay.c, 1, 'the same relay id is recognised, not re-cooked');
     ok('resending an order the server never heard acked is safe');
 
-    console.log('\n5. every refusal is answered, never dropped');
+    console.log('\n6. every refusal is answered, never dropped');
     const refusals: [string, Record<string, unknown>, string][] = [
       ['an unknown table code', { id: 'o-2', table_code: 'not-a-real-code-AAAABBBB', round_token: round, items: [{ product_id: 'prod-relay', quantity: 1 }] }, 'unknown_table'],
       ['a token from a settled sitting', { id: 'o-3', table_code: tableCode, round_token: newRoundToken('tbl-relay', 99), items: [{ product_id: 'prod-relay', quantity: 1 }] }, 'round_closed'],
@@ -153,23 +170,23 @@ async function main() {
     ];
     for (const [label, payload, reason] of refusals) {
       send(payload);
-      const nack = await nextMessage(socket, 'nack');
+      const nack = await nextMessage('nack');
       assert.equal(nack.id, payload.id, `a reply arrives for ${label}`);
       assert.equal(nack.reason, reason, `${label} is refused as ${reason}`);
     }
     ok('unknown table, closed round, dead item, bad quantity and empty basket are all answered');
 
-    console.log('\n6. an order stranded by a long outage is not cooked');
+    console.log('\n7. an order stranded by a long outage is not cooked');
     send({
       id: 'o-7', table_code: tableCode, round_token: round,
       placed_at: new Date(Date.now() - 60 * 60_000).toISOString(),
       items: [{ product_id: 'prod-relay', quantity: 1 }],
     });
-    const stale = await nextMessage(socket, 'nack');
+    const stale = await nextMessage('nack');
     assert.equal(stale.reason, 'stale', 'an hour-old order is refused rather than sent to the kitchen');
     ok('a stale order is refused so the customer can be told instead of fed late');
 
-    console.log('\n7. plaintext to a remote host is refused');
+    console.log('\n8. plaintext to a remote host is refused');
     await stopGuestRelay();
     upsertSettings({ guest_relay_url: 'ws://198.51.100.7:9000' });
     startGuestRelay();
@@ -186,7 +203,7 @@ async function main() {
     try { fs.rmSync(testDir, { recursive: true, force: true }); } catch { /* SQLite may still hold it */ }
   }
 
-  console.log(`\nResults: ${passed}/7 passed, 0 failed`);
+  console.log(`\nResults: ${passed}/8 passed, 0 failed`);
 }
 
 main().catch((error) => {

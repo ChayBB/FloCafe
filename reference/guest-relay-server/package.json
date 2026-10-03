@@ -1,0 +1,13 @@
+{
+  "name": "flocafe-guest-relay",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "dev": "bun --watch src/index.ts"
+  },
+  "dependencies": {
+    "elysia": "^1.1.0",
+    "postgres": "^3.4.4"
+  }
+}
