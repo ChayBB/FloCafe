@@ -21,6 +21,7 @@ import { API_JSON_BODY_LIMIT } from './http-limits';
 import { resolveContainedPath } from './lib/path-containment';
 import { GUEST_CHANNEL_HEADER, getGuestChannelSecret } from './services/guest-channel';
 import { isRoundTokenCurrent, isTokenForThisStore, newRoundToken, parseGuestToken } from './services/guest-tokens';
+import { placeGuestOrder, validateGuestItems } from './services/guest-orders';
 import { publicMenu } from './services/public-menu';
 
 let guestServer: http.Server | null = null;
@@ -91,28 +92,6 @@ function requireGuestTable(req: Request, res: Response, next: NextFunction) {
   if (!table) return res.status(404).json({ error: 'This QR code is no longer valid. Ask our staff for help.' });
   (req as any).guestTable = table;
   next();
-}
-
-/**
- * Calls the POS API as the merchant's own service. Guest requests never carry a
- * user token, so the payload is built here and the table is taken from the token,
- * never from the request body.
- */
-async function callPosApi(req: Request, method: 'GET' | 'POST', targetPath: string, body?: unknown) {
-  const target = new URL(`/api${targetPath}`, `http://127.0.0.1:${getServerPort()}`);
-  const response = await fetch(target, {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-      [GUEST_CHANNEL_HEADER]: getGuestChannelSecret(),
-    },
-    body: method === 'GET' ? undefined : JSON.stringify(body ?? {}),
-    signal: getHttpRequestSignal(req),
-  });
-  const text = await response.text();
-  let parsed: any = text;
-  try { parsed = JSON.parse(text); } catch { /* upstream error page */ }
-  return { status: response.status, body: parsed };
 }
 
 /** The table's open ticket, reduced to what the guest ordered and how it is going. */
@@ -221,43 +200,17 @@ export function startGuestServer(): Promise<void> {
     app.post('/api/guest/:token/order', guestOrderLimit, requireGuestTable, requireCurrentRound, (req: Request, res: Response) => {
       void trackHttpRequestWork(req, (async () => {
         const table = (req as any).guestTable as GuestTable;
-        const rawItems = Array.isArray(req.body?.items) ? req.body.items : [];
-        if (rawItems.length === 0) return res.status(400).json({ error: 'No items to send' });
-        if (rawItems.length > 40) return res.status(400).json({ error: 'Too many items in one order' });
 
-        const db = getDatabase();
-        const items: { product_id: string; quantity: number; special_instructions?: string }[] = [];
-        for (const raw of rawItems) {
-          const productId = String(raw?.product_id || '');
-          const quantity = Number(raw?.quantity);
-          if (!productId || !Number.isInteger(quantity) || quantity < 1 || quantity > 20) {
-            return res.status(400).json({ error: 'Invalid item' });
-          }
-          // Only an active, sellable product: a guessed id must not become an order line.
-          const sellable = db.prepare(`
-            SELECT 1 FROM products p LEFT JOIN categories c ON c.id = p.category_id
-            WHERE p.id = ? AND p.deleted_at IS NULL AND p.is_active = 1 AND (c.id IS NULL OR c.is_active = 1)
-          `).get(productId);
-          if (!sellable) return res.status(400).json({ error: 'Item is no longer available' });
-          const note = typeof raw?.special_instructions === 'string'
-            ? raw.special_instructions.trim().slice(0, 200)
-            : '';
-          items.push({ product_id: productId, quantity, ...(note ? { special_instructions: note } : {}) });
-        }
+        // Shared with the relay (main/services/guest-orders.ts) so the two guest
+        // entrances cannot end up enforcing different rules.
+        const validation = validateGuestItems(req.body?.items);
+        if (!validation.ok) return res.status(400).json({ error: validation.error });
 
         try {
-          const open = db.prepare(`
-            SELECT id FROM orders
-            WHERE table_id = ? AND status NOT IN ('completed', 'cancelled')
-            ORDER BY created_at DESC LIMIT 1
-          `).get(table.id) as { id: number } | undefined;
-
-          const result = open
-            ? await callPosApi(req, 'POST', `/orders/${open.id}/items`, { items })
-            : await callPosApi(req, 'POST', '/orders', { table_id: table.id, type: 'dine_in', items });
-
-          if (result.status >= 400) {
-            console.warn('[Guest] Order rejected by POS API:', result.status, result.body?.error);
+          const result = await placeGuestOrder(table.id, validation.items, {
+            signal: getHttpRequestSignal(req),
+          });
+          if (!result.ok) {
             return res.status(502).json({ error: 'Could not send the order. Please ask our staff.' });
           }
           res.status(201).json({ ticket: tableTicket(table.id) });

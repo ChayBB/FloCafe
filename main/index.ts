@@ -14,6 +14,7 @@ import { googleDrive } from './services/google-drive';
 import { startKdsServer, stopKdsServer, getKdsPort, isKdsServerRunning } from './kds-server';
 import { startServerApp, stopServerApp, getServerAppPort, isServerAppRunning } from './server-app';
 import { FLO_SERVICE_TYPE, floServiceName, floTxtRecord } from './services/flo-discovery';
+import { startGuestRelay, stopGuestRelay } from './services/guest-relay';
 import { startGuestServer, stopGuestServer } from './guest-server';
 import { initPrinter } from './printers/thermal';
 import { destroySharedRasterRenderer } from './printers/raster-renderer';
@@ -1231,6 +1232,10 @@ async function initialize(): Promise<void> {
     if (process.env.FLO_E2E_SKIP_OPTIONAL_NETWORK !== '1') {
       console.log('[Flo] Starting mDNS advertisement...');
       startMdns();
+      // Dials out only when a hosted QR server is configured; an unconfigured
+      // install never opens a socket. Grouped with mDNS so the E2E fixture that
+      // wants no outbound network gets neither.
+      startGuestRelay();
     }
 
     console.log('[Flo] Initializing printer...');
@@ -1455,6 +1460,7 @@ const cleanupCoordinator = createShutdownCoordinator(() => [
   { name: 'telemetry', run: () => telemetry.stop(), blocksDatabase: true },
   { name: 'Google Drive', run: () => googleDrive.stop(), blocksDatabase: true },
   { name: 'WhatsApp', run: () => shutdownWhatsApp(), blocksDatabase: true },
+  { name: 'Guest relay', run: () => stopGuestRelay() },
   { name: 'Bonjour', run: () => stopMdns() },
   { name: 'HTTP handler cleanup', run: () => waitForHttpShutdownWork(), blocksDatabase: true },
   { name: 'database admission', run: () => beginDatabaseShutdown(), blocksDatabase: true },
