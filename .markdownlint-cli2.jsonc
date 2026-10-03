@@ -9,5 +9,8 @@
     "MD060": { "style": "fenced" }
   },
   "globs": ["docs/**/*.md", "*.md", "frontend/**/*.md"],
-  "ignores": ["CHANGELOG.md", "node_modules/**", "frontend/node_modules/**", "frontend/.next/**", "frontend/out/**", "dist/**"]
+  // frontend/test-results is Playwright's own output: gitignored, regenerated
+  // on every run, and never reviewed. Without it here, docs:check fails for
+  // anyone who has run the browser tests locally.
+  "ignores": ["CHANGELOG.md", "node_modules/**", "frontend/node_modules/**", "frontend/.next/**", "frontend/out/**", "frontend/test-results/**", "dist/**"]
 }

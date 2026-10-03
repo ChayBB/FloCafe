@@ -46,12 +46,10 @@ if (typeof testScript !== 'string' || testScript.length === 0) {
   process.exit(2);
 }
 
-const suitePattern = /(?:bash\s+tests\/run-test\.sh\s+)?npm\s+run\s+(test:[\w-]+)/g;
-const suites = [];
-let match;
-while ((match = suitePattern.exec(testScript)) !== null) {
-  if (!suites.includes(match[1])) suites.push(match[1]);
-}
+// Resolves the test:batch-N indirection the cmd.exe command-line limit forced,
+// so a shard still schedules individual suites rather than four batches.
+const { listDefaultSuites } = require('./test-suites.cjs');
+const suites = listDefaultSuites(pkg);
 
 if (suites.length === 0) {
   console.error('Could not extract any test suites from package.json "test" script.');
