@@ -47,7 +47,7 @@ import {
 } from '@/lib/append-attempt';
 import { preferChildScopedBill } from '@/lib/printer/tax-components';
 import { matchesOrderSearch } from '@/lib/orders-search';
-import { ROLE_ACCESS, hasRole } from '@shared/role-permissions';
+import { tenantCan } from '@/lib/permissions';
 
 import { OrderCard } from '@/components/orders/OrderCard';
 
@@ -93,7 +93,7 @@ interface DiscountModal {
 
 export default function OrdersPage() {
   const { currentTenant, user } = useAuthStore();
-  const { printBill } = usePrinterStore();
+  const { printBill, printDeliverySlip } = usePrinterStore();
   const heldOrdersStore = useHeldOrdersStore();
   const router = useRouter();
   const cartStore = useCartStore();
@@ -152,6 +152,7 @@ export default function OrdersPage() {
   // Print states
   const [generatingBill, setGeneratingBill] = useState<number | null>(null);
   const [printingBillId, setPrintingBillId] = useState<number | null>(null);
+  const [printingSlipOrderId, setPrintingSlipOrderId] = useState<number | null>(null);
   const [sendingWaOrderId, setSendingWaOrderId] = useState<number | null>(null);
   const [confirmPrintBillId, setConfirmPrintBillId] = useState<number | null>(null);
 
@@ -207,7 +208,9 @@ export default function OrdersPage() {
     ? normalizeFixedDiscountValue(discountModal.value, unitAdapter.maxDecimals)
     : discountModal?.value ?? 0;
   const fmt = useFormatCurrency();
-  const isOwnerOrManager = hasRole(currentTenant?.role, ROLE_ACCESS.ownerManager);
+  const canCancelItems = tenantCan(currentTenant, 'orders.item.cancel');
+  const canRestoreItems = tenantCan(currentTenant, 'orders.item.restore');
+  const canRefund = tenantCan(currentTenant, 'refunds.initiate');
 
   if (discountModal && !isDiscountTypeAllowed(discountMode, discountModal.type)) {
     setDiscountModal({
@@ -227,7 +230,7 @@ export default function OrdersPage() {
     }
   };
 
-  const fetchOrders = async () => {
+  const fetchOrders = async (): Promise<boolean> => {
     try {
       const { data } = await api.get('/orders', { params: { per_page: 50 } });
       const orders = data.orders || [];
@@ -239,8 +242,10 @@ export default function OrdersPage() {
           fetchPrintHistory(order.bill.id);
         }
       });
+      return true;
     } catch {
       toast.error(tOrders('loadOrdersFailed'));
+      return false;
     } finally {
       setLoading(false);
     }
@@ -568,6 +573,55 @@ export default function OrdersPage() {
     }
   };
 
+  const handlePrintOrder = async (order: Order) => {
+    if (order.bill?.id) {
+      setConfirmPrintBillId(order.bill.id);
+      return;
+    }
+    setGeneratingBill(order.id);
+    try {
+      const { data } = await api.post('/bills/generate', { order_id: order.id });
+      const bill = data.bill as Bill;
+      setOrders((prev) => prev.map((o) => (o.id === order.id ? { ...o, bill } : o)));
+      await fetchOrders();
+      setConfirmPrintBillId(bill.id);
+    } catch {
+      toast.error(tOrders('generateBillFailed'));
+    } finally {
+      setGeneratingBill(null);
+    }
+  };
+
+  const handlePrintDeliverySlip = async (order: Order) => {
+    const customer = order.customer;
+    const phone = customer?.phone
+      ? (customer.country_code && !customer.phone.startsWith(customer.country_code)
+        ? `${customer.country_code} ${customer.phone}`
+        : customer.phone)
+      : '';
+    setPrintingSlipOrderId(order.id);
+    try {
+      const warnings = await printDeliverySlip(
+        order,
+        {
+          name: customer?.name || '',
+          phone,
+          // The order's own address wins; pre-column orders take the fallback,
+          // so that is the common case rather than the rare one.
+          address: order.delivery_address || customer?.address || '',
+        },
+      );
+      showPrintWarningsToast(warnings);
+      toast.success(tOrders('printDeliverySlip'));
+      fetchOrders();
+    } catch (err) {
+      const detail = extractPrinterErrorMessage(err);
+      toast.error(formatReceiptErrorToast(detail, tOrders('printReceiptFailed')));
+    } finally {
+      setPrintingSlipOrderId(null);
+    }
+  };
+
   const handleDownloadPrintPreview = async (billId: number) => {
     setPreviewingBillId(billId);
     try {
@@ -599,7 +653,7 @@ export default function OrdersPage() {
   };
 
   const deleteItem = async (orderId: number, itemId: number) => {
-    if (!isOwnerOrManager) {
+    if (!canCancelItems) {
       toast.error(tOrders('onlyOwnersRemove'));
       return;
     }
@@ -632,7 +686,7 @@ export default function OrdersPage() {
   };
 
   const restoreItem = async (orderId: number, itemId: number) => {
-    if (!isOwnerOrManager) return;
+    if (!canRestoreItems) return;
     try {
       await api.patch(`/orders/${orderId}/items/${itemId}/restore`);
       toast.success(tOrders('itemRestored'));
@@ -1016,11 +1070,15 @@ export default function OrdersPage() {
               key={order.id}
               order={order}
               now={now}
-              isOwnerOrManager={isOwnerOrManager}
+              canCancelItems={canCancelItems}
+              canRestoreItems={canRestoreItems}
+              canRefund={canRefund}
               isWhatsAppReady={isWhatsAppReady}
               printHistory={printHistory}
               generatingBillId={generatingBill}
               printingBillId={printingBillId}
+              onPrintDeliverySlip={handlePrintDeliverySlip}
+              printingSlipOrderId={printingSlipOrderId}
               sendingWaOrderId={sendingWaOrderId}
               cancellingOrderId={cancellingOrderId}
               convertingOrderId={convertingOrderId}
@@ -1034,6 +1092,7 @@ export default function OrdersPage() {
               onConvertToTakeaway={handleConvertToTakeaway}
               onCancelOrder={(ord) => setCancelModal({ order: ord, reason: '', freeTable: true, overridePin: '' })}
               onPrint={(billId) => setConfirmPrintBillId(billId)}
+              onPrintOrder={tenantCan(currentTenant, 'bills.generate') ? handlePrintOrder : undefined}
               onSendWhatsApp={handleSendViaFlo}
               onLinkCustomer={(orderId) => {
                 setLinkCustomerOrderId(orderId);

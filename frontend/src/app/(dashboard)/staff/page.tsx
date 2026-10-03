@@ -10,11 +10,13 @@ import type { Staff } from '@/lib/types';
 import { useTranslations, type AppConfig } from 'use-intl';
 import { useAuthStore } from '@/store/auth';
 import { PermissionMatrix } from '@/components/settings/PermissionMatrix';
+import { PermissionAuditLog } from '@/components/settings/PermissionAuditLog';
 import { ROLE_ACCESS, ROLE_KEYS, hasRole } from '@shared/role-permissions';
 import { ROLE_LABEL_KEYS } from '@/lib/i18n-enums';
 import { invalidEmailCharacters, isValidEmailInput, sanitizeEmailInput } from '@/lib/email-input';
 import { USERNAME_MAX, USERNAME_MIN, checkUsername, normalizeUsername } from '@shared/username';
 import { WorkCalendar } from '@/components/staff/WorkCalendar';
+import { tenantCan } from '@/lib/permissions';
 
 const VALID_ROLES = ROLE_KEYS;
 
@@ -49,8 +51,12 @@ export default function StaffPage() {
   const tAuth = useTranslations('auth');
   const tSetup = useTranslations('setup');
   const { currentTenant } = useAuthStore();
-  const canViewPermissionMatrix = hasRole(currentTenant?.role, ROLE_ACCESS.ownerManager);
+  const canManagePermissions = tenantCan(currentTenant, 'authorization.manage');
+  const canManageStaff = tenantCan(currentTenant, 'staff.operational.manage');
+  const canManagePrivilegedStaff = tenantCan(currentTenant, 'staff.privileged.manage');
   const [staff, setStaff] = useState<Staff[]>([]);
+  const [kitchenStations, setKitchenStations] = useState<{ id: string; name: string }[]>([]);
+  const [kdsEnabled, setKdsEnabled] = useState(true);
   const [, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingStaff, setEditingStaff] = useState<Staff | null>(null);
@@ -64,6 +70,7 @@ export default function StaffPage() {
     confirmPassword: '',
     role: 'server',
     pin: '',
+    station_ids: [] as string[],
   });
   const [tablesStaff, setTablesStaff] = useState<Staff | null>(null);
   const [allTables, setAllTables] = useState<TableOption[]>([]);
@@ -78,8 +85,8 @@ export default function StaffPage() {
 
   const fetchStaff = async () => {
     try {
-      const { data } = await api.get('/staff');
-      setStaff(data.staff || []);
+      const { data } = await api.get(canManagePermissions ? '/authorization/users' : '/staff');
+      setStaff(data.staff || data.users || []);
     } catch {
       toast.error(t('failedToLoad'));
     } finally {
@@ -88,16 +95,22 @@ export default function StaffPage() {
   };
 
   useEffect(() => {
-    api.get('/staff')
-      .then(({ data }) => setStaff(data.staff || []))
+    api.get(canManagePermissions ? '/authorization/users' : '/staff')
+      .then(({ data }) => setStaff(data.staff || data.users || []))
       .catch(() => toast.error(t('failedToLoad')))
       .finally(() => setLoading(false));
+    api.get('/kitchen-stations')
+      .then(({ data }) => setKitchenStations(data.kitchenStations || []))
+      .catch(() => setKitchenStations([]));
+    api.get('/settings/kds_enabled')
+      .then(({ data }) => setKdsEnabled(data.setting?.value !== 'false'))
+      .catch(() => setKdsEnabled(true));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [canManagePermissions]);
 
   const openAdd = () => {
     setEditingStaff(null);
-    setForm({ name: '', email: '', username: '', password: '', confirmPassword: '', role: 'server', pin: '' });
+    setForm({ name: '', email: '', username: '', password: '', confirmPassword: '', role: 'server', pin: '', station_ids: [] });
     setShowPassword(false);
     setShowPin(false);
     setShowForm(true);
@@ -105,7 +118,7 @@ export default function StaffPage() {
 
   const openEdit = (s: Staff) => {
     setEditingStaff(s);
-    setForm({ name: s.name, email: s.email || '', username: s.username || '', password: '', confirmPassword: '', role: s.role, pin: '' });
+    setForm({ name: s.name, email: s.email || '', username: s.username || '', password: '', confirmPassword: '', role: s.role, pin: '', station_ids: [] });
     setShowPassword(false);
     setShowPin(false);
     setShowForm(true);
@@ -172,6 +185,7 @@ export default function StaffPage() {
           password: form.password,
           role: form.role,
           ...(form.pin ? { pin: form.pin } : {}),
+          ...(form.role === 'chef' ? { station_ids: form.station_ids } : {}),
         });
         toast.success(t('addedToast'));
       }
@@ -262,7 +276,7 @@ export default function StaffPage() {
     <div>
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold text-foreground">{t('title')}</h1>
-        <Button onClick={openAdd}><Plus size={16} className="me-1" /> {t('addButton')}</Button>
+        {canManageStaff && <Button onClick={openAdd}><Plus size={16} className="me-1" /> {t('addButton')}</Button>}
       </div>
 
       <div className="mb-6">
@@ -284,7 +298,7 @@ export default function StaffPage() {
                 {roleLabel(s.role, t)}
               </span>
             </div>
-            <div className="flex flex-wrap gap-2 mt-3">
+            {canManageStaff && (canManagePrivilegedStaff || !hasRole(s.role, ROLE_ACCESS.ownerManager)) && <div className="flex flex-wrap gap-2 mt-3">
               <Button variant="outline" size="sm" onClick={() => openEdit(s)}>
                 <Edit size={14} className="me-1" /> {tCommon('edit')}
               </Button>
@@ -304,20 +318,21 @@ export default function StaffPage() {
               >
                 {s.is_active ? t('deactivate') : t('reactivate')}
               </Button>
-            </div>
+            </div>}
           </div>
         ))}
       </div>
 
       {staff.length === 0 && <p className="text-center text-muted-foreground py-12">{t('empty')}</p>}
 
-      {canViewPermissionMatrix && <PermissionMatrix />}
+      {canManagePermissions && <PermissionMatrix staff={staff} />}
+      {canManagePermissions && <PermissionAuditLog staff={staff} />}
 
       {showForm && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-card rounded-2xl p-6 w-full max-w-sm">
+          <div role="dialog" aria-modal="true" aria-labelledby="staff-modal-title" className="bg-card rounded-2xl p-6 w-full max-w-sm max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-bold">{editingStaff ? t('modalTitleEdit') : t('modalTitleAdd')}</h2>
+              <h2 id="staff-modal-title" className="text-lg font-bold">{editingStaff ? t('modalTitleEdit') : t('modalTitleAdd')}</h2>
               <button type="button" onClick={closeForm}><X size={20} className="text-gray-400" /></button>
             </div>
             <form onSubmit={handleSave} className="space-y-4" noValidate>
@@ -362,14 +377,47 @@ export default function StaffPage() {
               <select
                 value={form.role} onChange={(e) => {
                   const role = e.target.value;
-                  setForm({ ...form, role, pin: hasRole(role, ROLE_ACCESS.ownerManager) ? form.pin : '' });
+                  setForm({
+                    ...form,
+                    role,
+                    pin: hasRole(role, ROLE_ACCESS.ownerManager) ? form.pin : '',
+                    station_ids: role === 'chef' ? form.station_ids : [],
+                  });
                 }}
                 className="w-full px-3 py-2 border rounded-lg outline-none focus:ring-2 focus:ring-brand"
               >
-                {VALID_ROLES.map((r) => (
+                {VALID_ROLES.filter((role) => canManagePrivilegedStaff || !hasRole(role, ROLE_ACCESS.ownerManager)).map((r) => (
                   <option key={r} value={r} disabled={editingLastActiveOwner && r !== 'owner'}>{roleLabel(r, t)}</option>
                 ))}
               </select>
+              {!editingStaff && form.role === 'chef' && (
+                <div>
+                  <p className="text-sm font-medium text-foreground mb-1">{t('kitchenStationsOptional')}</p>
+                  <div className={`space-y-1 rounded-lg border border-border p-2 ${!kdsEnabled ? 'opacity-60' : ''}`}>
+                    {kitchenStations.map((station) => (
+                      <label key={station.id} className="flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-muted">
+                        <input type="checkbox"
+                          checked={form.station_ids.includes(station.id)}
+                          onChange={() => setForm((current) => ({
+                            ...current,
+                            station_ids: current.station_ids.includes(station.id)
+                              ? current.station_ids.filter((id) => id !== station.id)
+                              : [...current.station_ids, station.id],
+                          }))}
+                          disabled={!kdsEnabled}
+                          className="rounded border-gray-300 dark:border-border text-brand focus:ring-brand" />
+                        {station.name}
+                      </label>
+                    ))}
+                    {kitchenStations.length === 0 && (
+                      <p className="px-2 py-1 text-xs text-muted-foreground">{t('noKitchenStations')}</p>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {kdsEnabled ? t('kitchenStationsOptionalHint') : t('kitchenStationsRequireKds')}
+                  </p>
+                </div>
+              )}
               {hasRole(form.role, ROLE_ACCESS.ownerManager) && (
                 <div>
                   <div className="relative">

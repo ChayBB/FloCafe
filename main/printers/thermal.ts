@@ -14,7 +14,7 @@ import {
   dotsForPaperWidth,
   capabilitiesForPrinter,
 } from './profiles';
-import { getCountryByCode, getCurrencyFractionDigits, getCurrencySymbol, resolveRegionalSnapshot, resolveTenantCurrency } from '../countries';
+import { getCountryByCode, getCurrencyFractionDigits, getCurrencySymbol, resolveRegionalSnapshot, resolveTenantCurrency, type CurrencyDisplay, type DigitMode } from '../countries';
 import { resolveTaxComponents } from '../services/tax-components';
 import { loadInstalledPrintTemplate, parseBillTemplateSelection } from '../services/print-templates';
 import { renderMerchantReceiptViaDocument } from './document-merchant';
@@ -35,6 +35,12 @@ import { renderBillDocumentToClassicLines, renderClassicReceiptViaDocument } fro
 import { renderBillDocumentToCompactLines, renderCompactReceiptViaDocument } from './document-compact';
 import { renderKotDocumentToLines, renderKotViaDocument } from './document-kot';
 import {
+  renderDeliverySlipViaDocument,
+  type DeliverySlipItemRow,
+  type DeliverySlipOrderRow,
+} from './document-delivery-slip';
+import type { DeliverySlipAddressSource } from '../../shared/print';
+import {
   isThermalTextRepresentable,
   type ThermalCodePage,
   type ThermalPrinterCapabilities,
@@ -43,12 +49,14 @@ import { ippGetPrinters, ippGetDefaultPrinterName, ippGetPrinterAttributes, ippP
 import { buildRasterDiagnosticBands, encodeRasterFeedAndCut, encodeRasterUnits, rasterCapabilityEnabled } from '../../shared/print/raster';
 import type { RasterSemanticLineGroup } from '../../shared/print/raster';
 import type { PrintDocument } from '../../shared/print/document';
-import { columnsForPaperWidth as columnsForConfiguredPaperWidth } from '../../shared/print/width';
+import { columnsForPaperWidth as columnsForConfiguredPaperWidth, displayCellWidth, padToDisplayCells, truncateToDisplayCells } from '../../shared/print/width';
 import {
   bilingualLabelLines,
   buildZReportDocument,
   containsRtlScript,
   layoutStyledUnit,
+  optionalPaymentAmount,
+  projectCashTender,
   selectBilingualFit,
   thermalDisplayWidth,
   type SemanticLabel,
@@ -145,6 +153,7 @@ export type DispatchResult = {
 export type PrintFailureClass =
   | 'not_configured'
   | 'offline'
+  | 'needs_attention'
   | 'queue_unavailable'
   | 'spooler_error'
   | 'driver_error'
@@ -166,7 +175,7 @@ const XML_ENTITIES: Record<string, string> = {
 export function sanitizePowerShellStderr(stderr?: string): string {
   if (!stderr) return '';
   const raw = String(stderr).trim();
-  if (!raw.includes('#< CLIXML')) {
+  if (!raw.includes('#< CLIXML') && !raw.includes('<Objs')) {
     return raw;
   }
 
@@ -188,20 +197,34 @@ export function sanitizePowerShellStderr(stderr?: string): string {
     return errorMatches.join('\n').trim();
   }
 
+  // No structured error-stream content — e.g. only progress-record CLIXML
+  // (<Obj S="progress">...), as emitted by module auto-loading during
+  // `Add-Type`. Strip every CLIXML envelope wherever it appears in the
+  // buffer, not just a leading header, and keep the surrounding plain text.
   return raw
-    .replace(/^#<\s*CLIXML[\r\n]*/i, '')
+    .replace(/#<\s*CLIXML[\r\n]*/gi, '')
+    .replace(/<Objs[^>]*>.*?<\/Objs>/gs, '')
     .replace(/_x000D__x000A_/g, '\n')
     .replace(/_x([0-9a-fA-F]{4})_/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
     .trim();
 }
+
+// A network printer that refuses the socket is as gone as an unplugged one; the
+// errnos are matched lowercased because `value` is.
+const NETWORK_UNREACHABLE_RE = /\bconnect (?:econnrefused|ehostunreach|enetunreach)\b/;
 
 /** Stable, privacy-safe classification for fleet telemetry. */
 export function classifyPrintFailure(detail?: string): PrintFailureClass {
   const value = sanitizePowerShellStderr(detail).toLowerCase();
   if (!value) return 'unknown';
   if (value.includes('no printer configured') || value.includes('no windows printer configured')) return 'not_configured';
-  if (value.includes('offline') || value.includes('use printer offline') || value.includes('disconnected')) return 'offline';
-  if (value.includes('not accepting') || value.includes('queue') && value.includes('unavailable') || value.includes('cannot open printer')) return 'queue_unavailable';
+  // The queue the till was told to use is gone: `lp` cannot even name it. Anchored
+  // on `lp:` so a Node filesystem ENOENT is not blamed on the printer.
+  if (value.includes('lp: no such file or directory') || value.includes('printer or class does not exist') || value.includes('no default destination')) return 'not_configured';
+  if (value.includes('offline') || value.includes('use printer offline') || value.includes('disconnected') || value.includes('printer is not available') || NETWORK_UNREACHABLE_RE.test(value)) return 'offline';
+  // The printer is present but needs a person: paper, cover, or a vendor error flag.
+  if (value.includes('out of paper') || value.includes('paper jam') || value.includes('cover is open') || value.includes('needs attention') || value.includes('reported an error')) return 'needs_attention';
+  if (value.includes('not accepting') || value.includes('queue is disabled') || value.includes('disabled since') || value.includes('queue') && value.includes('unavailable') || value.includes('cannot open printer')) return 'queue_unavailable';
   if (value.includes('spool') || value.includes('startdocprinter') || value.includes('startpageprinter')) return 'spooler_error';
   if (value.includes('driver') || value.includes('no driver')) return 'driver_error';
   if (value.includes('access denied') || value.includes('permission')) return 'permission_denied';
@@ -968,8 +991,136 @@ export async function printKOT(order: any, items: any[], stationName: string, us
   }
 }
 
-/** Report print failure via telemetry tiers (best-effort, non-blocking). */
-function reportPrintFailure(kind: 'receipt' | 'kot', result: PrintResult): void {
+/** Dispatch a rendered delivery slip to the resolved printer. */
+export async function printDeliverySlip(
+  order: DeliverySlipOrderRow,
+  items: readonly DeliverySlipItemRow[],
+  contact: { name?: string; phone?: string; address?: string; addressSource?: DeliverySlipAddressSource | null },
+  useUnicode: boolean = false,
+  targetPrinter?: { readonly id?: unknown; readonly name?: unknown; readonly connection_type?: string; readonly paper_width?: string; readonly profile_id?: string },
+  signal?: AbortSignal,
+  arabicShapingOverride?: boolean,
+  language?: string,
+  showCustomerPhone?: boolean,
+): Promise<DispatchResult> {
+  try {
+    if (signal?.aborted) return { ok: false, detail: 'Print cancelled during shutdown' };
+    const printer = targetPrinter || getPrinterConfig();
+    if (!printer) {
+      return { ok: false, detail: 'No printer configured' };
+    }
+
+    const { profile, columns: cols, capabilities } = resolvePrinterContext(printer, arabicShapingOverride);
+    const db = getDatabase();
+    // Key/value table: a `SELECT * LIMIT 1` row has no `country` property, so
+    // reading it that way silently pins the slip date to en-US.
+    const countryCode = getSettingValue('country') ?? '';
+    const storeLanguage = getSettingValue('language') ?? undefined;
+    const locale = countryCode ? getCountryByCode(countryCode)?.locale ?? 'en-US' : 'en-US';
+    const timezone = resolveRegionalSnapshot({
+      country: getSettingValue('country') ?? undefined,
+      currency: getSettingValue('currency') ?? undefined,
+      timezone: getSettingValue('timezone') ?? undefined,
+    }).timezone;
+    const currency = resolveTenantCurrency(getSettingValue('currency') ?? '', countryCode);
+    const currencyLocale = getCountryByCode(countryCode)?.locale ?? locale;
+    const currencyDisplayValue = getSettingValue('currency_display');
+    const currencyDisplay = ['rial', 'toman', 'toman_short'].includes(currencyDisplayValue ?? '')
+      ? currencyDisplayValue as CurrencyDisplay
+      : undefined;
+    const digits: DigitMode = getSettingValue('number_digits') === 'latin' ? 'latin' : 'locale';
+    const currencySymbol = getCurrencySymbol(currency, currencyLocale);
+
+    const warnings: PrintWarning[] = [];
+    const nativeCapabilities = nativeFallbackCapabilities(capabilities);
+    const renderWith = (caps: ThermalPrinterCapabilities) => renderDeliverySlipViaDocument(order, items, contact, {
+      columns: cols,
+      language: normalizePrintLanguage(language ?? storeLanguage),
+      locale,
+      currency,
+      currencySymbol,
+      currencyDisplay,
+      digits,
+      timezone,
+      useUnicode,
+      arabicShaping: caps.shaping.arabic,
+      cutMode: profile.cutMode,
+      capabilities: caps,
+      showCustomerPhone: showCustomerPhone ?? true,
+    });
+
+    let data: Buffer;
+    if (rasterCapabilityEnabled(capabilities)) {
+      const documentResult = renderWith(capabilities);
+      const nativeResult = renderWith(nativeCapabilities);
+      const rasterized = await rasterizeDocumentLines(documentResult.lines, documentResult.warnings, {
+        useUnicode,
+        cutMode: profile.cutMode,
+        arabicShaping: capabilities.shaping.arabic,
+        columns: cols,
+        language: normalizePrintLanguage(language ?? storeLanguage),
+        capabilities,
+        requestPrefix: 'delivery-slip',
+      }, documentResult.rasterGroups);
+      if (rasterized.rasterSelected && !rasterized.rasterFailed) {
+        data = rasterized.data;
+        warnings.push(...rasterized.warnings);
+      } else {
+        // The native bytes are going to the printer, so its warnings are the
+        // ones staff must see, or an unrepresentable address reports success.
+        data = nativeResult.data;
+        warnings.push(...nativeResult.warnings, ...rasterized.warnings);
+      }
+    } else {
+      const nativeResult = renderWith(capabilities);
+      data = nativeResult.data;
+      warnings.push(...nativeResult.warnings);
+    }
+
+    if (hasFinancialPrintWarning(warnings)) {
+      return { ok: false, detail: makeFinancialPrintRefusalMessage(warnings), failureClass: 'unsupported', warnings };
+    }
+    const dispatch = await dispatchPrint(printer, data, signal);
+    return warnings.length > 0 ? { ...dispatch, warnings } : dispatch;
+  } catch (error: unknown) {
+    console.error('[Printer] Delivery slip print error:', error);
+    return { ok: false, detail: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+export async function printDeliverySlipDetailed(...args: Parameters<typeof printDeliverySlip>): Promise<PrintResult> {
+  const id = correlationId();
+  try {
+    const dispatch = await printDeliverySlip(...args);
+    const result: PrintResult = dispatch.ok
+      ? { ok: true, correlationId: id, stage: 'dispatch', warnings: dispatch.warnings }
+      : {
+        ok: false,
+        code: 'print.delivery_slip.failed',
+        correlationId: id,
+        stage: 'dispatch',
+        detail: dispatch.detail,
+        failureClass: dispatch.failureClass || classifyPrintFailure(dispatch.detail),
+        platformErrorCode: dispatch.platformErrorCode || extractPlatformErrorCode(dispatch.detail),
+        jobId: dispatch.jobId,
+        driverName: dispatch.driverName,
+        printerStatus: dispatch.printerStatus,
+        warnings: dispatch.warnings,
+      };
+    if (!result.ok) reportPrintFailure('delivery_slip', result);
+    return result;
+  } catch (error) {
+    const detail = (error as Error).message;
+    const result: PrintResult = { ok: false, code: 'print.delivery_slip.failed', correlationId: id, stage: 'dispatch', detail, failureClass: classifyPrintFailure(detail), platformErrorCode: extractPlatformErrorCode(detail) };
+    reportPrintFailure('delivery_slip', result);
+    return result;
+  }
+}
+
+/**
+ * Report print failure via telemetry tiers (best-effort, non-blocking).
+ */
+function reportPrintFailure(kind: 'receipt' | 'kot' | 'delivery_slip', result: PrintResult): void {
   let connectionType = 'unknown';
   try {
     connectionType = getPrinterConfig()?.connection_type || 'unknown';
@@ -1423,7 +1574,7 @@ export function formatReceipt(order: any, bill: any, business?: any, template?: 
   const lang = normalizePrintLanguage(language);
   // No business info supplied at all (e.g. a synthetic preview) — a neutral
   // explicit country + currency, never a default country or INR
-  // (docs/business-decisions.md). resolveTenantCurrency validates the
+  // (docs/reference/product-invariants.md). resolveTenantCurrency validates the
   // country before it ever looks at currency, so both must be present.
   const biz = business || { name: 'Store', address: '', phone: '', taxRegistrationNumber: '', country: 'US', currency: 'USD' };
   // Merchant templates resolve through document pipeline; pack templates use compliance renderer.
@@ -1534,7 +1685,7 @@ function renderEscposLineTemplateV1(payload: any, profile: { columns: number; la
   const trimDecimals = biz.trim_decimals === true;
   const locale = getCountryByCode(biz.country)?.locale ?? 'en-US';
   // CLDR-derived only — a stored currency_symbol setting is not an input
-  // (docs/business-decisions.md: no per-store override of a snapshot value).
+  // (docs/reference/product-invariants.md: no per-store override of a snapshot value).
   const prefix = resolveCurrencyPrefix(getCurrencySymbol(currency, locale) || currency, useUnicode, capabilities, false, currency);
   const normalize = (text: string): string => normalizeThermalText(text, capabilities);
   const configuredTaxLabel = normalize(sanitizeTemplateLabelText(String(payload?.fields?.taxRegistrationNumberLabel || getCountryByCode(biz.country)?.taxIdLabel || 'Tax ID')));
@@ -1562,8 +1713,16 @@ function renderEscposLineTemplateV1(payload: any, profile: { columns: number; la
   lines.push(normalize(printLabel(lang, 'receipt.date')) + ': ' + date.toLocaleDateString(locale + '-u-nu-latn', tzOptions));
   lines.push(normalize(printLabel(lang, 'print.time')) + ': ' + date.toLocaleTimeString(locale + '-u-nu-latn', tzOptions));
   if (biz.show_table_number !== false && order.table?.name) lines.push(truncateShapedLine(formatTableLabel(order.table.name, lang), cols, arabicShaping, lang, capabilities));
+  // The heading marks these as the customer's details, so a receipt that also
+  // prints the store address cannot read as carrying a second business address.
+  const deliveryAddress = String(order?.delivery_address ?? '').trim();
+  if (deliveryAddress.length > 0) lines.push(normalize(printLabel(lang, 'print.customerDetails')));
   if (biz.show_customer_name !== false && biz.customer_name) lines.push(truncateShapedLine(printLabel(lang, 'pos.customer') + ': ' + biz.customer_name, cols, arabicShaping, lang, capabilities));
   if (biz.show_customer_phone !== false && biz.customer_phone) lines.push(normalize(printLabel(lang, 'print.numberShort')) + ': ' + biz.customer_phone);
+  if (deliveryAddress.length > 0) {
+    // Wrapped, not truncated, so the courier reads the whole address.
+    pushWrapped(lines, normalize(printLabel(lang, 'print.deliverySlip.address')) + ': ' + deliveryAddress, cols, lang, capabilities);
+  }
   lines.push(dash);
   lines.push(pluginItemHeader(layout, cols, lang, capabilities));
   lines.push(dash);
@@ -1630,8 +1789,23 @@ function renderEscposLineTemplateV1(payload: any, profile: { columns: number; la
       if (payments && Array.isArray(payments)) {
         for (const payment of payments) {
           if (payment && payment.method) {
+            const amount = Number(payment.amount) || 0;
             const methodLabel = truncate(resolvePaymentMethodLabel(String(payment.method), lang), cols - 12, lang, capabilities);
-            pushFinancialLines(financialRows(methodLabel, formatCurrency(payment.amount, prefix, locale, trimDecimals, fractionDigits), cols, lang, capabilities));
+            pushFinancialLines(financialRows(methodLabel, formatCurrency(amount, prefix, locale, trimDecimals, fractionDigits), cols, lang, capabilities));
+            const tender = projectCashTender({
+              method: String(payment.method),
+              amount,
+              tendered: optionalPaymentAmount(payment.tendered_amount),
+              change: optionalPaymentAmount(payment.change_amount),
+            });
+            if (tender) {
+              const tenderedLabel = truncate(printLabel(lang, 'receipt.cashReceived'), cols - 12, lang, capabilities);
+              pushFinancialLines(financialRows(tenderedLabel, formatCurrency(tender.tendered, prefix, locale, trimDecimals, fractionDigits), cols, lang, capabilities));
+              if (tender.change > 0) {
+                const changeLabel = truncate(printLabel(lang, 'pos.changeReturned'), cols - 12, lang, capabilities);
+                pushFinancialLines(financialRows(changeLabel, formatCurrency(tender.change, prefix, locale, trimDecimals, fractionDigits), cols, lang, capabilities));
+              }
+            }
           }
         }
       }
@@ -1814,7 +1988,7 @@ function pluginSummaryRow(label: string, amount: string, layout: any, cols: numb
     ], Math.max(0, cols - labelWidth - amountWidth), cols);
   }
   const safeLabel = truncate(normalizedLabel, cols - 12, lang, capabilities);
-  return safeLabel + rightAlign(amount, cols - safeLabel.length);
+  return safeLabel + rightAlign(amount, cols - displayCellWidth(safeLabel));
 }
 
 function composePluginColumns(columns: Array<PluginLineColumn & { value: string }>, gap: number, cols: number): string {
@@ -1824,25 +1998,19 @@ function composePluginColumns(columns: Array<PluginLineColumn & { value: string 
     Number(column.width),
     column.align || 'left',
   )).join(separator);
-  return truncateCell(line, cols, false).padEnd(Math.min(cols, line.length));
+  return padToDisplayCells(truncateCell(line, cols, false), cols);
 }
 
 function alignCell(value: string, width: number, align: PluginColumnAlign): string {
-  const text = truncateCell(value, width, true);
-  if (align === 'right') return text.padStart(width);
-  if (align === 'center') {
-    const left = Math.floor((width - text.length) / 2);
-    return ' '.repeat(Math.max(0, left)) + text.padEnd(Math.max(0, width - left));
-  }
-  return text.padEnd(width);
+  return padToDisplayCells(truncateCell(value, width, true), width, align);
 }
 
 function truncateCell(text: string, length: number, ellipsis: boolean): string {
   const value = String(text || '');
   if (length <= 0) return '';
-  if (value.length <= length) return value;
-  if (!ellipsis || length <= 2) return value.slice(0, length);
-  return value.slice(0, length - 2) + '..';
+  if (displayCellWidth(value) <= length) return value;
+  if (!ellipsis || length <= 2) return truncateToDisplayCells(value, length);
+  return truncateToDisplayCells(value, length - 2) + '..';
 }
 
 

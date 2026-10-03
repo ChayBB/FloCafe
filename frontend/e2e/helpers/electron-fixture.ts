@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 import type {
-  DailySummary,
+  ApplicationMenuEntry,
   ElectronAPI,
   ElectronActionResult,
   ElectronAppInfo,
@@ -22,6 +22,9 @@ export interface ElectronFixtureOptions {
   titleBarDocumentNonce?: string;
   focused?: boolean;
   api?: boolean;
+  /** Top-level entries the main-process menu would return; defaults to the
+   *  real non-macOS menu, empty on darwin. */
+  applicationMenuEntries?: ApplicationMenuEntry[];
 }
 
 interface SerializedElectronFixtureOptions {
@@ -31,21 +34,40 @@ interface SerializedElectronFixtureOptions {
   titleBarDocumentNonce: string;
   focused: boolean;
   api: boolean;
+  applicationMenuEntries: ApplicationMenuEntry[];
 }
 
 const DEFAULT_DOCUMENT_NONCE = '00000000-0000-4000-8000-000000000000';
+
+// Mirrors main/index.ts createMenu()'s non-macOS top-level set (plus the
+// dev-only Developer entry the desktop build shows in development).
+const DEFAULT_APPLICATION_MENU_ENTRIES: ApplicationMenuEntry[] = [
+  { key: '0', label: 'File' },
+  { key: '1', label: 'Edit' },
+  { key: '2', label: 'Orders' },
+  { key: '3', label: 'Reports' },
+  { key: '4', label: 'Settings' },
+  { key: '5', label: 'Window' },
+  { key: '6', label: 'Help' },
+  { key: '7', label: 'Developer' },
+];
 
 export async function injectElectronFixture(
   page: Page,
   options: ElectronFixtureOptions = {},
 ): Promise<void> {
+  const platform = options.platform ?? 'darwin';
   const fixture: SerializedElectronFixtureOptions = {
-    platform: options.platform ?? 'darwin',
+    platform,
     titleBarMode: options.titleBarMode ?? 'native-overlay',
     titleBarEpoch: options.titleBarEpoch ?? 1,
     titleBarDocumentNonce: options.titleBarDocumentNonce ?? DEFAULT_DOCUMENT_NONCE,
     focused: options.focused ?? true,
     api: options.api ?? true,
+    applicationMenuEntries:
+      options.applicationMenuEntries
+      // macOS keeps its authoritative native menu bar; main answers with none.
+      ?? (platform === 'darwin' ? [] : DEFAULT_APPLICATION_MENU_ENTRIES),
   };
 
   await page.addInitScript((config: SerializedElectronFixtureOptions) => {
@@ -86,25 +108,30 @@ export async function injectElectronFixture(
       localIP: '127.0.0.1',
       port: 3002,
     };
-    const dailySummary: DailySummary = {
-      date: '1970-01-01',
-      revenue: 0,
-      bill_count: 0,
-      covers: 0,
-      pending_orders: 0,
-    };
     const masterPinStatus: ElectronMasterPinStatus = { available: false, isSet: false };
     const safeFixes: ElectronDbSafeFixesResult = { applied: [], skipped: [], errors: [] };
+    const openedMenuEntries: { key: string; x: number; y: number }[] = [];
 
     const api: ElectronAPI = {
       platform: config.platform ?? 'darwin',
       onMenuAction: () => () => {},
+      getApplicationMenu: async () => ({ entries: config.applicationMenuEntries }),
+      openApplicationMenu: async (key, x, y) => {
+        openedMenuEntries.push({ key, x, y });
+        return result;
+      },
       windowAction: async (action) => {
         actions.push(action);
         return result;
       },
       backupDatabase: async () => ({ success: false, error: ipcError.error }),
       restoreBackup: async () => ({ success: false, error: ipcError.error }),
+      pickRestoreFile: async () => {
+        // Stands in for the operator opening the native picker and cancelling.
+        // Tests assert on this count to prove the restore deep link fires once.
+        window.__floPickerCalls = (window.__floPickerCalls ?? 0) + 1;
+        return { canceled: true };
+      },
       dbHealthCheck: async () => healthReport,
       dbApplySafeFixes: async () => safeFixes,
       dbInitialize: async () => ({ success: false, error: ipcError.error }),
@@ -113,17 +140,15 @@ export async function injectElectronFixture(
       setSetting: async () => result,
       // gh-513: effective-theme push verb; tracked by the harness to verify
       // the renderer notifies main when the resolved palette changes.
-      setThemeEffective: async (_isDark: boolean) => result,
+      setThemeEffective: async () => result,
       getKdsInfo: async () => kdsInfo,
       openKdsWindow: async () => undefined,
       openWhatsAppShare: async () => result,
       getAppInfo: async () => appInfo,
       getLogTail: async () => ({ text: '', truncated: false }),
       getPrinters: async () => [],
-      savePrinter: async () => result,
       rasterizePrintDocument: async () => ({ ok: false, error: 'fixture' }),
       rasterizeKotDocument: async () => ({ ok: false, error: 'fixture' }),
-      getDailySummary: async () => dailySummary,
       getStatus: async () => status,
       windowReady: async () => result,
       onUpdateStatus: (callback) => {
@@ -138,9 +163,10 @@ export async function injectElectronFixture(
     };
 
     Object.defineProperty(window, 'electronAPI', { configurable: true, value: api });
+    window.__floPickerCalls ??= 0;
     Object.defineProperty(window, '__floElectronFixture', {
       configurable: true,
-      value: { actions, status, ipcError },
+      value: { actions, status, ipcError, openedMenuEntries },
     });
     // Initial focus is explicit before application scripts execute. TitleBar
     // owns later focus/blur transitions on dashboard routes.
@@ -161,13 +187,25 @@ export async function readFixtureActions(page: Page): Promise<WindowControlActio
   });
 }
 
+export async function readOpenedMenuEntries(
+  page: Page,
+): Promise<{ key: string; x: number; y: number }[]> {
+  return page.evaluate(() => {
+    const state = window.__floElectronFixture;
+    return state ? [...state.openedMenuEntries] : [];
+  });
+}
+
 declare global {
   interface Window {
     __floElectronFixture?: {
       actions: WindowControlAction[];
       status: ElectronStatus;
       ipcError: ElectronIpcError;
+      openedMenuEntries: { key: string; x: number; y: number }[];
     };
+    /** Number of times the restore file picker has been opened by the fixture. */
+    __floPickerCalls?: number;
   }
 }
 

@@ -2,19 +2,21 @@ import { Router, Request, Response } from 'express';
 import { getDatabase, now, attachEffectiveAddons, isKotPrintingEnabled, isServerBillPrintingEnabled, parseItemJson } from '../db';
 import { getOrderWithItems } from './bills';
 import { randomUUID } from 'node:crypto';
-import { printViaNetwork, printViaUSB, buildTestPage, printReceiptDetailed, printKOTDetailed, detectConnectedPrinters, prepareReceipt, escPosToText } from '../printers/thermal';
+import { printViaNetwork, printViaUSB, buildTestPage, printReceiptDetailed, printKOTDetailed, printDeliverySlipDetailed, detectConnectedPrinters, prepareReceipt, escPosToText } from '../printers/thermal';
+import { buildDeliverySlipPrintData, type DeliverySlipOrderRow } from '../printers/document-delivery-slip';
+import type { DeliverySlipPaymentBill } from '../../shared/print';
 import { BILL_LANGUAGE_POLICY_KEY, KOT_LANGUAGE_POLICY_KEY, parseStoredLanguagePolicy } from '../lib/print-language-settings';
 import {
   resolveKotLanguage,
   resolveReceiptLanguages,
+  shouldShowCustomerNumber,
   type KotLanguagePolicy,
   type ReceiptLanguagePolicy,
   isKotItemPending,
 } from '../../shared/print';
 import { getSupportedPrinterProfiles, resolvePrinterProfile, capabilitiesForPrinter } from '../printers/profiles';
-import { requireRole } from '../middleware/security';
-import { ROLE_ACCESS } from '../../shared/role-permissions';
-import { getCountryByCode, getCurrencySymbol, resolveTenantCurrency } from '../countries';
+import { requirePermission } from '../services/authorization';
+import { getCountryByCode, getCurrencySymbol, resolveRegionalSnapshot, resolveTenantCurrency } from '../countries';
 import { asyncHandler } from '../middleware/async-handler';
 import { getHttpRequestSignal } from '../shutdown';
 
@@ -65,6 +67,14 @@ function ensureDefaultPrinter(db: any): void {
   }
 }
 
+function getDeliverySlipBills(db: ReturnType<typeof getDatabase>, orderId: number): DeliverySlipPaymentBill[] {
+  const latestBill = db.prepare('SELECT * FROM bills WHERE order_id = ? ORDER BY id DESC LIMIT 1').get(orderId) as DeliverySlipPaymentBill | undefined;
+  if (!latestBill) return [];
+  return typeof latestBill.split_group_id === 'string' && latestBill.split_group_id.length > 0
+    ? db.prepare('SELECT * FROM bills WHERE order_id = ? AND split_group_id = ? ORDER BY id').all(orderId, latestBill.split_group_id) as DeliverySlipPaymentBill[]
+    : [latestBill];
+}
+
 function printerShape(printer: any) {
   if (!printer) return printer;
   const profile = resolvePrinterProfile(printer);
@@ -95,7 +105,7 @@ export function getEffectiveOrderItems(db: any, orderId: string): any[] {
 }
 
 // GET /api/printers — list all
-router.get('/', (_req: Request, res: Response) => {
+router.get('/', requirePermission('printers.manage'), (_req: Request, res: Response) => {
   try {
     const db = getDatabase();
     const printers = db.prepare('SELECT * FROM printers ORDER BY is_default DESC, name').all().map(printerShape);
@@ -107,7 +117,7 @@ router.get('/', (_req: Request, res: Response) => {
 });
 
 // GET /api/printers/detect — detect connected USB/network printers
-router.get('/detect', asyncHandler(async (req: Request, res: Response) => {
+router.get('/detect', requirePermission('printers.manage'), asyncHandler(async (req: Request, res: Response) => {
   try {
     const printers = await detectConnectedPrinters(getHttpRequestSignal(req));
     console.log('[Printer] Detected printers:', printers);
@@ -125,12 +135,12 @@ router.get('/detect', asyncHandler(async (req: Request, res: Response) => {
 }));
 
 // GET /api/printers/supported — list known printer profiles
-router.get('/supported', (_req: Request, res: Response) => {
+router.get('/supported', requirePermission('printers.manage'), (_req: Request, res: Response) => {
   res.json({ printers: getSupportedPrinterProfiles() });
 });
 
 // GET /api/printers/:id
-router.get('/:id', (req: Request, res: Response) => {
+router.get('/:id', requirePermission('printers.manage'), (req: Request, res: Response) => {
   try {
     const db = getDatabase();
     const printer = db.prepare('SELECT * FROM printers WHERE id = ?').get(req.params.id) as any;
@@ -143,7 +153,7 @@ router.get('/:id', (req: Request, res: Response) => {
 });
 
 // POST /api/printers — create
-router.post('/', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, res: Response) => {
+router.post('/', requirePermission('printers.manage'), (req: Request, res: Response) => {
   try {
     const { connection_type, ip_address, port, paper_width, is_default, cash_drawer_pulse_enabled } = req.body;
     // Trim accidental whitespace so the name matches the OS print queue exactly.
@@ -198,7 +208,7 @@ router.post('/', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, res: R
 });
 
 // PUT /api/printers/:id — update
-router.put('/:id', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, res: Response) => {
+router.put('/:id', requirePermission('printers.manage'), (req: Request, res: Response) => {
   try {
     const db = getDatabase();
     const existing = db.prepare('SELECT * FROM printers WHERE id = ?').get(req.params.id) as any;
@@ -248,7 +258,7 @@ router.put('/:id', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, res:
 });
 
 // DELETE /api/printers/:id
-router.delete('/:id', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, res: Response) => {
+router.delete('/:id', requirePermission('printers.manage'), (req: Request, res: Response) => {
   try {
     const db = getDatabase();
     const printer = db.prepare('SELECT * FROM printers WHERE id = ?').get(req.params.id) as any;
@@ -274,7 +284,7 @@ router.delete('/:id', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, r
 });
 
 // POST /api/printers/:id/set-default
-router.post('/:id/set-default', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, res: Response) => {
+router.post('/:id/set-default', requirePermission('printers.manage'), (req: Request, res: Response) => {
   try {
     const db = getDatabase();
     const printer = db.prepare('SELECT * FROM printers WHERE id = ?').get(req.params.id);
@@ -293,7 +303,7 @@ router.post('/:id/set-default', requireRole(...ROLE_ACCESS.ownerManager), (req: 
 });
 
 // POST /api/printers/:id/test — send a test print job
-router.post('/:id/test', requireRole(...ROLE_ACCESS.ownerManager), asyncHandler(async (req: Request, res: Response) => {
+router.post('/:id/test', requirePermission('printers.manage'), asyncHandler(async (req: Request, res: Response) => {
   try {
     const db = getDatabase();
     const printer = db.prepare('SELECT * FROM printers WHERE id = ?').get(req.params.id) as any;
@@ -343,7 +353,7 @@ router.post('/:id/test', requireRole(...ROLE_ACCESS.ownerManager), asyncHandler(
 
 // POST /api/printers/print-bill — print bill via backend (desktop app).
 // `sales` gets the server role past this gate; the setting check below decides if it's actually allowed.
-router.post('/print-bill', requireRole(...ROLE_ACCESS.sales), asyncHandler(async (req: Request, res: Response) => {
+router.post('/print-bill', requirePermission('printing.execute'), asyncHandler(async (req: Request, res: Response) => {
   const authUser = (req as any).user;
   if (authUser?.role === 'server' && !isServerBillPrintingEnabled()) {
     return res.status(403).json({ error: 'Bill printing is disabled for the server role. An owner or manager can enable it in Settings.' });
@@ -483,7 +493,7 @@ router.post('/print-bill', requireRole(...ROLE_ACCESS.sales), asyncHandler(async
       taxRegistrationNumber: settings.tax_registration_number || '',
       currency,
       // CLDR-derived only — a stored currency_symbol setting is not an input
-      // (docs/business-decisions.md: no per-store override of a snapshot value).
+      // (docs/reference/product-invariants.md: no per-store override of a snapshot value).
       currency_symbol: getCurrencySymbol(currency, getCountryByCode(country)?.locale) || currency,
       country,
       instagram_handle: settings.instagram_handle || '',
@@ -493,6 +503,12 @@ router.post('/print-bill', requireRole(...ROLE_ACCESS.sales), asyncHandler(async
            ? `${customer.country_code} ${customer.phone}`
            : customer.phone)
         : '',
+      // One shared rule, so the receipt and the slip cannot disagree.
+      show_customer_phone: shouldShowCustomerNumber({
+        showOnReceipts: settings.bill_show_customer_phone !== 'false',
+        alwaysForDeliveryOrders: settings.bill_delivery_show_customer_phone_always !== 'false',
+        orderType: String(order?.type ?? ''),
+      }),
       points_earned: pointsEarned,
       points_redeemed: pointsRedeemed,
       points_balance: pointsBalance,
@@ -504,7 +520,6 @@ router.post('/print-bill', requireRole(...ROLE_ACCESS.sales), asyncHandler(async
       show_tax_id: settings.bill_show_tax_id === 'true',
       show_tax_breakdown: settings.bill_show_tax_breakdown !== 'false',
       show_customer_name: settings.bill_show_customer_name !== 'false',
-      show_customer_phone: settings.bill_show_customer_phone !== 'false',
       show_table_number: settings.bill_show_table_number !== 'false',
       footer_note: settings.bill_footer_message || '',
     };
@@ -603,7 +618,7 @@ export function routeItemsToStations(db: any, orderItems: any[]): { stationName:
 
 // POST /api/printers/print-kot — print KOT via backend (desktop app).
 // Uses `sales` so the waiter terminal's "server" role can print its own orders.
-router.post('/print-kot', requireRole(...ROLE_ACCESS.sales), asyncHandler(async (req: Request, res: Response) => {
+router.post('/print-kot', requirePermission('printing.execute'), asyncHandler(async (req: Request, res: Response) => {
   // Enforce master KOT printing toggle for all automatic and manual print requests.
   if (!isKotPrintingEnabled()) {
     return res.status(403).json({ error: 'KOT printing is disabled for this business' });
@@ -686,6 +701,119 @@ router.post('/print-kot', requireRole(...ROLE_ACCESS.sales), asyncHandler(async 
     console.error('[Print KOT] Error:', error);
     console.error("[API] Internal error:", error);
     res.status(500).json({ error: "Internal server error" });
+  }
+}));
+
+router.get('/delivery-slip-payment/:orderId', requirePermission('printing.execute'), (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(req.params.orderId) as (DeliverySlipOrderRow & { id: number }) | undefined;
+    if (!order) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    const bills = getDeliverySlipBills(db, order.id);
+    const settings = Object.fromEntries(
+      (db.prepare('SELECT key, value FROM settings').all() as { key: string; value: string }[])
+        .map(({ key, value }) => [key, value]),
+    );
+    const regional = resolveRegionalSnapshot(settings);
+    const { payment } = buildDeliverySlipPrintData({ ...order, bills }, [], {}, {
+      locale: regional.locale,
+      currency: regional.currency,
+      currencyDisplay: regional.preferences.currencyDisplay,
+      digits: regional.preferences.digits,
+    });
+    return res.json({ payment });
+  } catch (error: unknown) {
+    console.error('[Delivery Slip Payment] Error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /api/printers/print-delivery-slip. No bill is required, so a slip can be
+// handed over before the customer pays. See docs/reference/product-invariants.md.
+router.post('/print-delivery-slip', requirePermission('printing.execute'), asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const { orderId, useUnicode = false } = req.body;
+    const arabicShapingOverride = typeof req.body?.arabicShaping === 'boolean' ? req.body.arabicShaping : undefined;
+
+    if (!orderId) {
+      return res.status(400).json({ error: 'orderId is required' });
+    }
+
+    const db = getDatabase();
+    const printer = db.prepare(
+      `SELECT * FROM printers
+       WHERE connection_type != 'webusb'
+       ORDER BY is_default DESC, name
+       LIMIT 1`,
+    ).get();
+    if (!printer) {
+      return res.status(400).json({ error: 'No default printer configured. Add a printer in Settings.' });
+    }
+
+    const order = getOrderWithItems(db, Number(orderId));
+    if (!order) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    const bills = getDeliverySlipBills(db, order.id);
+    const deliverySlipOrder = { ...order, bills };
+
+    const items = getEffectiveOrderItems(db, orderId);
+
+    // The slip prints the address in full, so it reads the column the receipt
+    // route deliberately omits.
+    const customer: { name?: string; phone?: string; country_code?: string; address?: string } | undefined = order.customer_id
+      ? db.prepare('SELECT name, phone, country_code, address FROM customers WHERE id = ?').get(order.customer_id) as { name?: string; phone?: string; country_code?: string; address?: string }
+      : undefined;
+    const phone = customer?.phone
+      ? (customer.country_code && !customer.phone.startsWith(customer.country_code)
+        ? `${customer.country_code} ${customer.phone}`
+        : customer.phone)
+      : '';
+
+    const language = resolveTenantReceiptLanguages(db).primary;
+    // The delivery exception, or the receipt setting when it is off. Blank only
+    // when both say hide, so the slip and a delivery receipt cannot disagree.
+    const showCustomerPhone = (
+      db.prepare("SELECT value FROM settings WHERE key = 'bill_delivery_show_customer_phone_always'").get() as { value?: string } | undefined
+    )?.value !== 'false'
+      || (db.prepare("SELECT value FROM settings WHERE key = 'bill_show_customer_phone'").get() as { value?: string } | undefined)?.value !== 'false';
+    const result = await printDeliverySlipDetailed(
+      deliverySlipOrder,
+      items,
+      {
+        name: customer?.name || '',
+        phone,
+        // The address confirmed for this delivery wins over the customer's
+        // standing record; the slip records which one it printed.
+        address: order.delivery_address || customer?.address || '',
+      },
+      useUnicode,
+      undefined,
+      getHttpRequestSignal(req),
+      arabicShapingOverride,
+      language,
+      showCustomerPhone,
+    );
+
+    if (result.ok) {
+      return res.json({ success: true, warnings: result.warnings || [] });
+    }
+    return res.status(502).json({
+      error: result.detail || 'Delivery slip print failed. Check printer connection.',
+      detail: result.detail,
+      failure_class: result.failureClass,
+      code: result.code,
+      correlation_id: result.correlationId,
+      stage: result.stage,
+    });
+  } catch (error: unknown) {
+    console.error('[Print Delivery Slip] Error:', error);
+    console.error('[API] Internal error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 }));
 

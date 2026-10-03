@@ -254,8 +254,12 @@ class PrinterService {
   }
 
   /** Print using browser's print dialog with thermal-optimized styles. */
-  async printViaBrowser(htmlContent: string, paperWidth: 58 | 80): Promise<void> {
-    const printWindow = window.open('', '_blank');
+  reserveBrowserPrintWindow(): Window | null {
+    return typeof window === 'undefined' ? null : window.open('', '_blank');
+  }
+
+  async printViaBrowser(htmlContent: string, paperWidth: 58 | 80, reservedWindow?: Window | null): Promise<void> {
+    const printWindow = reservedWindow === undefined ? this.reserveBrowserPrintWindow() : reservedWindow;
     if (!printWindow) {
       throw new Error('Please allow popups to print');
     }
@@ -267,7 +271,7 @@ class PrinterService {
       @page { size: ${mmWidth} auto; margin: 0; }
       * { margin: 0; padding: 0; box-sizing: border-box; }
       body {
-        font-family: 'Courier New', monospace;
+        font-family: 'Courier New', 'Noto Sans Devanagari', 'Nirmala UI', 'Kohinoor Devanagari', 'Devanagari Sangam MN', 'Noto Sans Thai', 'Leelawadee UI', Thonburi, monospace;
         font-size: 12px;
         line-height: 1.2;
         width: ${mmWidth};

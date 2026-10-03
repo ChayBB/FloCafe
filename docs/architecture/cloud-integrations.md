@@ -1,0 +1,264 @@
+# Cloud integrations
+
+Every network feature FloCafe has, what it talks to, what enables it, and what happens when the
+network is absent. The principle that keeps all of them optional is
+[0001: offline-first core](../decisions/0001-offline-first-core.md); this page is the current
+inventory, not the rationale.
+
+All outbound work is either an outbox flush or a best-effort background task. Nothing on this page
+sits on a path between an order and a paid bill.
+
+## Google Drive backup
+
+Backs up the local database to a folder in the merchant's own Google Drive, and restores from it.
+
+**Enabled by** an OAuth flow the merchant completes. The redirect is served from an ephemeral
+loopback listener bound to `127.0.0.1` on a kernel-assigned port, and the authorization request uses
+PKCE with `code_challenge_method: 'S256'`.
+
+**Scope rule.** `DRIVE_FILE_SCOPE` is `https://www.googleapis.com/auth/drive.file`, requesting access
+only to files the app creates, alongside `openid` and `email` for identity. The scope must not be
+widened: `drive.file` is what keeps a compromised token from being able to enumerate the merchant's
+whole Drive. Authorization URLs are additionally checked by `isSafeGoogleAuthorizationUrl()` before
+the browser is opened.
+
+**Credential storage.** Tokens are encrypted with Electron's `safeStorage` before being written, and
+decrypted on read. Backup directories, including the staging area, are created with mode `0o700`.
+
+**Warning gate.** Before a backup runs, the merchant must acknowledge a warning, recorded under the
+`google_drive_warning_acknowledged` setting. A backup attempt without that acknowledgement fails
+with `warning_acknowledgement_required`.
+
+**Revoke on disconnect.** Disconnecting revokes the grant at Google rather than only deleting the
+local token.
+
+**Offline behaviour.** Every operation fails with a `driveError` code rather than hanging. The last
+error code is persisted so the settings screen can explain the failure after a restart.
+
+## Anonymous telemetry
+
+Posts anonymous usage and error events to `https://telemetry.flopos.com/collect`.
+
+**Enabled by** the `telemetry_enabled` setting, read as on when the value is `'true'`. It ships
+**on** for a new install, which writes `telemetry_enabled` as `'true'`. An install that already
+carries an explicit value keeps it, because the `telemetry_default_on_for_new_installs` migration
+that flips the default uses `INSERT OR IGNORE`; an install that already ran the earlier
+`seed_telemetry_settings` migration therefore still holds `'false'`.
+
+**Offline behaviour.** Events are dropped, not queued. There is no telemetry outbox.
+
+**Run mode and install source.** Every telemetry event and every FloAdmin registration carries two
+provenance fields, so a merchant install is distinguishable from a developer's local run. `run_mode`
+is `packaged` or `dev`, read from `app.isPackaged`. `install_source` is `github`, `ms_store`,
+`mac_app_store`, `snap`, `appimage`, `flatpak`, `deb`, `rpm`, `linux_package`, or `dev`, resolved in
+this order:
+
+1. An unpackaged build reports `dev` for both fields, which also covers non-Electron hosts.
+2. `process.windowsStore` -> `ms_store`; `process.mas` -> `mac_app_store`.
+3. `SNAP` -> `snap`; `APPIMAGE` -> `appimage`; `FLATPAK_ID` -> `flatpak`. An empty or whitespace
+   variable is not a signal.
+4. `win32` or `darwin` -> `github`, the GitHub-release installers.
+5. Anything else is a native Linux package, and its format is read from `/etc/os-release`:
+   `ID` first, then the `ID_LIKE` family list, giving `deb` for the Debian/Ubuntu families and `rpm`
+   for the RHEL/Fedora/SUSE families. Derivatives resolve through `ID_LIKE`, so Rocky or Linux Mint
+   are classified without being listed themselves.
+
+An unreadable or unrecognised `/etc/os-release` reports `linux_package`. That is a real value, not a
+placeholder for "unknown": the distribution could not be identified, so the format is not guessed and
+neither `deb` nor `rpm` is claimed. Detection is total - outside Electron, in unit tests and scripts,
+it degrades to `dev` rather than throwing.
+
+## Store-attributed diagnostics
+
+A second, separate channel that attaches store identity to a diagnostic report. It has a local tier
+and a transmission tier, and only the second one can send anything.
+
+**Local capture is not consent-gated.** Every accepted failure is written to the `local_diagnostics`
+table, whether or not the merchant has agreed to anything, because nothing there leaves the till.
+Support → Diagnostics renders that table, and the copy-for-support bundle is built from
+`buildSystemDiagnostics()` - the same builder the support-ticket path uses - plus the recent
+failures. The raw log tail is deliberately **not** part of that bundle: the log contains whatever
+the application logged, including order and customer detail, so it is a separate, visibly labelled
+control the operator turns on after seeing what it is.
+
+**What is stored is a derived signature, never the raw exception message.** The message is customer
+data's most likely hiding place, so
+[`main/lib/diagnostic-signature.ts`](../../main/lib/diagnostic-signature.ts) reduces it to a
+template: the error class, plus the message with literal values replaced by typed placeholders
+(`<string>`, `<number>`, `<id>`, `<path>`, `<url>`) and anything that cannot be confidently classified
+dropped. A URL is matched as a whole structure rather than as a substring, so a host cannot survive by
+standing before or after other text; the pattern is deliberately over-inclusive, and a dotted name that
+is not really a host is redacted too. Two tills failing the same way therefore produce byte-identical
+text, which is what makes grouping possible. `deriveDiagnosticSignature()` is the only code path that
+derives the stored text, and it derives it only; it never reads the metadata.
+
+**The operator summary is not the signature.** `signature` is the grouping key and is whatever the
+template reduced to, placeholder stack included. `summary` is what an operator and a support ticket
+read, and a template with fewer than three real words is not shown: on Windows, PowerShell wraps a
+whole .NET exception in `Exception calling "SendRaw" ...: "..."`, so the informative payload is one
+quoted span and redacts to `<string> with <string> <string>`, and no widening of the allowlist can
+change that. For such a case the summary is rebuilt from the already projected `metadata` - a fixed
+reason per print `failure_class` in `PRINT_FAILURE_REASON`
+([`main/services/cloud-sync.ts`](../../main/services/cloud-sync.ts)), otherwise the per-error-class
+clause on its own. There is still no per-event-code phrase table; the print reasons are keyed to a
+closed enum the classifier already produces and already persists, every reason is a fixed
+source-controlled phrase, and none of them carries source text, so the guarantee is strictly stronger
+than the template it replaces. The signature is deliberately left alone: deriving it from
+`failure_class` too would churn the grouping of every till that has already reported.
+
+**Transmission is off by default.** Two settings gate it and both must hold:
+
+- `diagnostics_consent` - the merchant's privacy decision, unchanged, and shipped on.
+- `diagnostics_transmission_enabled` - whether captured failures are sent automatically. Shipped
+  **off**, and no release in this series turns it on.
+
+**A support ticket is not diagnostics.** A ticket the merchant raises and sends is a separate
+outbox, a separate code path, and unaffected by either setting above.
+
+**Known limits of the derivation, stated rather than hidden.** The guarantee is per token, not per
+message. A token survives if it is a quoted string, a number, an identifier, a path, a known
+structural word, or a schema reference inside a SQL phrase. Two consequences: a value made
+*entirely* of structural words ("Table Key", "Order Only") cannot be told apart from the fixed
+phrase around it and survives; and the projected `metadata` (for example `route`) is copied into
+the bundle as the existing allowlist already projects it, so a client that supplies its own
+`server.internal_error` metadata controls that one field. A third: redaction can succeed so
+completely that nothing readable is left - a message that arrives as one quoted span, a bare host, or
+a couple of stray prepositions - which is why the summary falls back to a fixed reason instead of
+showing the fragments. That costs detail, never safety. The reasons are English, as every summary
+and class clause already was; storing a code and translating at render time remains the better long-term
+design and is deliberately not done here, because it changes the stored contract.
+**Offline behaviour.** With transmission on, diagnostics are queued in the
+`store_diagnostics_outbox` table and flushed in the background. With no cloud key or with cloud
+sync off, nothing is enqueued at all: such a till can never deliver the row, so queueing it would
+only accumulate rows nothing will ever send. Both the local log and the outbox are capped at
+`DIAGNOSTIC_LOG_MAX_ROWS` (200) on write, evicting the oldest row first, so neither can grow without
+bound between reads.
+
+## WhatsApp receipt delivery
+
+Sends a receipt to the customer's phone number over WhatsApp.
+
+**Enabled by** the merchant through the WhatsApp settings route, which calls `enable()`. The module
+starts with `state.enabled` false, so nothing is connected until a merchant turns it on.
+
+Receipt outcome is summarised on the order as `whatsapp_receipt_status`, which `GET /api/orders`
+returns per order.
+
+**Offline behaviour.** No work is started when the module is disabled, when it is in a terminal
+shutdown state, or when the request signal is aborted. Work already in flight is cancelled during
+shutdown rather than left to fail late.
+
+**Credential handling.** The session directory is created with mode `0o700`. The session credential
+is not encrypted at rest, which is a deliberate consequence of the library FloCafe uses for the
+WhatsApp protocol and is a reason the containing filesystem matters.
+
+## FloAdmin cloud sync
+
+Optional synchronisation with the FloAdmin back office, plus account deletion and recovery.
+
+**Enabled by** `cloud_sync_enabled`, which ships **on**: a fresh install writes it as `'1'`. Other
+flags in the same group are `cloud_orders_enabled`, `cloud_reports_enabled`, and
+`cloud_command_polling_enabled`.
+
+**Upgrade behaviour.** Migration 40, `v2_cloud_defaults_and_tax_toggle`, flips a store that had
+`cloud_sync_enabled` set to `'0'` back on, but only when the setting's `updated_at` still lacks a
+`T`. Seed-written SQLite timestamps have no `T`; an ISO timestamp means a merchant deliberately
+changed it. The discriminator is that timestamp shape, and the migration deletes the obsolete
+`cloud_pending_store_id` setting in the same step.
+
+**Registration is zero-touch.** `start()` calls `maybeAutoRegister()` once at boot. The code states
+the contract directly: the v2 endpoint creates or finds the live store and returns a working API
+key immediately, so **there is no claim step, no pending state, and no human approval**. The
+`cloud_registration_status` values in use are `unregistered`, `registered`, `registration_failed`,
+`deletion_pending`, and `deleted`.
+
+**One stale claim message survives.** `mobilePairingErrorMessage()` in
+[`main/routes/index.ts`](../../main/routes/index.ts) still tells a merchant that the POS "hasn't
+been claimed in FloAdmin yet" and to complete registration there, returned with HTTP 409 when the
+backend reports the store is not registered. That message contradicts the zero-touch behaviour
+above: the merchant has nothing to claim. The message is reachable from the mobile pairing
+endpoint, so this is shipped behaviour, not dead text. Treat it as a product-copy bug to raise
+separately, not as a description of how registration works.
+
+**Billing never blocks on the cloud.** A paid bill calls `cloudSync.reportDiagnostic()` on a
+best-effort basis. A cloud failure cannot fail a sale.
+
+**Offline behaviour.** `reload()` starts three interval flushers, for the sync outbox, the support
+ticket outbox, and the diagnostics outbox. They are independent timers; one failing does not stop
+the others, and each is a no-op without a configured API key. The diagnostics flusher additionally
+refuses to send unless `diagnostics_transmission_enabled` is on.
+
+**Deletion and recovery.** A deletion request puts the store into `deletion_pending` or `deleted`.
+`isCloudDeletionBlocking()` reports whether the current status blocks normal cloud work, and while
+it does, `start()` returns without starting and queueing refuses with `queued: false`. Deletion
+clears `cloud_sync_outbox`, `support_ticket_outbox`, and `store_diagnostics_outbox` together, so a
+store that has asked for deletion is not holding queued payload for it.
+
+## RevFlo pairing
+
+RevFlo is the mobile companion app, and pairing happens through a pairing code the store issues and
+the phone redeems.
+
+`getCachedPairingCode()` and `setCachedPairingCode()` in
+[`main/db.ts`](../../main/db.ts) keep the code locally under the `mobile_pairing_code` and
+`mobile_pairing_code_expires_at` settings, with an expiry. The code is stored in plaintext: the
+cloud returns it exactly once, so the local copy is the only one, and the code is short-lived and
+useless without the store's API key. Both settings are cleared as part of the cloud data deletion
+path.
+
+Issuing a pairing code is the endpoint that returns the stale claim message described above, and
+its failure is reported as HTTP 409 for an unregistered store and HTTP 502 for any other cloud
+failure, so a connectivity problem is distinguishable from a registration problem.
+
+## Support ticket outbox
+
+A support request is written to the `support_ticket_outbox` table with a `status` of `pending`,
+`sending`, `delivered`, or `failed`, plus `attempt_count`, `next_attempt_at`, and `last_error`. The
+endpoint returns HTTP 202 when the ticket was queued and HTTP 503 when it could not be, so the
+merchant gets a distinct answer for "saved, will send later" and "not accepted".
+
+### The `log_tail` field
+
+A ticket may carry a `log_tail` string holding the tail of the current session's log file.
+
+- **Cap.** `LOG_TAIL_MAX_BYTES` is 200,000. The tail is cut from the end, keeping the most recent
+  bytes, in both the IPC handler and the route.
+- **Window.** `LOG_TAIL_MAX_AGE_MS` is 7 days. The cut is made at the first line whose timestamp
+  falls inside the window, not at a byte offset, so a quiet store's log is not cut mid-record. The
+  byte cap is the backstop when the windowed content is still large.
+- **Absent, not null.** A ticket with no log tail omits the field rather than sending an empty
+  string. `logTail` is `undefined` when the request body has no non-blank `log_tail`.
+- **Where it is persisted.** In the outbox row's `payload`, alongside the ticket's other fields,
+  and sent by `queueSupportTicket()` as the `log_tail` property.
+
+**There is no test covering `log_tail`.** `grep -rn "log_tail\|get-log-tail" tests/` returns
+nothing: the 200,000-byte cap, the 7-day window, and the absent-not-null semantics are unenforced
+by the suite, and a change to any of them would not be caught. This is a coverage gap, not a
+statement that the behaviour is wrong.
+
+## Error taxonomy and correlation
+
+[`main/errors.ts`](../../main/errors.ts) gives every network operation a `FloErrorCode` and a
+`correlationId`.
+
+- `FloErrorCode` is a template-literal union namespaced by subsystem: `print.`, `tax.`,
+  `migration.`, `backup.`, `cloud.`, and `update.`. A new subsystem adds a namespace rather than a
+  new ad hoc string.
+- `correlationId()` returns a `randomUUID()`.
+- `correlatedError(code, message, cause?)` builds an error named `FloOperationError` carrying the
+  code, the correlation id, and optionally the cause.
+- `errorDetails(error, fallbackCode)` reads a code and correlation id off any thrown value, falling
+  back to a supplied code and a fresh correlation id, and always returns a `message`.
+
+The same tuple is what a support ticket carries in `correlation_id`, capped at 64 characters, so a
+merchant-reported ticket can be matched to a log line.
+
+## Verification
+
+```sh
+npm run test:google-drive
+npm run test:telemetry
+npm run test:support-ticket
+npm run test:cloud-account-status
+npm run test:recovery-cloud   # includes tests/cloud-deletion-recovery.test.ts
+```

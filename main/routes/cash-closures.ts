@@ -36,10 +36,12 @@ import {
   dayBoundsInTimezone, getDatabase, getSettingValue, localDateInTimezone, now, withTxn,
   tenantBusinessDayStartTime,
 } from '../db';
-import { requireRole } from '../middleware/security';
-import { ROLE_ACCESS } from '../../shared/role-permissions';
+import { requirePermission } from '../services/authorization';
 import { nextZNumber } from '../db';
 import { getTenantCurrency } from '../services/refund';
+import { getOpenSession, NO_CASH_SESSION_ID, requireOpenSessionForCash } from '../services/shift-session-gate';
+// Type-only: erased at compile, so this adds no runtime require cycle.
+import type { AuthedRequest } from './cash-sessions';
 import { getCurrencyMinorUnitFactor, resolveRegionalSnapshot } from '../countries';
 import { getOrdersWithItemsForBills } from './bills';
 import { getHttpRequestSignal } from '../shutdown';
@@ -82,7 +84,8 @@ function httpError(message: string, statusCode: number): Error {
 // tenant-local day boundary that includes/excludes transactions at the
 // wrong instant, producing an incorrect closure total. Only throws
 // RegionalNotConfiguredError when the country itself is unresolvable.
-function tenantTimezone(): string {
+// Exported for cash-sessions.ts so both modules resolve windows identically.
+export function tenantTimezone(): string {
   return resolveRegionalSnapshot({
     country: getSettingValue('country') ?? undefined,
     currency: getSettingValue('currency') ?? undefined,
@@ -174,6 +177,26 @@ function listCashDrawerMovements(
     WHERE m.business_date = ? ${includeVoided ? '' : 'AND m.voided_at IS NULL'}
     ORDER BY m.created_at DESC, m.id DESC
   `).all(businessDate) as CashDrawerMovementRow[];
+}
+
+// Session movements prefer their recorded owner; only pre-v91 NULL-owner
+// rows use the timestamp window.
+export function listCashDrawerMovementsForSession(
+  db: ReturnType<typeof getDatabase>,
+  sessionId: number,
+  start: string,
+  end: string,
+  includeVoided = true,
+): CashDrawerMovementRow[] {
+  return db.prepare(`
+    SELECT m.*, created_user.name AS created_by_name, voided_user.name AS voided_by_name
+    FROM cash_drawer_movements m
+    LEFT JOIN users created_user ON created_user.id = m.created_by
+    LEFT JOIN users voided_user ON voided_user.id = m.voided_by
+    WHERE (m.cash_session_id = ? OR (m.cash_session_id IS NULL AND m.created_at >= ? AND m.created_at < ?))
+      ${includeVoided ? '' : 'AND m.voided_at IS NULL'}
+    ORDER BY m.created_at DESC, m.id DESC
+  `).all(sessionId, start, end) as CashDrawerMovementRow[];
 }
 
 function activeOpeningFloatCents(db: ReturnType<typeof getDatabase>, businessDate: string): number | null {
@@ -269,17 +292,38 @@ export interface DayAggregates {
  * same day so the immutable snapshot reconciles with itself. Live reports
  * keep the default: a partial payment belongs to the day it was taken.
  */
+export interface PaymentMethodBreakdownOptions {
+  /** Day-based calls: tenant-local business date(s). Ignored when explicitWindow is set. */
+  startDate?: string;
+  endDate?: string;
+  paidOnly?: boolean;
+  attributeRefundsToBillDate?: boolean;
+  keyByPaidAt?: boolean;
+  /** Raw timestamp window for session attribution (#279). */
+  explicitWindow?: [string, string];
+}
+
 export function paymentMethodBreakdown(
   db: ReturnType<typeof getDatabase>,
-  startDate: string,
-  endDate: string = startDate,
-  paidOnly: boolean = false,
-  attributeRefundsToBillDate: boolean = false,
-  keyByPaidAt: boolean = false,
+  opts: PaymentMethodBreakdownOptions,
 ): PaymentMethodRow[] {
+  const {
+    startDate = '',
+    endDate,
+    paidOnly = false,
+    attributeRefundsToBillDate = false,
+    keyByPaidAt = false,
+    explicitWindow,
+  } = opts;
+  if (!explicitWindow && !startDate) {
+    throw new Error('paymentMethodBreakdown requires startDate or explicitWindow');
+  }
+  const resolvedEndDate = endDate ?? startDate;
   const startTime = tenantStartTime(db);
-  const [start] = dayBoundsInTimezone(startDate, tenantTimezone(), startTime);
-  const [, end] = dayBoundsInTimezone(endDate, tenantTimezone(), startTime);
+  const [start, end] = explicitWindow ?? [
+    dayBoundsInTimezone(startDate, tenantTimezone(), startTime)[0],
+    dayBoundsInTimezone(resolvedEndDate, tenantTimezone(), startTime)[1],
+  ];
   const minorFactor = getCurrencyMinorUnitFactor(getTenantCurrency(db));
   return db.prepare(`
     WITH payment_lines AS (
@@ -341,6 +385,252 @@ export function paymentMethodBreakdown(
  */
 export function computeDayAggregates(db: ReturnType<typeof getDatabase>, businessDate: string): DayAggregates {
   const [start, end] = dayBoundsInTimezone(businessDate, tenantTimezone(), tenantStartTime(db));
+  return computePeriodAggregates(db, start, end, listCashDrawerMovements(db, businessDate, false), null);
+}
+
+/**
+ * Single home for the expected-cash formula shared by day close, session
+ * close, and the live session snapshot (#279): opening float plus active
+ * movements plus cash sales minus cash refunds (drawer reality).
+ */
+export function expectedCashFromAggregates(aggregates: Pick<DayAggregates,
+  'openingFloatCents' | 'cashSalesCents' | 'payInCents' | 'payOutCents' | 'safeDropCents' | 'cashRefundsByCreatedAtCents'
+>): number {
+  return aggregates.openingFloatCents
+    + aggregates.cashSalesCents
+    + aggregates.payInCents
+    - aggregates.payOutCents
+    - aggregates.safeDropCents
+    - aggregates.cashRefundsByCreatedAtCents;
+}
+/**
+ * Drawer-reality cash inputs for one raw timestamp window: cash sales by
+ * paid_at (raw pre-join method='cash' lines) and cash refunds by created_at
+ * (the day the cash left the drawer). Shared by the full aggregate pipeline
+ * and the lightweight live-expected path (#279).
+ */
+export function cashDrawerSalesAndRefunds(
+  db: ReturnType<typeof getDatabase>,
+  start: string,
+  end: string,
+  minorFactor: number,
+): { salesCents: number; refundsCents: number } {
+  const row = db.prepare(`
+    WITH cash_sales AS (
+      SELECT COALESCE(SUM(CAST(json_extract(je.value, '$.amount') AS REAL) * ?), 0) AS sales_cents
+      FROM bills b
+      JOIN json_each(
+        CASE
+          WHEN json_valid(b.payment_details) AND json_type(b.payment_details) = 'array'
+            THEN b.payment_details
+          WHEN json_valid(b.payment_details)
+            THEN json_array(b.payment_details)
+          ELSE '[]'
+        END
+      ) je
+      WHERE b.paid_at >= ? AND b.paid_at < ?
+        AND json_type(je.value) = 'object'
+        AND COALESCE(NULLIF(json_extract(je.value, '$.method'), ''), '') = 'cash'
+    ), cash_refunds AS (
+      SELECT COALESCE(SUM(amount_cents), 0) AS refunds_cents
+      FROM refunds
+      WHERE method = 'cash'
+        AND created_at >= ? AND created_at < ?
+    )
+    SELECT
+      (SELECT sales_cents FROM cash_sales) AS sales_cents,
+      (SELECT refunds_cents FROM cash_refunds) AS refunds_cents
+  `).get(minorFactor, start, end, start, end) as { sales_cents: number; refunds_cents: number };
+  return {
+    salesCents: Math.round(Number(row.sales_cents || 0)),
+    refundsCents: Number(row.refunds_cents || 0),
+  };
+}
+
+export interface CashMovementTotals {
+  openingFloatCents: number;
+  payInCents: number;
+  payOutCents: number;
+  safeDropCents: number;
+}
+
+/**
+ * Signed movement totals. Sessions carry the float on the session row, so
+ * callers pass excludeOpeningFloat=true to avoid double-counting an
+ * in-window opening_float movement; day close passes false.
+ */
+export function sumCashMovements(
+  movements: CashDrawerMovementRow[],
+  excludeOpeningFloat: boolean,
+): CashMovementTotals {
+  return movements.reduce((totals, movement) => {
+    if (movement.movement_type === 'opening_float') {
+      if (!excludeOpeningFloat) totals.openingFloatCents += movement.amount_cents;
+    }
+    if (movement.movement_type === 'pay_in') totals.payInCents += movement.amount_cents;
+    if (movement.movement_type === 'pay_out') totals.payOutCents += movement.amount_cents;
+    if (movement.movement_type === 'safe_drop') totals.safeDropCents += movement.amount_cents;
+    return totals;
+  }, { openingFloatCents: 0, payInCents: 0, payOutCents: 0, safeDropCents: 0 });
+}
+
+/**
+ * Session-scoped expected cash: float + drawer movements + cash sales − cash
+ * refunds. Attribution is ownership-first: rows carrying this session's
+ * cash_session_id count regardless of timestamp because they were created
+ * while it was open; pre-v91 NULL-owner rows fall back to opened_at→end.
+ * opening_float movements are not summed here because
+ * the float lives on the session row.
+ *
+ * Sessions intentionally use the effective shift-gate cash classifier
+ * (including a configured method named Cash); day close keeps its narrower
+ * exact-'cash' settlement rule. The JSON scan is correctness-first; use an
+ * event ledger if bill volume makes session polling hot.
+ */
+export function sessionExpectedCash(
+  db: ReturnType<typeof getDatabase>,
+  session: { id: number; opening_float_cents: number; opened_at?: string },
+  end: string,
+  movements?: CashDrawerMovementRow[],
+): number {
+  const start = session.opened_at ?? end;
+  const minorFactor = getCurrencyMinorUnitFactor(getTenantCurrency(db));
+  const movementTotals = sumCashMovements(
+    movements ?? listCashDrawerMovementsForSession(db, session.id, start, end, false), true,
+  );
+  const eventTotals = db.prepare(`
+    WITH payment_lines AS (
+      SELECT
+        CAST(json_extract(je.value, '$.amount') AS REAL) AS amount,
+        COALESCE(NULLIF(json_extract(je.value, '$.method'), ''), '') AS method,
+        CAST(json_extract(je.value, '$.payment_method_id') AS INTEGER) AS payment_method_id,
+        CAST(json_extract(je.value, '$.cash_session_id') AS INTEGER) AS line_session,
+        COALESCE(
+          datetime(NULLIF(json_extract(je.value, '$.timestamp'), '')),
+          datetime(NULLIF(b.paid_at, '')),
+          datetime(NULLIF(b.created_at, ''))
+        ) AS line_time
+      FROM bills b
+      JOIN json_each(
+        CASE
+          WHEN json_valid(b.payment_details) AND json_type(b.payment_details) = 'array'
+            THEN b.payment_details
+          WHEN json_valid(b.payment_details)
+            THEN json_array(b.payment_details)
+          ELSE '[]'
+        END
+      ) je
+      WHERE json_type(je.value) = 'object'
+    ),
+    cash_sales AS (
+      SELECT COALESCE(SUM(pl.amount * ?), 0) AS sales_cents
+      FROM payment_lines pl
+      LEFT JOIN payment_methods pm ON pm.id = pl.payment_method_id AND lower(pm.name) = 'cash'
+      WHERE (
+          pl.line_session = ?
+          OR (pl.line_session IS NULL AND pl.line_time >= datetime(?) AND pl.line_time < datetime(?))
+        )
+        AND (lower(pl.method) = 'cash' OR pm.id IS NOT NULL)
+    ),
+    cash_refunds AS (
+      SELECT COALESCE(SUM(amount_cents), 0) AS refunds_cents
+      FROM refunds
+      WHERE lower(method) = 'cash'
+        AND (
+          cash_session_id = ?
+          OR (cash_session_id IS NULL AND created_at >= ? AND created_at < ?)
+        )
+    )
+    SELECT
+      (SELECT sales_cents FROM cash_sales) AS sales_cents,
+      (SELECT refunds_cents FROM cash_refunds) AS refunds_cents
+  `).get(minorFactor, session.id, start, end, session.id, start, end) as { sales_cents: number; refunds_cents: number };
+  return Number(session.opening_float_cents || 0)
+    + Math.round(Number(eventTotals.sales_cents || 0))
+    + movementTotals.payInCents
+    - movementTotals.payOutCents
+    - movementTotals.safeDropCents
+    - Number(eventTotals.refunds_cents || 0);
+}
+
+/** Sales and refunds attributed to a session for its immutable Z snapshot. */
+export function sessionFinancialTotals(
+  db: ReturnType<typeof getDatabase>,
+  session: { id: number; opened_at: string },
+  end: string,
+): Pick<DayAggregates, 'billCount' | 'refundCount' | 'grossCollectedCents' | 'refundedCents' | 'netCollectedCents' | 'paymentMethods'> {
+  const minorFactor = getCurrencyMinorUnitFactor(getTenantCurrency(db));
+  const row = db.prepare(`
+    WITH payment_lines AS (
+      SELECT b.id AS bill_id,
+        CAST(ROUND(CAST(json_extract(je.value, '$.amount') AS REAL) * ?) AS INTEGER) AS amount_cents,
+        COALESCE(NULLIF(json_extract(je.value, '$.method'), ''), 'unknown') AS method,
+        CAST(json_extract(je.value, '$.cash_session_id') AS INTEGER) AS line_session,
+        COALESCE(datetime(NULLIF(json_extract(je.value, '$.timestamp'), '')),
+          datetime(NULLIF(b.paid_at, '')), datetime(NULLIF(b.created_at, ''))) AS line_time
+      FROM bills b
+      JOIN json_each(CASE
+        WHEN json_valid(b.payment_details) AND json_type(b.payment_details) = 'array' THEN b.payment_details
+        WHEN json_valid(b.payment_details) THEN json_array(b.payment_details)
+        ELSE '[]' END) je
+      WHERE json_type(je.value) = 'object'
+    ),
+    owned_payments AS (
+      SELECT bill_id, amount_cents, method FROM payment_lines
+      WHERE line_session = ?
+        OR (line_session IS NULL AND line_time >= datetime(?) AND line_time < datetime(?))
+    ),
+    owned_refunds AS (
+      SELECT amount_cents, method FROM refunds
+      WHERE cash_session_id = ?
+        OR (cash_session_id IS NULL AND created_at >= ? AND created_at < ?)
+    ),
+    method_totals AS (
+      SELECT method, COUNT(*) AS count, SUM(amount_cents) AS total_cents
+      FROM (
+        SELECT method, amount_cents FROM owned_payments
+        UNION ALL
+        SELECT method, -amount_cents FROM owned_refunds
+      ) GROUP BY method
+    )
+    SELECT
+      (SELECT COUNT(DISTINCT bill_id) FROM owned_payments) AS bill_count,
+      (SELECT COUNT(*) FROM owned_refunds) AS refund_count,
+      (SELECT COALESCE(SUM(amount_cents), 0) FROM owned_payments) AS gross_cents,
+      (SELECT COALESCE(SUM(amount_cents), 0) FROM owned_refunds) AS refund_cents,
+      (SELECT COALESCE(json_group_array(json_object(
+        'method', method, 'count', count, 'total_cents', total_cents)), '[]')
+        FROM method_totals) AS methods_json
+  `).get(minorFactor, session.id, session.opened_at, end,
+    session.id, session.opened_at, end) as {
+    bill_count: number; refund_count: number; gross_cents: number;
+    refund_cents: number; methods_json: string;
+  };
+  const grossCollectedCents = Number(row.gross_cents || 0);
+  const refundedCents = Number(row.refund_cents || 0);
+  return {
+    billCount: Number(row.bill_count || 0),
+    refundCount: Number(row.refund_count || 0),
+    grossCollectedCents,
+    refundedCents,
+    netCollectedCents: grossCollectedCents - refundedCents,
+    paymentMethods: JSON.parse(row.methods_json),
+  };
+}
+
+/**
+ * Window-based aggregation shared by day close and session close (#279).
+ * Same queries as the day pipeline, parameterized by raw timestamp window
+ * so session windows (opened_at → now, possibly crossing midnight) work
+ * without touching day-close behavior.
+ */
+export function computePeriodAggregates(
+  db: ReturnType<typeof getDatabase>,
+  start: string,
+  end: string,
+  movements: CashDrawerMovementRow[],
+  openingFloatOverride: number | null,
+): DayAggregates {
 
   // Display gross — `SUM(paid_amount)` over the paid_at day window (NOT
   // SUM(total) over created_at). This matches financial-summary so display
@@ -376,47 +666,17 @@ export function computeDayAggregates(db: ReturnType<typeof getDatabase>, busines
   // pattern immediately below) so non-100 currencies (KWD factor 1000,
   // JPY factor 1) round-trip exactly.
   const minorFactor = getCurrencyMinorUnitFactor(getTenantCurrency(db));
-  const cashDrawerRow = db.prepare(`
-    WITH cash_sales AS (
-      SELECT COALESCE(SUM(CAST(json_extract(je.value, '$.amount') AS REAL) * ?), 0) AS sales_cents
-      FROM bills b
-      JOIN json_each(
-        CASE
-          WHEN json_valid(b.payment_details) AND json_type(b.payment_details) = 'array'
-            THEN b.payment_details
-          WHEN json_valid(b.payment_details)
-            THEN json_array(b.payment_details)
-          ELSE '[]'
-        END
-      ) je
-      WHERE b.paid_at >= ? AND b.paid_at < ?
-        AND json_type(je.value) = 'object'
-        AND COALESCE(NULLIF(json_extract(je.value, '$.method'), ''), '') = 'cash'
-    ), cash_refunds AS (
-      SELECT COALESCE(SUM(amount_cents), 0) AS refunds_cents
-      FROM refunds
-      WHERE method = 'cash'
-        AND created_at >= ? AND created_at < ?
-    )
-    SELECT
-      (SELECT sales_cents FROM cash_sales) AS sales_cents,
-      (SELECT refunds_cents FROM cash_refunds) AS refunds_cents
-  `).get(minorFactor, start, end, start, end) as { sales_cents: number; refunds_cents: number };
+  const { salesCents, refundsCents } = cashDrawerSalesAndRefunds(db, start, end, minorFactor);
 
-  const cashMovements = listCashDrawerMovements(db, businessDate, false);
-  const movementTotals = cashMovements.reduce((totals, movement) => {
-    if (movement.movement_type === 'opening_float') totals.openingFloatCents += movement.amount_cents;
-    if (movement.movement_type === 'pay_in') totals.payInCents += movement.amount_cents;
-    if (movement.movement_type === 'pay_out') totals.payOutCents += movement.amount_cents;
-    if (movement.movement_type === 'safe_drop') totals.safeDropCents += movement.amount_cents;
-    return totals;
-  }, { openingFloatCents: 0, payInCents: 0, payOutCents: 0, safeDropCents: 0 });
+  const cashMovements = movements;
+  const movementTotals = sumCashMovements(cashMovements, openingFloatOverride !== null);
 
   // Display payment-method totals — reuse paymentMethodBreakdown so display
   // numbers reconcile with the live financial-summary endpoint for the same day.
   // Keyed by paid_at (not per-line timestamps) so installment payments
   // land on the settlement day alongside gross/staff/tax (see B1 above).
-  const paymentMethodsRows = paymentMethodBreakdown(db, businessDate, businessDate, true, true, true);
+  // Window attribution via explicitWindow; no date fields needed.
+  const paymentMethodsRows = paymentMethodBreakdown(db, { paidOnly: true, attributeRefundsToBillDate: true, keyByPaidAt: true, explicitWindow: [start, end] });
 
   // Per-staff sales — same window as the bill count, keyed by paid_at so a
   // cross-midnight bill (created day-1, paid day-2) rolls into day-2's Z
@@ -465,9 +725,9 @@ export function computeDayAggregates(db: ReturnType<typeof getDatabase>, busines
     grossCollectedCents,
     refundedCents,
     netCollectedCents: grossCollectedCents - refundedCents,
-    cashSalesCents: Math.round(Number(cashDrawerRow.sales_cents || 0)),
-    cashRefundsByCreatedAtCents: Number(cashDrawerRow.refunds_cents || 0),
-    openingFloatCents: movementTotals.openingFloatCents,
+    cashSalesCents: salesCents,
+    cashRefundsByCreatedAtCents: refundsCents,
+    openingFloatCents: openingFloatOverride ?? movementTotals.openingFloatCents,
     payInCents: movementTotals.payInCents,
     payOutCents: movementTotals.payOutCents,
     safeDropCents: movementTotals.safeDropCents,
@@ -488,7 +748,7 @@ export function computeDayAggregates(db: ReturnType<typeof getDatabase>, busines
   };
 }
 
-router.get('/movements', requireRole(...ROLE_ACCESS.ownerManagerCashier), (req: Request, res: Response) => {
+router.get('/movements', requirePermission('cash.movements.manage'), (req: Request, res: Response) => {
   try {
     const businessDate = validateBusinessDate(req.query.business_date);
     res.json({ businessDate, movements: listCashDrawerMovements(getDatabase(), businessDate) });
@@ -499,7 +759,7 @@ router.get('/movements', requireRole(...ROLE_ACCESS.ownerManagerCashier), (req: 
   }
 });
 
-router.post('/movements', requireRole(...ROLE_ACCESS.ownerManagerCashier), (req: Request, res: Response) => {
+router.post('/movements', requirePermission('cash.movements.manage'), (req: Request, res: Response) => {
   try {
     const body = req.body || {};
     const businessDate = validateBusinessDate(body.business_date);
@@ -509,14 +769,16 @@ router.post('/movements', requireRole(...ROLE_ACCESS.ownerManagerCashier), (req:
     const createdBy = String((req as any).user?.userId || '');
     if (!createdBy) throw httpError('Authentication required', 401);
     const db = getDatabase();
+    // Shift enforcement (#279): every movement touches the drawer.
+    requireOpenSessionForCash(db);
     const id = withTxn(() => {
       if (closedDayExists(db, businessDate)) throw httpError('This day is already closed', 409);
       try {
         const result = db.prepare(`
           INSERT INTO cash_drawer_movements (
-            business_date, movement_type, amount_cents, reason, created_by, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?)
-        `).run(businessDate, movementType, amountCents, reason, createdBy, now());
+            business_date, movement_type, amount_cents, reason, created_by, created_at, cash_session_id
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(businessDate, movementType, amountCents, reason, createdBy, now(), getOpenSession(db)?.id ?? NO_CASH_SESSION_ID);
         return Number(result.lastInsertRowid);
       } catch (error: any) {
         if (String(error?.message || '').includes('cash_drawer_one_opening_float')
@@ -541,7 +803,7 @@ router.post('/movements', requireRole(...ROLE_ACCESS.ownerManagerCashier), (req:
   }
 });
 
-router.post('/movements/:id/void', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, res: Response) => {
+router.post('/movements/:id/void', requirePermission('cash.movements.void'), (req: Request, res: Response) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) throw httpError('id must be a positive integer', 400);
@@ -575,7 +837,7 @@ router.post('/movements/:id/void', requireRole(...ROLE_ACCESS.ownerManager), (re
   }
 });
 
-router.post('/', requireRole(...ROLE_ACCESS.owner), (req: Request, res: Response) => {
+router.post('/', requirePermission('cash.day-close'), (req: Request, res: Response) => {
   try {
     const body = req.body || {};
     const businessDate = validateBusinessDate(body.business_date);
@@ -617,16 +879,9 @@ router.post('/', requireRole(...ROLE_ACCESS.owner), (req: Request, res: Response
 
       const aggregates = computeDayAggregates(db, businessDate);
 
-      // Snapshot math keeps every cash movement explicit:
-      // expected = opening_float + cashSales + payIns − payOuts − safeDrops
-      //            − cashRefunds(created_at)
-      // variance = counted − expected
-      const expectedCashCents = aggregates.openingFloatCents
-        + aggregates.cashSalesCents
-        + aggregates.payInCents
-        - aggregates.payOutCents
-        - aggregates.safeDropCents
-        - aggregates.cashRefundsByCreatedAtCents;
+      // Snapshot math keeps every cash movement explicit (see
+      // expectedCashFromAggregates); variance = counted − expected
+      const expectedCashCents = expectedCashFromAggregates(aggregates);
       const varianceCents = countedCashCents - expectedCashCents;
 
       let zNumber: number;
@@ -722,11 +977,12 @@ router.post('/', requireRole(...ROLE_ACCESS.owner), (req: Request, res: Response
 export { router as cashClosureRoutes };
 
 // ── POST /:id/print — dispatch the stored Z to the default printer ──────────
-// Owner-only. The forced drawer pulse is appended by `printZReport` itself
+// Owner/manager/cashier may print; day-close rows additionally require the
+// owner role (checked after the row loads). The forced drawer pulse is appended by `printZReport` itself
 // (bypassing bill-bound `shouldPulseForPayment`, spec #649). WebUSB printers
 // return `{ bytes: number[] }` for the frontend to dispatch; network/usb
 // printers go through the backend socket. The Z row is never mutated.
-router.post('/:id/print', requireRole(...ROLE_ACCESS.owner), async (req: Request, res: Response) => {
+router.post('/:id/print', requirePermission('printing.execute'), async (req: Request, res: Response) => {
   try {
     const db = getDatabase();
     const id = Number(req.params.id);
@@ -735,6 +991,10 @@ router.post('/:id/print', requireRole(...ROLE_ACCESS.owner), async (req: Request
     }
     const row = db.prepare(`SELECT * FROM cash_closures WHERE id = ?`).get(id) as any;
     if (!row) return res.status(404).json({ error: 'Cash closure not found' });
+    // Session Z rows print for the shift roles; day-close Z stays owner-only.
+    if (row.scope !== 'session' && (req as AuthedRequest).user?.role !== 'owner') {
+      return res.status(403).json({ error: 'Only owners can print day-close reports' });
+    }
     const isReprint = req.body && req.body.isReprint === true;
     // F6: resolve the operator's display name via users(id → name) so the
     // printed Z shows the operator (not the raw user id). Falls back to the

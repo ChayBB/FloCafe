@@ -22,6 +22,9 @@ import {
   bilingualLabel,
   directionalText,
   getBlock,
+  optionalPaymentAmount,
+  paymentDisplayRows,
+  projectCashTender,
   type PrintContext,
   type PrintData,
 } from '../shared/print';
@@ -397,6 +400,219 @@ console.log('\n▶ Backend PrintData normalization (main layer)');
   assert.equal(context.trimDecimals, false);
   assert.equal(context.baseDirection, 'ltr');
   ok('print context derived from business snapshot');
+}
+
+// ---------------------------------------------------------------------------
+// 4a. Delivery customer-details block
+// ---------------------------------------------------------------------------
+
+console.log('\n▶ Delivery customer details (address present / absent)');
+{
+  const DELIVERY_ADDRESS = 'Flat 4B, 123A-Anecacuilco 04330, Colonia Naucalpan';
+
+  const withAddress = (deliveryAddress: string) => {
+    const { order, bill, business } = buildParityFixtures();
+    const deliveryOrder = { ...order, type: 'delivery', delivery_address: deliveryAddress };
+    const printData = buildBillPrintData(deliveryOrder, { ...bill, order: deliveryOrder }, {
+      ...business,
+      customer_name: 'Asha Kumar',
+      customer_phone: '+91 98765 43210',
+    }, false);
+    return buildBillDocument(printData, makeContext());
+  };
+
+  // Present: the order's own address, under a heading that names the block as
+  // the customer's, so it cannot read as a second business address.
+  const delivery = blockOf(withAddress(DELIVERY_ADDRESS), 'customer');
+  assert.equal(delivery.address?.text, DELIVERY_ADDRESS, 'the block carries the order delivery address');
+  assert.equal(delivery.heading?.conceptId, 'print.customerDetails', 'a delivery block is headed');
+  assert.equal(delivery.addressLabel.conceptId, 'print.deliverySlip.address', 'the address line is labelled');
+  assert.equal(delivery.name?.text, 'Asha Kumar', 'the name stays in the same block');
+  assert.equal(delivery.phone?.text, '+91 98765 43210', 'the customer number stays in the same block');
+  ok('delivery order: address, heading and labels all land in one customer block');
+
+  // Absent: nothing about the delivery section changes the existing output.
+  const inStore = blockOf(withAddress(''), 'customer');
+  assert.equal(inStore.address, null, 'no address without a delivery address');
+  assert.equal(inStore.heading, null, 'no heading without a delivery address');
+  ok('no delivery address: no address and no heading');
+
+  // A whitespace-only address is no address.
+  assert.equal(blockOf(withAddress('   '), 'customer').address, null, 'a blank address is not an address');
+  ok('blank delivery address is treated as absent');
+
+  // Rendered lines: the heading precedes the address, on both backend layouts.
+  const deliveryLines = renderBillDocumentToClassicLines(withAddress(DELIVERY_ADDRESS), {
+    columns: 42, language: 'en', locale: 'en-IN', currency: 'INR', currencySymbol: '₹',
+    trimDecimals: false, useUnicode: false, arabicShaping: false, cutMode: 'full',
+  });
+  const headingAt = deliveryLines.findIndex((line) => line.includes('print.customerDetails[en]'));
+  const addressAt = deliveryLines.findIndex((line) => line.includes('print.deliverySlip.address[en]'));
+  assert.ok(headingAt > 0, 'the classic layout renders the heading');
+  assert.ok(addressAt > headingAt, 'the heading comes before the address it labels');
+  ok('classic layout: heading, then the labelled address');
+
+  const compactLines = renderBillDocumentToCompactLines(withAddress(DELIVERY_ADDRESS), {
+    columns: 42, language: 'en', locale: 'en-IN', currency: 'INR', currencySymbol: '₹',
+    trimDecimals: false, useUnicode: false, arabicShaping: false, cutMode: 'full',
+  });
+  assert.ok(compactLines.findIndex((line) => line.includes('print.customerDetails[en]')) > 0, 'the compact layout renders the heading');
+  assert.ok(compactLines.some((line) => line.includes('print.deliverySlip.address[en]')), 'the compact layout renders the address');
+  ok('compact layout: heading and address');
+}
+
+// ---------------------------------------------------------------------------
+// 4b. Cash tendered & change projection (#770)
+// ---------------------------------------------------------------------------
+
+console.log('\n▶ Cash tendered and change projection');
+{
+  const { order, bill, business } = buildParityFixtures();
+  const rawBill = {
+    ...bill,
+    payment_details: JSON.stringify([
+      { method: 'cash', amount: 150, requested_amount: 200, tendered_amount: 200, change_amount: 50 },
+      { method: 'card', amount: 467, requested_amount: 467 },
+      { method: 'cash', amount: 10, tendered_amount: 'not-a-number' },
+    ]),
+  };
+  const printData = buildBillPrintData(order, rawBill, business, false);
+  assert.deepEqual(printData.bill.payments, [
+    { method: 'cash', amount: 150, tendered: 200, change: 50 },
+    { method: 'card', amount: 467 },
+    { method: 'cash', amount: 10 },
+  ]);
+  ok('backend normalizer preserves tendered/change and drops malformed optional amounts');
+
+  const context = buildBillPrintContext({ columns: 42, language: 'en', business });
+  const overpaidDocument = buildBillDocument(printData, context);
+  const payments = blockOf(overpaidDocument, 'payments');
+  assert.equal(payments.lines[0].amount, 150, 'applied amount stays the authoritative payment amount');
+  assert.equal(payments.lines[0].tendered?.amount, 200);
+  assert.equal(payments.lines[0].tendered?.label.conceptId, 'receipt.cashReceived');
+  assert.equal(payments.lines[0].change?.amount, 50);
+  assert.equal(payments.lines[0].change?.label.conceptId, 'pos.changeReturned');
+  assert.equal(payments.lines[1].tendered, undefined, 'non-cash line exposes no tendered value');
+  assert.equal(payments.lines[1].change, undefined, 'non-cash line exposes no change value');
+  assert.equal(payments.lines[2].tendered, undefined, 'malformed tendered value exposes no row');
+  ok('overpaid cash line projects cash-received and change rows');
+
+  const nonCash = buildBillDocument(
+    makePrintData({ bill: { payments: [{ method: 'card', amount: 150, tendered: 200, change: 50 }] } }),
+    makeContext(),
+  );
+  assert.deepEqual(
+    paymentDisplayRows(blockOf(nonCash, 'payments').lines[0]).map((row) => row.amount),
+    [150],
+    'non-cash payments never expose tender or change rows',
+  );
+  ok('non-cash payments do not project tender or change rows');
+
+  assert.deepEqual(
+    paymentDisplayRows(payments.lines[0]).map((row) => [row.label.primary, row.amount]),
+    [['Cash', 150], ['Cash Received', 200], ['Change Returned', 50]],
+  );
+  ok('payment rows print applied amount first, then cash received, then change');
+
+  const bilingualPayments = blockOf(
+    buildBillDocument(printData, makeContext({ languages: ['fa', 'en'], baseDirection: 'rtl' })),
+    'payments',
+  );
+  assert.deepEqual(
+    {
+      tendered: bilingualPayments.lines[0].tendered?.label,
+      change: bilingualPayments.lines[0].change?.label,
+    },
+    {
+      tendered: { conceptId: 'receipt.cashReceived', primary: 'receipt.cashReceived[fa]', secondary: 'receipt.cashReceived[en]' },
+      change: { conceptId: 'pos.changeReturned', primary: 'pos.changeReturned[fa]', secondary: 'pos.changeReturned[en]' },
+    },
+  );
+  ok('cash rows preserve bilingual semantic labels and RTL block direction');
+
+  const renderOptions = {
+    columns: 42,
+    language: 'en',
+    locale: context.locale,
+    currency: context.currency,
+    currencySymbol: '₹',
+    trimDecimals: false,
+    useUnicode: true,
+    arabicShaping: false,
+    cutMode: 'full' as const,
+  };
+  for (const [renderer, lines] of [
+    ['classic', renderBillDocumentToClassicLines(overpaidDocument, renderOptions)],
+    ['compact', renderBillDocumentToCompactLines(overpaidDocument, renderOptions)],
+  ] as const) {
+    assert(lines.some((line) => line.includes('Cash') && line.includes('₹150.00')), `${renderer} keeps the applied cash row`);
+    assert(lines.some((line) => line.includes('Cash Received') && line.includes('₹200.00')), `${renderer} renders the cash received row`);
+    assert(lines.some((line) => line.includes('Change Returned') && line.includes('₹50.00')), `${renderer} renders the change row`);
+  }
+  ok('classic and compact render the tendered/change rows');
+
+  const zeroDecimalContext = makeContext({ locale: 'ja-JP', currency: 'JPY', currencySymbol: '¥' });
+  const zeroDecimalDocument = buildBillDocument(
+    makePrintData({ bill: { payments: [{ method: 'cash', amount: 150, tendered: 200, change: 50 }] } }),
+    zeroDecimalContext,
+  );
+  const zeroDecimalOptions = {
+    ...renderOptions,
+    locale: zeroDecimalContext.locale,
+    currency: zeroDecimalContext.currency,
+    currencySymbol: zeroDecimalContext.currencySymbol,
+  };
+  for (const [renderer, lines] of [
+    ['classic', renderBillDocumentToClassicLines(zeroDecimalDocument, zeroDecimalOptions)],
+    ['compact', renderBillDocumentToCompactLines(zeroDecimalDocument, zeroDecimalOptions)],
+  ] as const) {
+    for (const amount of ['¥150', '¥200', '¥50']) {
+      assert(lines.some((line) => line.includes(amount)), `${renderer} preserves the JPY zero-decimal amount ${amount}`);
+    }
+    assert(!lines.some((line) => /¥(?:150|200|50)\.00/.test(line)), `${renderer} does not add decimal digits to JPY cash rows`);
+  }
+  ok('cash rows follow zero-decimal currency formatting');
+
+  const exact = buildBillDocument(
+    makePrintData({ bill: { payments: [{ method: 'cash', amount: 150, tendered: 150, change: 0 }] } }),
+    makeContext(),
+  );
+  assert.deepEqual(paymentDisplayRows(blockOf(exact, 'payments').lines[0]).map((row) => row.amount), [150]);
+  ok('exact cash payment prints no tendered or change row');
+
+  const legacy = buildBillDocument(
+    makePrintData({ bill: { payments: [{ method: 'cash', amount: 150 }] } }),
+    makeContext(),
+  );
+  assert.equal(blockOf(legacy, 'payments').lines[0].tendered, undefined);
+  assert.equal(blockOf(legacy, 'payments').lines[0].change, undefined);
+  ok('legacy payments without optional fields keep their current output');
+
+  const fallback = buildBillDocument(
+    makePrintData({ bill: { payments: [{ method: 'cash', amount: 150, change: 50 }] } }),
+    makeContext(),
+  );
+  assert.deepEqual(
+    paymentDisplayRows(blockOf(fallback, 'payments').lines[0]).map((row) => row.amount),
+    [150, 150, 50],
+    'a positive change without tendered data falls back to applied cash',
+  );
+  ok('missing tendered data falls back to applied cash');
+
+  assert.equal(projectCashTender({ method: 'cash', amount: 150, tendered: 200, change: 50 })?.tendered, 200);
+  assert.equal(projectCashTender({ method: 'cash', amount: 150, tendered: 200, change: 0 })?.change, 0, 'over-tender with no persisted change still projects the tendered row');
+  assert.equal(projectCashTender({ method: 'cash', amount: 150, tendered: 150, change: 0 }), null);
+  assert.equal(projectCashTender({ method: 'cash', amount: 150 }), null);
+  assert.equal(projectCashTender({ method: 'card', amount: 150, tendered: 200, change: 50 }), null);
+  assert.equal(optionalPaymentAmount(undefined), undefined);
+  assert.equal(optionalPaymentAmount(null), undefined);
+  assert.equal(optionalPaymentAmount(''), undefined);
+  assert.equal(optionalPaymentAmount('   '), undefined);
+  assert.equal(optionalPaymentAmount(false), undefined);
+  assert.equal(optionalPaymentAmount([]), undefined);
+  assert.equal(optionalPaymentAmount('200'), 200);
+  assert.equal(optionalPaymentAmount('abc'), undefined);
+  ok('projection and optional-amount coercion reject absent or malformed values');
 }
 
 console.log('\n▶ Add-on quantity and charge financial parity');

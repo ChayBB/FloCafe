@@ -1,17 +1,19 @@
 import { Router, Request, Response } from 'express';
 import Database from 'better-sqlite3';
-import { captureKitchenStationSecurityState, captureKdsEnabledSetting, captureRestoreProtectedSettings, captureUserSecurityState, captureUserStationSecurityState, clearGoogleDriveRestoreBinding, getDatabase, getDbPath, createBackup, createBackupUnlocked, getCurrentSchemaVersion, getForeignKeyViolationKeys, getInventoryMovementRows, isSafeIdentifier, mergeKdsEnabledSetting, mergeRestoreProtectedSettings, mergeUserSecurityState, mergeUserStationSecurityState, now, throwIfDatabaseMaintenanceAborted, validateInventoryLedgerDatabase, validateInventoryLedgerReplacement, validateInventoryLedgerRows, withTxn, withDatabaseMaintenanceLock } from '../db';
-import { clearInMemoryRevokedTokens, clearUserAuthCache, requireRole } from '../middleware/security';
+import { captureKitchenStationSecurityState, captureKdsEnabledSetting, captureRestoreProtectedSettings, captureUserSecurityState, captureUserStationSecurityState, clearGoogleDriveRestoreBinding, getDatabase, getDbPath, createBackup, createBackupUnlocked, getCurrentSchemaVersion, getForeignKeyViolationKeys, getInventoryMovementRows, getSchemaVersionFromBackup, isSafeIdentifier, mergeKdsEnabledSetting, mergeRestoreProtectedSettings, mergeUserSecurityState, mergeUserStationSecurityState, now, restoreBackup, throwIfDatabaseMaintenanceAborted, validateInventoryLedgerDatabase, validateInventoryLedgerReplacement, validateInventoryLedgerRows, withTxn, withDatabaseMaintenanceLock } from '../db';
+import { clearInMemoryRevokedTokens, clearUserAuthCache } from '../middleware/security';
+import { requirePermission } from '../services/authorization';
 import { requireMasterPin } from '../middleware/master-pin';
-import { clearJWTSecretCache } from './auth';
+import { clearJWTSecretCache } from '../security/jwt-secret';
 import * as fs from 'fs';
 import * as path from 'path';
 import { asyncHandler } from '../middleware/async-handler';
 import { getHttpRequestSignal, trackHttpRequestWork } from '../shutdown';
 import { parsePhoneE164 } from '../lib/phone';
-import { ROLE_ACCESS, isRole } from '../../shared/role-permissions';
+import { isRole } from '../../shared/role-permissions';
 import { randomUUID } from 'node:crypto';
 import { googleDrive } from '../services/google-drive';
+import { consumeRestoreFileSelection } from '../services/restore-file-selection';
 
 const router = Router();
 
@@ -34,7 +36,9 @@ const EXPORT_SETTINGS_REDACT = new Set([
 const USER_REDACT_COLS = new Set(['password', 'pin', 'pin_hash']);
 
 // Tables excluded entirely — cloud_sync_outbox may contain cloud auth payloads.
-const EXPORT_EXCLUDE_TABLES = new Set(['cloud_sync_outbox', 'support_ticket_outbox', 'store_diagnostics_outbox', 'kds_pairing_tokens']);
+// local_diagnostics is device-local operator-facing state, not customer data, so
+// a backup taken on one till must not carry another till's failure log.
+const EXPORT_EXCLUDE_TABLES = new Set(['cloud_sync_outbox', 'support_ticket_outbox', 'store_diagnostics_outbox', 'local_diagnostics', 'kds_pairing_tokens']);
 
 // Parse schema version; invalid or missing versions collapse to -1 or 0 to trigger mismatch handling.
 function parseImportSchemaVersion(value: unknown): number {
@@ -42,7 +46,7 @@ function parseImportSchemaVersion(value: unknown): number {
   return /^(?:0|[1-9]\d*)$/.test(raw) ? Number(raw) : -1;
 }
 
-router.get('/export', requireRole(...ROLE_ACCESS.owner), (req: Request, res: Response) => {
+router.get('/export', requirePermission('database.manage'), (req: Request, res: Response) => {
   try {
     const db = getDatabase();
 
@@ -113,7 +117,7 @@ router.get('/export', requireRole(...ROLE_ACCESS.owner), (req: Request, res: Res
   }
 });
 
-router.post('/import', requireRole(...ROLE_ACCESS.owner),
+router.post('/import', requirePermission('database.manage'),
   (req: Request, res: Response, next: () => void) => {
     // Require Master PIN for overwrite or version mismatch to guard destructive replacement.
     const body = req.body as { overwrite?: unknown; data?: Record<string, unknown> } | undefined;
@@ -541,7 +545,7 @@ function getTableColumns(db: Database.Database, tableName: string): string[] {
   }
 }
 
-router.post('/backup', requireRole(...ROLE_ACCESS.owner), requireMasterPin, asyncHandler(async (req: Request, res: Response) => {
+router.post('/backup', requirePermission('database.manage'), requireMasterPin, asyncHandler(async (req: Request, res: Response) => {
   try {
     const { path: backupPath, schemaVersion } = await createBackup(undefined, getHttpRequestSignal(req));
     res.json({ 
@@ -556,7 +560,63 @@ router.post('/backup', requireRole(...ROLE_ACCESS.owner), requireMasterPin, asyn
   }
 }));
 
-router.get('/download', requireRole(...ROLE_ACCESS.owner), requireMasterPin, asyncHandler(async (req: Request, res: Response) => {
+const RESTORE_CONFIRMATION = 'RESTORE BACKUP';
+
+// Restore from a file the operator picked in the native dialog. This is the
+// authorised alternative to the Master PIN gate: the session must hold
+// database.manage, the operator must type the confirmation phrase, and the file
+// path is only accepted when it is the one the main process just handed out from
+// that dialog (see services/restore-file-selection). The restore itself runs
+// through the same restoreBackup() mechanism as every other route.
+router.post('/restore', requirePermission('database.manage'), asyncHandler(async (req: Request, res: Response) => {
+  if (req.body?.confirmation !== RESTORE_CONFIRMATION) {
+    return res.status(400).json({ error: `Type "${RESTORE_CONFIRMATION}" to confirm` });
+  }
+
+  const selectionToken = typeof req.body?.selection_token === 'string' ? req.body.selection_token : '';
+  const backupPath = consumeRestoreFileSelection(selectionToken);
+  if (!backupPath) {
+    return res.status(400).json({ error: 'Choose a backup file in the restore dialog before confirming' });
+  }
+
+  const backupVersion = getSchemaVersionFromBackup(backupPath);
+  if (backupVersion === null) {
+    return res.status(400).json({ error: 'Invalid backup file: missing schema version metadata. This backup may have been created with an older version of Flo.' });
+  }
+
+  const currentVersion = getCurrentSchemaVersion();
+  const versionMismatch = backupVersion !== currentVersion;
+
+  await googleDrive.prepareForDatabaseRestore();
+  try {
+    const restoreResult = await withDatabaseMaintenanceLock(
+      (signal) => restoreBackup(backupPath, !versionMismatch, signal),
+      getHttpRequestSignal(req),
+    );
+    if (!restoreResult.success) {
+      return res.status(422).json({ error: restoreResult.error || 'Restore failed' });
+    }
+    const cleanup = googleDrive.completeDatabaseRestore();
+    clearUserAuthCache();
+    clearInMemoryRevokedTokens();
+    clearJWTSecretCache();
+    res.json({
+      success: true,
+      mode: restoreResult.mode,
+      backupVersion,
+      currentVersion,
+      tablesRestored: restoreResult.tablesRestored,
+      cleanupPending: restoreResult.cleanupPending === true || cleanup?.cleanupPending === true,
+    });
+  } catch (error: any) {
+    console.error('[DB Restore] Error:', error);
+    res.status(500).json({ error: 'Restore failed' });
+  } finally {
+    googleDrive.releaseDatabaseRestore();
+  }
+}));
+
+router.get('/download', requirePermission('database.manage'), requireMasterPin, asyncHandler(async (req: Request, res: Response) => {
   let tempDir: string | null = null;
   try {
     const dbPath = getDbPath();
@@ -610,7 +670,7 @@ router.get('/download', requireRole(...ROLE_ACCESS.owner), requireMasterPin, asy
   }
 }));
 
-router.get('/tables', requireRole(...ROLE_ACCESS.owner), (req: Request, res: Response) => {
+router.get('/tables', requirePermission('database.manage'), (req: Request, res: Response) => {
   try {
     const db = getDatabase();
     const tables = db.prepare(`

@@ -1,0 +1,483 @@
+/** Owner-only configurable authorization API coverage. */
+import * as assert from 'node:assert/strict';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+
+const Module = require('module');
+const originalLoad = Module._load;
+const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-authorization-api-'));
+Module._load = function (request: string, parent: unknown, isMain: boolean) {
+  if (request === 'electron') return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
+  return originalLoad.apply(this, arguments as any);
+};
+
+const express = require('express');
+const request = require('supertest');
+const { initDatabase, getDatabase, closeDatabase, now } = require('../main/db');
+const { authorizationRoutes } = require('../main/routes/authorization');
+const { requireAnyPermission, requirePermission } = require('../main/services/authorization');
+const { requireAuth } = require('../main/server');
+// Required after the electron stub above; a hoisted import would load main/db
+// before Module._load is patched and bind the real electron module.
+const { assertIncludesOrThrow } = require('./helpers/test-setup');
+
+function seedUser(db: any, id: string, role: string) {
+  const email = `${id}@test.local`;
+  db.prepare(`
+    INSERT INTO users (id, name, email, password, role, is_active, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+  `).run(id, id, email, 'unused-test-hash', role, now(), now());
+  return { 'x-test-user': id };
+}
+
+async function main(): Promise<void> {
+  initDatabase();
+  const db = getDatabase();
+  const owner = seedUser(db, 'authorization-owner', 'owner');
+  const manager = seedUser(db, 'authorization-manager', 'manager');
+  const cashier = seedUser(db, 'authorization-cashier', 'cashier');
+  const server = seedUser(db, 'authorization-server', 'server');
+  const chef = seedUser(db, 'authorization-chef', 'chef');
+  const app = express();
+  app.use(express.json());
+  app.use((req: any, _res: any, next: any) => {
+    const userId = req.header('x-test-user');
+    if (userId) req.user = { userId };
+    next();
+  });
+  app.use('/api/authorization', authorizationRoutes);
+  app.get('/api/protected-report', requirePermission('reports.view'), (_req: any, res: any) => res.json({ ok: true }));
+  // Mirrors the real tax preview gate in main/routes/index.ts.
+  app.post('/api/tax/preview', requireAnyPermission('pos.use', 'orders.create', 'kitchen.use'), (_req: any, res: any) => res.json({ ok: true }));
+  app.post('/api/bills/:id/markPrinted', requirePermission('bills.print'), (_req: any, res: any) => res.json({ ok: true }));
+  app.post('/api/bills/:id/applyDiscount', requirePermission('bills.discount.apply'), (_req: any, res: any) => res.json({ ok: true }));
+
+  assert.equal((await request(app).get('/api/authorization/catalog')).status, 401);
+  assert.equal((await request(app).get('/api/authorization/catalog').set(manager)).status, 403);
+
+  const catalog = await request(app).get('/api/authorization/catalog').set(owner);
+  assert.equal(catalog.status, 200);
+  assert.ok(catalog.body.permissions.some((entry: any) => entry.id === 'reports.view'));
+  assert.ok(catalog.body.permissions.some((entry: any) => entry.id === 'authorization.manage' && entry.configurable === false));
+
+  const roles = await request(app).get('/api/authorization/roles').set(owner);
+  assert.equal(roles.status, 200);
+  const managerRole = roles.body.roles.find((entry: any) => entry.role === 'manager');
+  assert.ok(managerRole.revision);
+  assert.equal(managerRole.permissions.find((entry: any) => entry.permission_id === 'reports.view').allowed, true);
+
+  const invalid = await request(app).put('/api/authorization/roles/manager').set(owner).send({
+    revision: managerRole.revision,
+    overrides: [{ permission_id: 'authorization.manage', effect: 'allow' }],
+  });
+  assert.equal(invalid.status, 400, 'protected permission override is rejected');
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM role_permission_overrides WHERE role = 'manager'").get().count, 0);
+
+  const updated = await request(app).put('/api/authorization/roles/manager').set(owner).send({
+    revision: managerRole.revision,
+    overrides: [{ permission_id: 'reports.view', effect: 'deny' }],
+  });
+  assert.equal(updated.status, 200);
+  assert.equal(updated.body.role.permissions.find((entry: any) => entry.permission_id === 'reports.view').allowed, false);
+  assert.equal((await request(app).get('/api/protected-report').set(manager)).status, 403, 'role deny applies on the next request');
+
+  const conflict = await request(app).put('/api/authorization/roles/manager').set(owner).send({
+    revision: managerRole.revision,
+    overrides: [],
+  });
+  assert.equal(conflict.status, 409, 'stale role edit is rejected');
+  assert.equal(conflict.body.code, 'revision_conflict');
+
+  const user = await request(app).get('/api/authorization/users/authorization-cashier').set(owner);
+  assert.equal(user.status, 200);
+  assert.equal(user.body.permissions.find((entry: any) => entry.permission_id === 'reports.view').allowed, false);
+
+  const userUpdated = await request(app).put('/api/authorization/users/authorization-cashier').set(owner).send({
+    revision: user.body.revision,
+    overrides: [{ permission_id: 'reports.view', effect: 'allow' }],
+  });
+  assert.equal(userUpdated.status, 200);
+  assert.equal(userUpdated.body.permissions.find((entry: any) => entry.permission_id === 'reports.view').allowed, true);
+  assert.equal(userUpdated.body.permissions.find((entry: any) => entry.permission_id === 'reports.view').source, 'user_override');
+  assert.equal((await request(app).get('/api/protected-report').set({ 'x-test-user': 'authorization-cashier' })).status, 200, 'user allow applies on the next request');
+
+  const staleReset = await request(app)
+    .delete('/api/authorization/users/authorization-cashier/overrides')
+    .set(owner)
+    .send({ revision: user.body.revision });
+  assert.equal(staleReset.status, 409, 'stale user reset is rejected');
+
+  const reset = await request(app)
+    .delete('/api/authorization/users/authorization-cashier/overrides')
+    .set(owner)
+    .send({ revision: userUpdated.body.revision });
+  assert.equal(reset.status, 200);
+  assert.equal(reset.body.overrides.length, 0);
+  assert.equal(reset.body.permissions.find((entry: any) => entry.permission_id === 'reports.view').allowed, false);
+  assert.equal((await request(app).get('/api/protected-report').set({ 'x-test-user': 'authorization-cashier' })).status, 403, 'reset applies on the next request');
+
+  const audit = await request(app).get('/api/authorization/audit').set(owner);
+  assert.equal(audit.status, 200);
+  assert.ok(audit.body.audit.length >= 3);
+  assert.ok(audit.body.audit.every((entry: any) => entry.actor_user_id === 'authorization-owner'));
+  assert.ok(audit.body.audit.some((entry: any) => entry.target_type === 'role' && entry.target_id === 'manager'));
+  assert.ok(audit.body.audit.some((entry: any) => entry.target_type === 'user' && entry.target_id === 'authorization-cashier'));
+
+  // requireAnyPermission admits any one of its permissions, and the tax preview
+  // gate it serves has to keep every role pricing a basket.
+  assert.equal((await request(app).post('/api/tax/preview')).status, 401, 'no user means no basket pricing');
+  for (const [role, header] of [['owner', owner], ['manager', manager], ['cashier', cashier], ['server', server], ['chef', chef]] as const) {
+    assert.equal(
+      (await request(app).post('/api/tax/preview').set(header)).status,
+      200,
+      `${role} can price a basket`,
+    );
+  }
+
+  // markPrinted is gated on bills.print, not on the discount endpoint above it.
+  assert.equal((await request(app).post('/api/bills/1/markPrinted').set(cashier)).status, 403, 'cashier cannot mark a bill printed');
+  assert.equal((await request(app).post('/api/bills/1/markPrinted').set(server)).status, 403, 'server cannot mark a bill printed');
+  assert.equal((await request(app).post('/api/bills/1/markPrinted').set(manager)).status, 200, 'manager can mark a bill printed');
+  assert.equal((await request(app).post('/api/bills/1/markPrinted').set(owner)).status, 200, 'owner can mark a bill printed');
+  assert.equal((await request(app).post('/api/bills/1/applyDiscount').set(manager)).status, 200, 'manager can still apply a bill discount');
+
+  // Denying one of the three sale permissions must not close basket pricing
+  // while the caller still holds either of the other two.
+  db.prepare(`
+    INSERT INTO role_permission_overrides
+      (role, permission_id, effect, updated_by, created_at, updated_at)
+    VALUES ('cashier', 'pos.use', 'deny', ?, ?, ?)
+  `).run('authorization-owner', now(), now());
+  assert.equal((await request(app).post('/api/tax/preview').set(cashier)).status, 200, 'a cashier denied pos.use still prices a basket through orders.create');
+  db.prepare(`
+    INSERT INTO user_permission_overrides
+      (user_id, permission_id, effect, updated_by, created_at, updated_at)
+    VALUES ('authorization-cashier', 'orders.create', 'deny', ?, ?, ?)
+  `).run('authorization-owner', now(), now());
+  assert.equal((await request(app).post('/api/tax/preview').set(cashier)).status, 403, 'a cashier denied both pos.use and orders.create loses basket pricing');
+
+  // The real requireAuth exempted anything whose path started with '/api/auth',
+  // which also matched '/api/authorization/*' because "authorization" starts
+  // with "auth". That skipped token verification for the whole management API,
+  // so prove a tokenless request is actually rejected through the production
+  // middleware and not merely through the router's own permission gate.
+  const jwt = require('jsonwebtoken');
+  const expressRateLimit = require('express-rate-limit');
+  const { getJWTSecret } = require('../main/routes/auth');
+  const realApp = express();
+  realApp.use(express.json());
+  // Same order as main/server.ts: rate limit, then requireAuth, then routes.
+  realApp.use('/api', expressRateLimit({ windowMs: 60 * 1000, limit: 100, standardHeaders: true, legacyHeaders: false }));
+  realApp.use(requireAuth);
+  realApp.use('/api/authorization', authorizationRoutes);
+
+  const tokenFor = (userId: string, role: string, secret = getJWTSecret()) =>
+    `Bearer ${jwt.sign({ userId, email: `${userId}@test.local`, role }, secret, { expiresIn: '1h' })}`;
+
+  assert.equal((await request(realApp).get('/api/authorization/catalog')).status, 401, 'no token cannot reach the authorization API');
+  // 404 rather than 401 is the proof the exemption still holds: the request got
+  // past requireAuth and all the way to routing, where nothing is mounted. No
+  // route is registered here on purpose, so nothing shadows the 401.
+  assert.equal((await request(realApp).get('/api/auth/login')).status, 404, 'the /api/auth exemption lets login reach routing so it can verify its own token');
+  assert.equal((await request(realApp).get('/api/authorization/catalog').set('Authorization', 'Bearer not-a-jwt')).status, 401, 'a malformed token cannot reach the authorization API');
+  assert.equal(
+    (await request(realApp).get('/api/authorization/catalog').set('Authorization', tokenFor('authorization-owner', 'owner', 'a-different-secret'))).status,
+    401,
+    'a token signed with the wrong secret cannot reach the authorization API',
+  );
+  assert.equal(
+    (await request(realApp).get('/api/authorization/catalog').set('Authorization', tokenFor('authorization-manager', 'manager'))).status,
+    403,
+    'a real manager token reaches the route and is refused by its own permission gate, not by the path exemption',
+  );
+  assert.equal(
+    (await request(realApp).get('/api/authorization/catalog').set('Authorization', tokenFor('authorization-owner', 'owner'))).status,
+    200,
+    'an owner token reaches the catalog',
+  );
+
+  // ── Administration reachability ────────────────────────────────────────
+  // An install must always keep at least one active account holding
+  // authorization.manage, staff.privileged.manage, staff.operational.manage
+  // and settings.manage. authorization-owner is the only owner here, so every
+  // write that would strip one of those from them must be rejected.
+  const ownerId = 'authorization-owner';
+  const ownerUser = await request(app).get(`/api/authorization/users/${ownerId}`).set(owner);
+  const baseline = await request(app).put(`/api/authorization/users/${ownerId}`).set(owner).send({
+    revision: ownerUser.body.revision,
+    overrides: [{ permission_id: 'dashboard.view', effect: 'allow' }],
+  });
+  assert.equal(baseline.status, 200, 'a save that only affects non-administrative permissions is accepted');
+
+  const strandedUser = await request(app).put(`/api/authorization/users/${ownerId}`).set(owner).send({
+    revision: baseline.body.revision,
+    overrides: [
+      { permission_id: 'dashboard.view', effect: 'allow' },
+      { permission_id: 'staff.operational.manage', effect: 'deny' },
+    ],
+  });
+  assert.equal(strandedUser.status, 400, 'the sole active owner cannot deny their own staff administration');
+  assert.equal(strandedUser.body.code, 'administration_unreachable', 'the rejection carries a stable code');
+  assertIncludesOrThrow(
+    strandedUser.body.error,
+    'Grant another active owner these permissions first',
+    'the rejection names the action that resolves it',
+  );
+  assert.doesNotMatch(
+    strandedUser.body.error,
+    /locking yourself out/i,
+    'the rejection blames the store, not the actor',
+  );
+  // The guard runs inside the transaction ahead of the DELETE, so the
+  // rejected write must leave the previously stored override rows intact
+  // rather than half-applied.
+  const storedAfterReject = db
+    .prepare('SELECT permission_id, effect FROM user_permission_overrides WHERE user_id = ? ORDER BY permission_id')
+    .all(ownerId) as Array<{ permission_id: string; effect: string }>;
+  assert.deepEqual(
+    storedAfterReject,
+    [{ permission_id: 'dashboard.view', effect: 'allow' }],
+    'a rejected write leaves the previous overrides intact',
+  );
+
+  const rolesBefore = await request(app).get('/api/authorization/roles').set(owner);
+  const ownerRole = rolesBefore.body.roles.find((entry: any) => entry.role === 'owner');
+  const strandedRole = await request(app).put('/api/authorization/roles/owner').set(owner).send({
+    revision: ownerRole.revision,
+    overrides: [{ permission_id: 'settings.manage', effect: 'deny' }],
+  });
+  assert.equal(strandedRole.status, 400, 'a role override that would strand administration is rejected');
+  assert.equal(strandedRole.body.code, 'administration_unreachable');
+  assert.equal(
+    db.prepare("SELECT COUNT(*) AS count FROM role_permission_overrides WHERE role = 'owner'").get().count,
+    0,
+    'the rejected role write stores nothing',
+  );
+
+  const secondOwner = seedUser(db, 'authorization-owner-second', 'owner');
+  // The second owner makes the store survive the first owner's self-denial, so
+  // from here on that save only needs the factor, which the sole-owner case
+  // above never had to ask for.
+  const bcrypt = require('bcryptjs');
+  const OWNER_PIN = '2468';
+  db.prepare('UPDATE users SET pin_hash = ? WHERE id = ?').run(bcrypt.hashSync(OWNER_PIN, 10), ownerId);
+  const acceptedUser = await request(app).put(`/api/authorization/users/${ownerId}`).set(owner).send({
+    revision: baseline.body.revision,
+    overrides: [
+      { permission_id: 'dashboard.view', effect: 'allow' },
+      { permission_id: 'staff.operational.manage', effect: 'deny' },
+    ],
+    override_pin: OWNER_PIN,
+  });
+  assert.equal(acceptedUser.status, 200, 'the same save is accepted once a second active owner holds the permissions');
+  const ownerEffective = (await request(app).get(`/api/authorization/users/${ownerId}`).set(secondOwner))
+    .body.permissions.find((entry: any) => entry.permission_id === 'staff.operational.manage');
+  assert.equal(ownerEffective.allowed, false, 'the accepted save is really applied to the actor');
+
+  const rolesAfter = await request(app).get('/api/authorization/roles').set(secondOwner);
+  const ownerRoleRevision = rolesAfter.body.roles.find((entry: any) => entry.role === 'owner').revision;
+  const acceptedRole = await request(app).put('/api/authorization/roles/owner').set(secondOwner).send({
+    revision: ownerRoleRevision,
+    overrides: [{ permission_id: 'reports.daily-sales.export', effect: 'deny' }],
+  });
+  assert.equal(acceptedRole.status, 200, 'a role override on a non-administrative permission is untouched');
+
+  const cleared = await request(app)
+    .delete(`/api/authorization/users/${ownerId}/overrides`)
+    .set(secondOwner)
+    .send({ revision: acceptedUser.body.revision });
+  assert.equal(cleared.status, 200, 'clearing overrides only grants access back and is never stranded');
+  assert.equal(cleared.body.overrides.length, 0);
+
+  // ── Self-lockout confirmation ─────────────────────────────────────────
+  // The store surviving an actor's self-lockout is the floor's job; proving the
+  // actor is the owner first is this one. A write that takes any of the four
+  // administrative capabilities away from whoever makes it is refused with 428
+  // naming the factor, and the factor is the staff PIN the rest of the
+  // repository already reads as override_pin. Every scenario below starts from a
+  // clean PIN budget so the rate limiter only has one thing to prove.
+  const { resetPinRateLimitForTests } = require('../main/routes/orders');
+  const managerRoleBeforeSelfScope = (await request(app).get('/api/authorization/roles').set(owner))
+    .body.roles.find((entry: any) => entry.role === 'manager');
+  const otherRoleTarget = await request(app).put('/api/authorization/roles/manager').set(owner).send({
+    revision: managerRoleBeforeSelfScope.revision,
+    overrides: [{ permission_id: 'settings.manage', effect: 'deny' }],
+  });
+  assert.equal(otherRoleTarget.status, 200, 'an override on a role the actor does not hold needs no factor');
+
+  const ownRoleRevision = (await request(app).get('/api/authorization/roles').set(owner))
+    .body.roles.find((entry: any) => entry.role === 'owner').revision;  // A third owner, held above the role default with a user override, so the
+  // floor still passes when the actor's own role loses a capability: the store
+  // survives, so the refusal has to be the 428 and not administration_unreachable.
+  const thirdOwnerId = 'authorization-owner-third';
+  seedUser(db, thirdOwnerId, 'owner');
+  db.prepare(`
+    INSERT INTO user_permission_overrides
+      (user_id, permission_id, effect, updated_by, created_at, updated_at)
+    VALUES (?, 'staff.operational.manage', 'allow', ?, ?, ?)
+  `).run(thirdOwnerId, 'authorization-owner-second', now(), now());
+  const ownRole = await request(app).put('/api/authorization/roles/owner').set(owner).send({
+    revision: ownRoleRevision,
+    overrides: [{ permission_id: 'staff.operational.manage', effect: 'deny' }],
+  });
+  assert.equal(ownRole.status, 428, 'a role override that costs the actor their own access is a precondition failure');
+  assert.equal(ownRole.body.code, 'self_privilege_change_requires_factor');
+  assert.equal(ownRole.body.requires, 'pin', 'the refusal names the factor the server wants');
+  assert.equal(
+    db.prepare("SELECT COUNT(*) AS count FROM role_permission_overrides WHERE role = 'owner' AND permission_id = 'staff.operational.manage'").get().count,
+    0,
+    'the refused role write stores nothing',
+  );
+
+  const selfLock = async (extra: Record<string, unknown> = {}) => {
+    const revision = (await request(app).get(`/api/authorization/users/${ownerId}`).set(owner)).body.revision;
+    return request(app).put(`/api/authorization/users/${ownerId}`).set(owner).send({
+      revision,
+      overrides: [{ permission_id: 'settings.manage', effect: 'deny' }],
+      ...extra,
+    });
+  };
+  const storedSelfLocks = () => db
+    .prepare("SELECT COUNT(*) AS count FROM user_permission_overrides WHERE user_id = ? AND permission_id = 'settings.manage'")
+    .get(ownerId) as { count: number };
+
+  const noFactor = await selfLock();
+  assert.equal(noFactor.status, 428, 'the self-lockout is refused without the factor');
+  assert.equal(noFactor.body.code, 'self_privilege_change_requires_factor');
+  assert.equal(noFactor.body.requires, 'pin');
+  assert.equal(storedSelfLocks().count, 0, 'the refused self-lockout stored nothing');
+
+  const wrongFactor = await selfLock({ override_pin: '1111' });
+  assert.equal(wrongFactor.status, 403, 'a wrong owner PIN is rejected explicitly rather than re-prompted');
+  assert.equal(wrongFactor.body.code, 'self_privilege_change_factor_invalid');
+  assert.notEqual(wrongFactor.body.code, 'self_privilege_change_requires_factor', 'a wrong PIN is distinguishable from a missing one');
+  assert.equal(storedSelfLocks().count, 0, 'a wrong owner PIN stores nothing either');
+
+  const confirmed = await selfLock({ override_pin: OWNER_PIN });
+  assert.equal(confirmed.status, 200, 'the correct owner PIN confirms the self-lockout');
+  assert.equal(
+    confirmed.body.permissions.find((entry: any) => entry.permission_id === 'settings.manage').allowed,
+    false,
+    'the confirmed self-lockout is really applied to the actor',
+  );
+  assert.equal(storedSelfLocks().count, 1, 'the confirmed self-lockout is stored');
+  assert.equal(
+    (await request(app).get(`/api/authorization/users/${ownerId}`).set(secondOwner))
+      .body.permissions.find((entry: any) => entry.permission_id === 'settings.manage').allowed,
+    false,
+    'the actor really loses the capability on the next read',
+  );
+
+  const restored = await request(app)
+    .delete(`/api/authorization/users/${ownerId}/overrides`)
+    .set(secondOwner)
+    .send({ revision: confirmed.body.revision });
+  assert.equal(restored.status, 200, 'another owner can hand the capability back without presenting a factor');
+
+  // ── Clearing your own overrides is the same self-lockout ──────────────
+  // Deleting overrides revokes rather than grants whenever a role default
+  // denies what a user override allowed, so it has to carry the factor too.
+  // The role default is written directly here because the write path would
+  // refuse it, which is the point: a store can already hold that state.
+  resetPinRateLimitForTests();
+  db.prepare(`
+    INSERT INTO role_permission_overrides
+      (role, permission_id, effect, updated_by, created_at, updated_at)
+    VALUES ('owner', 'settings.manage', 'deny', ?, ?, ?)
+    ON CONFLICT (role, permission_id) DO UPDATE SET effect = 'deny'
+  `).run('authorization-owner-second', now(), now());
+  db.prepare(`
+    INSERT INTO user_permission_overrides
+      (user_id, permission_id, effect, updated_by, created_at, updated_at)
+    VALUES (?, 'settings.manage', 'allow', ?, ?, ?)
+  `).run(ownerId, 'authorization-owner-second', now(), now());
+  db.prepare(`
+    INSERT INTO user_permission_overrides
+      (user_id, permission_id, effect, updated_by, created_at, updated_at)
+    VALUES (?, 'settings.manage', 'allow', ?, ?, ?)
+    ON CONFLICT (user_id, permission_id) DO UPDATE SET effect = 'allow'
+  `).run(thirdOwnerId, 'authorization-owner-second', now(), now());
+  assert.equal(
+    (await request(app).get(`/api/authorization/users/${ownerId}`).set(owner))
+      .body.permissions.find((entry: any) => entry.permission_id === 'settings.manage').allowed,
+    true,
+    'precondition: the actor holds the capability only through a user override on a denied role default',
+  );
+
+  const selfClearRevision = (await request(app).get(`/api/authorization/users/${ownerId}`).set(owner)).body.revision;
+  const selfClearStillsStores = () => db
+    .prepare("SELECT COUNT(*) AS count FROM user_permission_overrides WHERE user_id = ? AND permission_id = 'settings.manage'")
+    .get(ownerId) as { count: number };
+  const selfClear = await request(app)
+    .delete(`/api/authorization/users/${ownerId}/overrides`)
+    .set(owner)
+    .send({ revision: selfClearRevision });
+  assert.equal(selfClear.status, 428, 'clearing your own overrides that would revoke a capability is refused without the factor');
+  assert.equal(selfClear.body.code, 'self_privilege_change_requires_factor');
+  assert.equal(selfClearStillsStores().count, 1, 'the refused clear left the override in place');
+
+  // ── An owner with no PIN cannot be told to supply one ─────────────────
+  // A demand for a factor the account does not have is the same class of bug
+  // as the stranded store: the answer has to be something the person can act
+  // on, not a prompt they can never satisfy. settings.manage is already denied
+  // at the role level by the scenario above, so this uses the other configurable
+  // administrative capability, which this owner still holds.
+  resetPinRateLimitForTests();
+  const pinlessOwner = seedUser(db, 'authorization-owner-pinless', 'owner');
+  const pinlessRevision = (await request(app).get('/api/authorization/users/authorization-owner-pinless').set(pinlessOwner)).body.revision;
+  const pinless = await request(app)
+    .put('/api/authorization/users/authorization-owner-pinless')
+    .set(pinlessOwner)
+    .send({ revision: pinlessRevision, overrides: [{ permission_id: 'staff.operational.manage', effect: 'deny' }] });
+  assert.equal(pinless.status, 409, 'an owner with no PIN set is not asked for one they cannot supply');
+  assert.equal(pinless.body.code, 'self_privilege_change_factor_unavailable');
+  assertIncludesOrThrow(
+    pinless.body.error,
+    'Set a PIN on your own account',
+    'the refusal names the action that resolves it',
+  );
+  assert.notEqual(pinless.status, 428, 'the missing-factor contract is not used for an account that has no factor to give');
+  assert.equal(
+    (db.prepare("SELECT COUNT(*) AS count FROM user_permission_overrides WHERE user_id = ?").get('authorization-owner-pinless') as { count: number }).count,
+    0,
+    'the pinless owner stored nothing',
+  );
+
+  // ── The factor guess is rate limited, with or without a PIN ───────────
+  resetPinRateLimitForTests();
+  const ownerStillLocked = async () => {
+    const revision = (await request(app).get(`/api/authorization/users/${ownerId}`).set(owner)).body.revision;
+    return request(app).put(`/api/authorization/users/${ownerId}`).set(owner).send({
+      revision,
+      overrides: [{ permission_id: 'settings.manage', effect: 'deny' }],
+    });
+  };
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    const res = await ownerStillLocked();
+    assert.equal(res.status, 428, `attempt ${attempt} with no PIN is the plain missing-factor refusal (got ${res.status})`);
+  }
+  const rateLimited = await ownerStillLocked();
+  assert.equal(rateLimited.status, 429, 'the sixth attempt in the window is rate limited even with no PIN at all');
+  assertIncludesOrThrow(rateLimited.body.error, 'Too many PIN attempts', 'the rate limit names itself');
+  const stillRateLimited = await request(app)
+    .put(`/api/authorization/users/${ownerId}`)
+    .set(owner)
+    .send({ revision: selfClearRevision, overrides: [{ permission_id: 'settings.manage', effect: 'deny' }], override_pin: OWNER_PIN });
+  assert.equal(stillRateLimited.status, 429, 'a correct owner PIN does not buy a way past the limiter');
+  assert.equal(storedSelfLocks().count, 1, 'no rate limited attempt stored anything');
+  resetPinRateLimitForTests();
+
+  console.log('Authorization management API tests passed');
+}
+
+main()
+  .finally(() => {
+    try { closeDatabase(); } catch { }
+    Module._load = originalLoad;
+    fs.rmSync(testDir, { recursive: true, force: true });
+  })
+  .catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });

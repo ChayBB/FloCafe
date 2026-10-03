@@ -10,15 +10,17 @@ import QRCode from 'qrcode';
 import { newGuestToken, qualifyGuestToken } from '../services/guest-tokens';
 import { clearPairingCode, isGuestRelayConnected, issuePairingCode, newRelaySecret, reloadGuestRelay } from '../services/guest-relay';
 import { getDatabase, getSettingValue, now, upsertSettings } from '../db';
-import { requireRole } from '../middleware/security';
-import { ROLE_ACCESS } from '../../shared/role-permissions';
+import { requirePermission } from '../services/authorization';
 import { asyncHandler } from '../middleware/async-handler';
 import { getLocalIP } from '../server-state';
 import { getGuestPort } from '../guest-server-state';
 
 const router = Router();
 
-router.use(requireRole(...ROLE_ACCESS.ownerManager));
+// Upstream moved route gates onto configurable permissions, and a static audit
+// test now rejects a fixed role gate anywhere in main/routes. Customer ordering
+// is a settings surface: it decides what the public internet sees of this shop.
+router.use(requirePermission('settings.manage'));
 
 /**
  * Customers reach the shop through the merchant's own public address when one is

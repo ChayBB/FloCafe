@@ -114,7 +114,7 @@ async function run(): Promise<void> {
   }), false);
   const printDocument = buildBillDocument({
     isReprint: false,
-    order: { orderNumber: '', createdAt: '', tableName: '', onlinePlatform: '', externalOrderId: '', items: [] },
+    order: { orderNumber: '', createdAt: '', tableName: '', onlinePlatform: '', externalOrderId: '', deliveryAddress: '', items: [] },
     bill: { billNumber: '', subtotal: 0, discountAmount: 0, taxAmount: 0, total: 0, taxComponents: [], payments: [], pointsEarned: 0, pointsRedeemed: 0, pointsBalance: null },
     business: { name: '', address: '', phone: '', taxRegistrationNumber: '', taxIdLabel: '', instagramHandle: '', footerNote: '', customerName: '', customerPhone: '', showName: true, showAddress: false, showPhone: false, showTaxId: 'never', showTaxBreakdown: false, showTableNumber: false, showCustomerName: false, showCustomerPhone: false },
   }, { columns: 42, languages: ['en'], baseDirection: 'ltr', locale: 'en-US', currency: 'USD', currencySymbol: '$', trimDecimals: false, resolveLabel: (conceptId) => conceptId });
@@ -125,7 +125,7 @@ async function run(): Promise<void> {
   const longInstruction = 'ASCII instruction content that must remain available to pixel wrapping 2';
   const sourceDocument = buildBillDocument({
     isReprint: false,
-    order: { orderNumber: '', createdAt: '', tableName: '', onlinePlatform: '', externalOrderId: '', items: [{ productName: 'فارسی محصول', quantity: 1, unitPrice: 1, total: 1, addons: [{ name: longAddon, price: 1, quantity: 1 }], specialInstructions: longInstruction }] },
+    order: { orderNumber: '', createdAt: '', tableName: '', onlinePlatform: '', externalOrderId: '', deliveryAddress: '', items: [{ productName: 'فارسی محصول', quantity: 1, unitPrice: 1, total: 1, addons: [{ name: longAddon, price: 1, quantity: 1 }], specialInstructions: longInstruction }] },
     bill: { billNumber: '', subtotal: 1, discountAmount: 0, taxAmount: 0, total: 1, taxComponents: [], payments: [], pointsEarned: 0, pointsRedeemed: 0, pointsBalance: null },
     business: { name: '', address: '', phone: '', taxRegistrationNumber: '', taxIdLabel: '', instagramHandle: '', footerNote: '', customerName: '', customerPhone: '', showName: true, showAddress: false, showPhone: false, showTaxId: 'never', showTaxBreakdown: false, showTableNumber: false, showCustomerName: false, showCustomerPhone: false },
   }, { columns: 42, languages: ['en'], baseDirection: 'ltr', locale: 'en-US', currency: 'USD', currencySymbol: '$', trimDecimals: false, resolveLabel: (conceptId) => conceptId });
@@ -157,7 +157,7 @@ async function run(): Promise<void> {
   assert.equal(sourceRequests.find((request) => request.text.includes(longInstruction))?.layout, undefined);
   const compactDocument = buildBillDocument({
     isReprint: true,
-    order: { orderNumber: '', createdAt: '', tableName: '', onlinePlatform: 'کافه', externalOrderId: 'K-7', items: [] },
+    order: { orderNumber: '', createdAt: '', tableName: '', onlinePlatform: 'کافه', externalOrderId: 'K-7', deliveryAddress: '', items: [] },
     bill: { billNumber: '', subtotal: 0, discountAmount: 0, taxAmount: 0, total: 0, taxComponents: [], payments: [], pointsEarned: 0, pointsRedeemed: 0, pointsBalance: null },
     business: { name: 'فروشگاه فارسی', address: 'آدرس فارسی', phone: '', taxRegistrationNumber: '', taxIdLabel: '', instagramHandle: '', footerNote: 'پیام فارسی', customerName: '', customerPhone: '', showName: true, showAddress: true, showPhone: false, showTaxId: 'never', showTaxBreakdown: false, showTableNumber: false, showCustomerName: false, showCustomerPhone: false },
   }, { columns: 42, languages: ['en'], baseDirection: 'ltr', locale: 'en-US', currency: 'USD', currencySymbol: '$', trimDecimals: false, resolveLabel: (conceptId) => conceptId });
@@ -268,35 +268,60 @@ async function run(): Promise<void> {
     },
   }, emptyClassicLines, caps, 'empty-classic-header', emptyClassicGroups);
   assert.equal(emptyClassicRequests.some((request) => request.text.includes('مورد')), true);
-  const compactPaymentDocument = {
+  const cashTenderPaymentDocument = {
     ...compactDocument,
     blocks: compactDocument.blocks.map((block) => block.kind === 'payments'
-      ? { ...block, lines: [{ method: 'cash', label: { conceptId: 'payment.cash', primary: 'مدفوع' }, amount: 12.34 }] }
+      ? {
+        ...block,
+        lines: [{
+          method: 'cash',
+          label: { conceptId: 'pos.methodCash', primary: 'مدفوع' },
+          amount: 12.34,
+          tendered: { label: { conceptId: 'receipt.cashReceived', primary: 'دریافتی' }, amount: 20 },
+          change: { label: { conceptId: 'pos.changeReturned', primary: 'بازگشتی' }, amount: 7.66 },
+        }],
+      }
       : block),
   };
-  const compactPaymentGroups: any[] = [];
-  const compactPaymentLines = renderBillDocumentToCompactLines(compactPaymentDocument, {
-    columns: 42,
-    language: 'en',
-    locale: 'en-US',
-    currencySymbol: '$',
-    currency: 'INR',
-    trimDecimals: false,
-    useUnicode: false,
-    arabicShaping: false,
-    cutMode: 'full',
-    capabilities: caps,
-    rasterGroups: compactPaymentGroups,
-  });
-  const compactPaymentRequests: any[] = [];
-  await renderUnsupportedRasterLines({
-    render: async (rasterRequest) => {
-      compactPaymentRequests.push(rasterRequest);
-      return { version: 1 as const, requestId: (rasterRequest as any).requestId, ok: true as const, unit: { ...unit, unitId: (rasterRequest as any).requestId } };
-    },
-  }, compactPaymentLines, caps, 'compact-payment-source', [compactPaymentGroups.find((group) => group.groupId === 'payments')]);
-  assert.equal(compactPaymentRequests.some((request) => request.text === 'مدفوع $12.34'), true);
-  assert.equal(compactPaymentRequests.some((request) => request.text.includes(':')), false);
+  for (const [renderer, render] of [
+    ['classic', renderBillDocumentToClassicLines],
+    ['compact', renderBillDocumentToCompactLines],
+  ] as const) {
+    const paymentGroups: any[] = [];
+    const paymentLines = render(cashTenderPaymentDocument, {
+      columns: 42,
+      language: 'en',
+      locale: 'en-US',
+      currencySymbol: '$',
+      currency: 'USD',
+      trimDecimals: false,
+      useUnicode: false,
+      arabicShaping: false,
+      cutMode: 'full',
+      capabilities: caps,
+      rasterGroups: paymentGroups,
+    } as any);
+    const paymentGroup = paymentGroups.find((group) => group.groupId === 'payments');
+    assert(paymentGroup, `${renderer} emits a payments raster group`);
+    assert.equal(paymentGroup.financial, true, `${renderer} marks the complete payment group financial`);
+    const paymentRequests: any[] = [];
+    await renderUnsupportedRasterLines({
+      render: async (rasterRequest) => {
+        paymentRequests.push(rasterRequest);
+        return {
+          version: 1 as const,
+          requestId: (rasterRequest as any).requestId,
+          ok: true as const,
+          unit: { ...unit, unitId: (rasterRequest as any).requestId, financial: true },
+        };
+      },
+    }, paymentLines, caps, `${renderer}-payment-source`, [paymentGroup]);
+    const paymentRequestText = JSON.stringify(paymentRequests.map((request) => request.text));
+    assert.equal(paymentRequests.some((request) => request.text === 'مدفوع $12.34'), true, paymentRequestText);
+    assert.equal(paymentRequests.some((request) => request.text === 'دریافتی $20.00'), true, paymentRequestText);
+    assert.equal(paymentRequests.some((request) => request.text === 'بازگشتی $7.66'), true, paymentRequestText);
+    assert.equal(paymentRequests.some((request) => request.text.includes(':')), false);
+  }
   const financialDocument = {
     ...compactDocument,
     blocks: compactDocument.blocks.map((block) => block.kind === 'totals'
@@ -996,6 +1021,56 @@ async function run(): Promise<void> {
   surface.webContents = webContents;
   surface.isDestroyed = () => false;
   surface.close = () => surface.emit('closed');
+  const originalRasterTimeout = process.env.RASTER_RENDER_TIMEOUT_MS;
+  const originalSetTimeout = globalThis.setTimeout;
+  const scheduledTimeouts: number[] = [];
+  const timeoutCases: Array<[string | undefined, number]> = [
+    [undefined, 15_000],
+    ['30000', 30_000],
+    ['2147483647', 2_147_483_647],
+    ['NaN', 15_000],
+    ['Infinity', 15_000],
+    ['2147483648', 15_000],
+    ['1.5', 15_000],
+    ['0', 15_000],
+    ['-1', 15_000],
+  ];
+  globalThis.setTimeout = ((callback: Parameters<typeof setTimeout>[0], delay?: number) => {
+    scheduledTimeouts.push(Number(delay));
+    return originalSetTimeout(callback, 60_000);
+  }) as typeof setTimeout;
+  try {
+    for (const [value, expectedTimeout] of timeoutCases) {
+      if (value === undefined) delete process.env.RASTER_RENDER_TIMEOUT_MS;
+      else process.env.RASTER_RENDER_TIMEOUT_MS = value;
+      const previousTimeoutCount = scheduledTimeouts.length;
+      const timeoutRenderer = new ChromiumRasterRenderer({
+        ipc: ipc as any,
+        windowFactory: () => surface as any,
+      });
+      try {
+        assert.equal(scheduledTimeouts[previousTimeoutCount], expectedTimeout);
+      } finally {
+        timeoutRenderer.destroy();
+      }
+    }
+    process.env.RASTER_RENDER_TIMEOUT_MS = '30000';
+    const previousTimeoutCount = scheduledTimeouts.length;
+    const overriddenTimeoutRenderer = new ChromiumRasterRenderer({
+      timeoutMs: 100,
+      ipc: ipc as any,
+      windowFactory: () => surface as any,
+    });
+    try {
+      assert.equal(scheduledTimeouts[previousTimeoutCount], 100);
+    } finally {
+      overriddenTimeoutRenderer.destroy();
+    }
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+    if (originalRasterTimeout === undefined) delete process.env.RASTER_RENDER_TIMEOUT_MS;
+    else process.env.RASTER_RENDER_TIMEOUT_MS = originalRasterTimeout;
+  }
   const renderer = new ChromiumRasterRenderer({
     timeoutMs: 100,
     ipc: ipc as any,
@@ -1056,11 +1131,18 @@ async function run(): Promise<void> {
   assert.equal(isRasterRenderResult({ version: 1, requestId: 'r1', ok: true }), false);
   assert.equal(isRasterRenderResult({ version: 1, requestId: 'r1', ok: false, code: 'render-failed', detail: 'failed' }), true);
 
-  // Verify raster HTML includes system CJK fallbacks
+  // Verify raster HTML includes system Thai and CJK fallbacks
   const html = rasterRendererHtml();
+  assert.ok(html.includes('Noto Sans Thai'));
+  assert.ok(html.includes('Leelawadee UI'));
+  assert.ok(html.includes('Thonburi'));
   assert.ok(html.includes('PingFang SC'));
   assert.ok(html.includes('Microsoft YaHei'));
   assert.ok(html.includes('Noto Sans CJK SC'));
+  assert.ok(html.includes('PingFang TC'));
+  assert.ok(html.includes('Microsoft JhengHei'));
+  assert.ok(html.includes('Noto Sans CJK TC'));
+  assert.ok(html.includes('Intl.Segmenter'));
 
   // Test shared raster renderer lifecycle and idle teardown
   destroySharedRasterRenderer();

@@ -4,13 +4,15 @@ import {
   dayBoundsInTimezone, getDatabase, getSettingValue, localDateInTimezone, parseDbTimestamp,
   tenantBusinessDayStartTime,
 } from '../db';
-import { requireRole } from '../middleware/security';
-import { ROLE_ACCESS } from '../../shared/role-permissions';
+import { requirePermission } from '../services/authorization';
+import { getHttpRequestSignal, trackHttpRequestWork } from '../shutdown';
+import * as whatsapp from '../services/whatsapp';
+import { parsePhoneE164 } from '../lib/phone';
 import { getOrdersWithItemsForBills } from './bills';
 import { aggregateTaxComponents } from '../services/tax-components';
 import { getTenantCurrency } from '../services/refund';
 import { getCurrencyMinorUnitFactor, resolveRegionalSnapshot } from '../countries';
-import { computeDayAggregates, paymentMethodBreakdown } from './cash-closures';
+import { computeDayAggregates, expectedCashFromAggregates, paymentMethodBreakdown } from './cash-closures';
 import { getCurrencyFractionDigits } from '../countries';
 import { buildDailySalesExportDataset } from '../services/daily-sales-export';
 import {
@@ -18,6 +20,14 @@ import {
   serializeDailySalesExportCsv,
   serializeDailySalesExportXlsx,
 } from '../services/daily-sales-export-files';
+import {
+  serializeXReportCsv,
+  serializeXReportXlsx,
+  serializeZReportCsv,
+  serializeZReportXlsx,
+  type XReportExport,
+  type ZReportExport,
+} from '../services/cash-close-export';
 
 const router = Router();
 
@@ -96,7 +106,7 @@ function pickExtreme(counts: number[], mode: 'max' | 'min', include: (count: num
   return best;
 }
 
-router.get('/daily-stats', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, res: Response) => {
+router.get('/daily-stats', requirePermission('reports.view'), (req: Request, res: Response) => {
   try {
     const db = getDatabase();
     const minorFactor = getCurrencyMinorUnitFactor(getTenantCurrency(db));
@@ -107,7 +117,7 @@ router.get('/daily-stats', requireRole(...ROLE_ACCESS.ownerManager), (req: Reque
         COALESCE((SELECT SUM(paid_amount) FROM bills WHERE paid_at >= ? AND paid_at < ?), 0)
         - COALESCE((SELECT SUM(CAST(amount_cents AS REAL)) / ? FROM refunds WHERE created_at >= ? AND created_at < ?), 0) AS sales
     `).get(start, end, minorFactor, start, end) as { sales: number };
-    const paymentMethodsToday = paymentMethodBreakdown(db, today) as { total: number }[];
+    const paymentMethodsToday = paymentMethodBreakdown(db, { startDate: today }) as { total: number }[];
 
     const runningOrders = db.prepare(`
       SELECT COUNT(*) as count FROM orders WHERE status IN ('pending', 'preparing')
@@ -155,7 +165,7 @@ router.get('/daily-stats', requireRole(...ROLE_ACCESS.ownerManager), (req: Reque
   }
 });
 
-router.get('/summary', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, res: Response) => {
+router.get('/summary', requirePermission('reports.view'), (req: Request, res: Response) => {
   try {
     const db = getDatabase();
     const minorFactor = getCurrencyMinorUnitFactor(getTenantCurrency(db));
@@ -175,7 +185,7 @@ router.get('/summary', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, 
         - COALESCE((SELECT SUM(CAST(amount_cents AS REAL)) / ? FROM refunds WHERE created_at >= ? AND created_at < ?), 0) as collected
       FROM bills WHERE created_at >= ? AND created_at < ?
     `).get(start, end, minorFactor, start, end, start, end) as { count: number; total: number; collected: number };
-    const paymentMethodsToday = paymentMethodBreakdown(db, date);
+    const paymentMethodsToday = paymentMethodBreakdown(db, { startDate: date });
 
     const customersToday = db.prepare(`
       SELECT COUNT(*) as count FROM customers WHERE created_at >= ? AND created_at < ?
@@ -201,7 +211,7 @@ router.get('/summary', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, 
   }
 });
 
-router.get('/financial-summary', requireRole(...ROLE_ACCESS.owner), (req: Request, res: Response) => {
+router.get('/financial-summary', requirePermission('reports.financial.view'), (req: Request, res: Response) => {
   try {
     const today = reportToday();
     const startDate = reportDate(req.query.start_date, today);
@@ -252,7 +262,7 @@ router.get('/financial-summary', requireRole(...ROLE_ACCESS.owner), (req: Reques
         billCount: Number(collections.bill_count || 0),
         refundCount: Number(refundTotals.refund_count || 0),
         averageOrderValue: collections.bill_count ? (grossCollected - refunded) / collections.bill_count : 0,
-        paymentMethods: paymentMethodBreakdown(db, startDate, endDate, true, true),
+        paymentMethods: paymentMethodBreakdown(db, { startDate, endDate, paidOnly: true, attributeRefundsToBillDate: true }),
         refunds,
       },
     });
@@ -265,7 +275,7 @@ router.get('/financial-summary', requireRole(...ROLE_ACCESS.owner), (req: Reques
 // Dynamic tax-component report for receipt/report consumers. Components are
 // derived item by item so mixed legacy + categorized bills cannot double-count
 // the categorized portion already present in the bill-level tax_breakdown.
-router.get('/tax-components', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, res: Response) => {
+router.get('/tax-components', requirePermission('reports.view'), (req: Request, res: Response) => {
   try {
     const db = getDatabase();
     const today = reportToday();
@@ -313,7 +323,7 @@ router.get('/tax-components', requireRole(...ROLE_ACCESS.ownerManager), (req: Re
   }
 });
 
-router.get('/sales', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, res: Response) => {
+router.get('/sales', requirePermission('reports.view'), (req: Request, res: Response) => {
   try {
     const db = getDatabase();
     const today = reportToday();
@@ -348,7 +358,7 @@ router.get('/sales', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, re
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([date, totals]) => ({ date, ...totals }));
 
-    const byPaymentMethod = paymentMethodBreakdown(db, startDate, endDate, true) as { method: string; count: number; total: number }[];
+    const byPaymentMethod = paymentMethodBreakdown(db, { startDate, endDate, paidOnly: true }) as { method: string; count: number; total: number }[];
 
     const byOrderType = db.prepare(`
       SELECT type, COUNT(*) as count, SUM(total) as total
@@ -381,7 +391,7 @@ router.get('/sales', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, re
  * entered" rather than "free", so an unpriced item is flagged instead of inflating
  * the margin.
  */
-router.get('/profit', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, res: Response) => {
+router.get('/profit', requirePermission('reports.financial.view'), (req: Request, res: Response) => {
   try {
     const today = reportToday();
     const startDate = reportDate(req.query.start_date, today);
@@ -453,7 +463,7 @@ router.get('/profit', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, r
   }
 });
 
-router.get('/topProducts', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, res: Response) => {
+router.get('/topProducts', requirePermission('reports.view'), (req: Request, res: Response) => {
   try {
     const db = getDatabase();
     const today = reportToday();
@@ -487,7 +497,7 @@ router.get('/topProducts', requireRole(...ROLE_ACCESS.ownerManager), (req: Reque
   }
 });
 
-router.get('/recentOrders', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, res: Response) => {
+router.get('/recentOrders', requirePermission('reports.view'), (req: Request, res: Response) => {
   try {
     const db = getDatabase();
     const requestedLimit = Number(req.query.limit);
@@ -561,7 +571,7 @@ router.get('/recentOrders', requireRole(...ROLE_ACCESS.ownerManager), (req: Requ
   }
 });
 
-router.get('/tables', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, res: Response) => {
+router.get('/tables', requirePermission('reports.view'), (req: Request, res: Response) => {
   try {
     const db = getDatabase();
     const [start, end] = reportDayBounds(reportToday());
@@ -601,7 +611,7 @@ router.get('/tables', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, r
 // AOV, top staff, top categories, busiest/idlest hour & day-of-week, and
 // average kitchen prep time, aggregated over a trailing window (default 30
 // days) so hour/day patterns reflect a consistent trend rather than one day.
-router.get('/insights', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, res: Response) => {
+router.get('/insights', requirePermission('reports.view'), (req: Request, res: Response) => {
   try {
     const db = getDatabase();
     const minorFactor = getCurrencyMinorUnitFactor(getTenantCurrency(db));
@@ -725,7 +735,7 @@ router.get('/insights', requireRole(...ROLE_ACCESS.ownerManager), (req: Request,
 //   opening_float_cents. Consumers must not compare them directly; X is the
 //   live drawer expectation, Z is the point-in-time snapshot that bakes in the
 //   float.
-router.get('/x-report', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, res: Response) => {
+router.get('/x-report', requirePermission('reports.view'), (req: Request, res: Response) => {
   try {
     const today = reportToday();
     const date = reportDate(req.query.date, today);
@@ -800,7 +810,7 @@ router.get('/x-report', requireRole(...ROLE_ACCESS.ownerManager), (req: Request,
 // Reads the immutable `cash_closures` row for the requested business date.
 // 404 with `{ alreadyClosed: false }` when no day-close row exists yet.
 // Same role gate as /x-report.
-router.get('/z-report', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, res: Response) => {
+router.get('/z-report', requirePermission('reports.view'), (req: Request, res: Response) => {
   try {
     const today = reportToday();
     const date = reportDate(req.query.date, today);
@@ -850,9 +860,168 @@ router.get('/z-report', requireRole(...ROLE_ACCESS.ownerManager), (req: Request,
   }
 });
 
+router.get('/x-report/export', requirePermission('reports.view'), async (req: Request, res: Response) => {
+  try {
+    const date = reportDate(req.query.date, reportToday());
+    const format = req.query.format === 'csv' ? 'csv' : req.query.format === 'xlsx' ? 'xlsx' : null;
+    if (!format) return res.status(400).json({ error: 'format must be xlsx or csv' });
+
+    const db = getDatabase();
+    const minorFactor = getCurrencyMinorUnitFactor(getTenantCurrency(db));
+    const [periodStart, periodEnd] = reportDayBounds(date);
+    const aggregates = computeDayAggregates(db, date);
+    const report: XReportExport = {
+      businessDate: date,
+      periodStart,
+      periodEnd,
+      grossSales: aggregates.grossCollectedCents / minorFactor,
+      refunds: aggregates.refundedCents / minorFactor,
+      netCollections: aggregates.netCollectedCents / minorFactor,
+      billCount: aggregates.billCount,
+      expectedCash: expectedCashFromAggregates(aggregates) / minorFactor,
+      openingFloat: aggregates.openingFloatCents / minorFactor,
+      payIn: aggregates.payInCents / minorFactor,
+      payOut: aggregates.payOutCents / minorFactor,
+      safeDrops: aggregates.safeDropCents / minorFactor,
+      paymentMethods: aggregates.paymentMethods.map((row) => ({
+        method: row.method,
+        count: row.count,
+        total: row.total_cents / minorFactor,
+      })),
+      staffSales: aggregates.staffSales.map((row) => ({
+        name: row.name,
+        role: row.role,
+        orderCount: row.orderCount,
+        revenue: row.revenue_cents / minorFactor,
+      })),
+    };
+    const filename = `x-report-${date}.${format}`;
+    if (format === 'xlsx') {
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      return res.send(await serializeXReportXlsx(report));
+    }
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    return res.send(serializeXReportCsv(report));
+  } catch (error: unknown) {
+    console.error('[API] X report export error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.get('/z-report/export', requirePermission('reports.view'), async (req: Request, res: Response) => {
+  try {
+    const date = reportDate(req.query.date, reportToday());
+    const format = req.query.format === 'csv' ? 'csv' : req.query.format === 'xlsx' ? 'xlsx' : null;
+    if (!format) return res.status(400).json({ error: 'format must be xlsx or csv' });
+
+    const db = getDatabase();
+    const row = db.prepare(
+      `SELECT * FROM cash_closures WHERE business_date = ? AND scope = 'day' LIMIT 1`
+    ).get(date) as any;
+    if (!row) return res.status(404).json({ error: 'Day not closed' });
+
+    const minorFactor = getCurrencyMinorUnitFactor(getTenantCurrency(db));
+    const userRow = db.prepare('SELECT name FROM users WHERE id = ?').get(row.closed_by) as { name: string } | undefined;
+    const report: ZReportExport = {
+      businessDate: row.business_date,
+      periodStart: row.period_start,
+      periodEnd: row.period_end,
+      grossSales: row.gross_collected_cents / minorFactor,
+      refunds: row.refunded_cents / minorFactor,
+      netCollections: row.net_collected_cents / minorFactor,
+      billCount: row.bill_count,
+      expectedCash: row.expected_cash_cents / minorFactor,
+      openingFloat: row.opening_float_cents / minorFactor,
+      payIn: row.pay_in_cents / minorFactor,
+      payOut: row.pay_out_cents / minorFactor,
+      safeDrops: row.safe_drop_cents / minorFactor,
+      paymentMethods: JSON.parse(row.payment_methods_json || '[]').map((payment: any) => ({
+        method: payment.method,
+        count: payment.count,
+        total: payment.total_cents / minorFactor,
+      })),
+      staffSales: JSON.parse(row.staff_sales_json || '[]').map((staff: any) => ({
+        name: staff.name,
+        role: staff.role,
+        orderCount: staff.orderCount,
+        revenue: staff.revenue_cents / minorFactor,
+      })),
+      zNumber: row.z_number,
+      closedAt: row.created_at,
+      closedBy: userRow?.name ?? row.closed_by,
+      notes: row.notes,
+      countedCash: row.counted_cash_cents / minorFactor,
+      cashVariance: row.variance_cents / minorFactor,
+    };
+    const filename = `z-report-Z${row.z_number}-${date}.${format}`;
+    if (format === 'xlsx') {
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      return res.send(await serializeZReportXlsx(report));
+    }
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    return res.send(serializeZReportCsv(report));
+  } catch (error: unknown) {
+    console.error('[API] Z report export error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+router.post(
+  '/cash-closes/:id/whatsapp',
+  requirePermission('reports.view'),
+  requirePermission('whatsapp.use'),
+  async (req: Request, res: Response) => {
+    const id = Number(req.params.id);
+    if (!Number.isSafeInteger(id) || id < 1) {
+      return res.status(400).json({ error: 'Invalid cash close id' });
+    }
+
+    const { phone_e164: phoneE164, body } = req.body ?? {};
+    if (typeof phoneE164 !== 'string' || !phoneE164) {
+      return res.status(400).json({ error: 'phone_e164 required', reason: 'phone_required' });
+    }
+    const parsedPhone = parsePhoneE164(phoneE164, getSettingValue('country') || '');
+    if (!parsedPhone) {
+      return res.status(400).json({ error: 'Valid phone_e164 required', reason: 'invalid_phone' });
+    }
+    if (typeof body !== 'string' || !body.trim() || body.length > 4096) {
+      return res.status(400).json({ error: 'body must be a non-empty string of at most 4096 characters', reason: 'invalid_body' });
+    }
+
+    const db = getDatabase();
+    const close = db.prepare(
+      "SELECT id FROM cash_closures WHERE id = ? AND scope = 'day'"
+    ).get(id);
+    if (!close) return res.status(404).json({ error: 'Cash close not found' });
+
+    const userId = (req as Request & { user?: { userId?: string } }).user?.userId ?? null;
+    const result = await trackHttpRequestWork(req, whatsapp.sendMessage({
+      phoneE164: parsedPhone.e164,
+      body,
+      billId: null,
+      customerId: null,
+      kind: 'z_report',
+      userId,
+      signal: getHttpRequestSignal(req),
+    }));
+    if (!result.ok) {
+      if (result.reason === 'not_connected') {
+        return res.json({ fallback: true, reason: 'not_connected' });
+      }
+      const status = result.reason === 'cooldown' || result.reason === 'rate_limited' ? 429 : 400;
+      return res.status(status).json({ error: result.error, reason: result.reason });
+    }
+    return res.json({ success: true, messageId: result.messageId });
+  },
+);
+
 // Owner-only daily sales export (xlsx workbook or summary/items CSV pair).
 // Accounting lives in buildDailySalesExportDataset; serializers only encode.
-router.get('/daily-sales/export', requireRole(...ROLE_ACCESS.owner), async (req: Request, res: Response) => {
+router.get('/daily-sales/export', requirePermission('reports.daily-sales.export'), async (req: Request, res: Response) => {
   try {
     const date = reportDate(req.query.date, reportToday());
     const format = req.query.format === 'csv' ? 'csv' : req.query.format === 'xlsx' ? 'xlsx' : null;

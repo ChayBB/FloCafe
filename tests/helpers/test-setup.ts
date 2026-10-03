@@ -25,6 +25,13 @@
  *
  * Usage:
  *   const { createApp, seed, api, cleanup, assert, assertEqual } = require('./helpers/test-setup');
+ *
+ * ASSERTION CONTRACT: `assert`/`assertEqual`/`assertIncludes`/`assertGreaterThan`
+ * only print and count; a suite that never reads getResults() would exit 0 with
+ * failing assertions. The `*OrThrow` variants report the same line and counters
+ * and then throw, so a suite that uses them cannot pass while red. Prefer them
+ * in new suites; the counting variants stay for the suites that aggregate
+ * failures through getResults().
  */
 
 const express = require('express');
@@ -85,6 +92,26 @@ function assertGreaterThan(actual: number, expected: number, message: string) {
   }
 }
 
+function assertOrThrow(condition: boolean, message: string) {
+  assert(condition, message);
+  if (!condition) throw new Error(message);
+}
+
+function assertEqualOrThrow(actual: any, expected: any, message: string) {
+  assertEqual(actual, expected, message);
+  if (actual !== expected) throw new Error(`${message} - expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+}
+
+function assertIncludesOrThrow(haystack: string, needle: string, message: string) {
+  assertIncludes(haystack, needle, message);
+  if (!haystack || !haystack.includes(needle)) throw new Error(`${message} - "${haystack}" does not contain "${needle}"`);
+}
+
+function assertGreaterThanOrThrow(actual: number, expected: number, message: string) {
+  assertGreaterThan(actual, expected, message);
+  if (!(actual > expected)) throw new Error(`${message} - expected > ${expected}, got ${actual}`);
+}
+
 function getResults() {
   return { passed, failed, total };
 }
@@ -107,7 +134,7 @@ function isNativeAbiMismatch(error: any): boolean {
 // ── Database Init ────────────────────────────────────────────────────────────
 
 // Production installs no longer seed a default country/currency/timezone
-// (docs/business-decisions.md, "Regional settings come from signup, never
+// (docs/reference/product-invariants.md, "Regional settings come from signup, never
 // from a fallback") — the signup wizard is the only source now. Most tests
 // call initTestDb() and seedOwnerUser() directly, bypassing that wizard, and
 // are not testing regional resolution at all; they just need a deterministic,
@@ -248,9 +275,11 @@ function seedProduct(db: any, id: string, categoryId: string, name: string, pric
   cb_percent?: number | null;
   track_inventory?: boolean;
   stock_quantity?: number;
-  sale_unit?: 'each' | 'kg' | 'g' | 'lb';
+  sale_unit?: 'each' | 'kg' | 'g' | 'lb' | 'ml' | 'cl' | 'l' | 'fl oz' | 'oz';
   allow_fractional_quantity?: boolean;
   weight_precision?: number;
+  inventory_product_id?: string | null;
+  inventory_deduction_quantity?: number;
 }) {
   // Most integration fixtures represent taxable menu products. Assign the
   // Fresh stores use the generic no-tax pack, so test products are
@@ -262,8 +291,9 @@ function seedProduct(db: any, id: string, categoryId: string, name: string, pric
     `INSERT OR IGNORE INTO products (
        id, category_id, name, price, tax_type, tax_category_id, tax_behavior,
        cb_percent, track_inventory, stock_quantity, sale_unit, allow_fractional_quantity,
-       weight_precision, is_active, sort_order, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       weight_precision, inventory_product_id, inventory_deduction_quantity,
+       is_active, sort_order, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id, categoryId, name, price,
     options?.tax_type || 'none',
@@ -275,6 +305,10 @@ function seedProduct(db: any, id: string, categoryId: string, name: string, pric
     options?.sale_unit || 'each',
     options?.allow_fractional_quantity ? 1 : 0,
     options?.weight_precision ?? 3,
+    options?.inventory_product_id || null,
+    options?.inventory_product_id
+      ? (options?.inventory_deduction_quantity ?? 1)
+      : null,
     1, 1, now(), now()
   );
 }
@@ -433,6 +467,10 @@ module.exports = {
   assertEqual,
   assertIncludes,
   assertGreaterThan,
+  assertOrThrow,
+  assertEqualOrThrow,
+  assertIncludesOrThrow,
+  assertGreaterThanOrThrow,
   getResults,
   resetCounters,
 

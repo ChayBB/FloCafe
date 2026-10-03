@@ -3,12 +3,12 @@ import ReceiptPrinterEncoder from '@point-of-sale/receipt-printer-encoder';
 import type { Bill, Tenant } from '@/lib/types';
 import { normalizeCurrencyToAscii, normalizeThermalText, padCurrencyPrefix } from './unicode';
 import { selectThermalCodePage, type ThermalPrinterCapabilities } from '@print/thermal-capabilities';
-import { columnsForReceiptPaperSize, fitThermalLine } from '@print/width';
+import { columnsForReceiptPaperSize, displayCellWidth, fitThermalLine, graphemeSegments, padToDisplayCells, truncateToDisplayCells } from '@print/width';
 import { getCountryByCode, getCurrencyFractionDigits, getCurrencySymbol, resolveTenantCurrency } from '@/lib/countries';
 import { formatDate } from './format-date';
 import { formatTaxComponentLabel, resolveTaxComponents } from './tax-components';
 import { parseDbTimestamp } from '@/lib/utils';
-import { safePrinterText as writeSafePrinterText, type PrintWarning } from './warnings';
+import { safePrinterText as writeSafePrinterText, wrapPrinterText, type PrintWarning } from './warnings';
 import { RECEIPT_BRANDING_NAME } from './branding';
 import {
   buildFrontendBillDocument,
@@ -27,13 +27,16 @@ import {
   type SemanticLabel,
   type TaxBreakdownBlock,
   type TotalsBlock,
+  paymentDisplayRows,
 } from '@print/document';
 import { layoutStyledUnit } from '@print/layout';
 import type { ResolvedPrintLanguages } from '@print/types';
 
 export interface ReceiptOptions {
-  /** 58 mm (42 chars) or 80 mm (48 chars). Default: 58 */
+  /** 58 mm (32 cols) or 80 mm (42 cols). Default: 58 */
   paperWidth?: 58 | 80;
+  /** Exact column count the configured printer declares; overrides `paperWidth`. */
+  columns?: number;
   /** Show a "Thank you" footer line. Default: true */
   showFooter?: boolean;
   /** Extra line of custom text printed below the footer. */
@@ -52,6 +55,13 @@ export interface ReceiptOptions {
   showCustomerName?: boolean;
   /** Show the customer phone when available. Default: true */
   showCustomerPhone?: boolean;
+  /**
+   * Whether to shorten the customer number to its last four digits. Default
+   * `true`, so a caller wanting the full number has to say so out loud.
+   */
+  maskCustomerPhone?: boolean;
+  /** Default on. Resolved by `shouldShowCustomerNumber`, the shared rule. */
+  deliveryShowCustomerPhoneAlways?: boolean;
   /** Show the table number when available. Default: true */
   showTableNumber?: boolean;
   /** If false (default), replace ₹/€/£/etc. with ASCII (Rs, EUR, GBP…). */
@@ -145,13 +155,19 @@ function printPoweredByFooter(enc: ReceiptPrinterEncoder, columns: number): void
     .align('left');
 }
 
-// Must match main/printers/profiles.ts generic-escpos-58/80 fontAColumns.
+// Paper-size fallback only. Callers that know the configured printer pass
+// `columns`; the number itself lives in `columnsForReceiptPaperSize`.
 const CHARS: Record<58 | 80, number> = { 58: columnsForReceiptPaperSize(58), 80: columnsForReceiptPaperSize(80) };
 
 /** Mask phone number for receipt display — shows only last 4 digits. */
 function maskPhoneOnReceipt(phone: string): string {
   if (!phone || phone.length < 4) return phone;
   return 'x'.repeat(phone.length - 4) + phone.slice(-4);
+}
+
+/** Masked unless a caller opts out, so existing receipt bytes do not move. */
+function resolveReceiptPhone(phone: string, maskCustomerPhone?: boolean): string {
+  return maskCustomerPhone === false ? phone : maskPhoneOnReceipt(phone);
 }
 
 // Document render environment (shared by classic + compact)
@@ -257,6 +273,7 @@ function buildReceiptEnvironment(
     showBusinessName: opts.showBusinessName,
     showCustomerName: opts.showCustomerName,
     showCustomerPhone: opts.showCustomerPhone,
+    deliveryShowCustomerPhoneAlways: opts.deliveryShowCustomerPhoneAlways,
     showTableNumber: opts.showTableNumber,
     isReprint: opts.isReprint,
     trimDecimals: opts.trimDecimals,
@@ -297,8 +314,8 @@ function resolveCol4Widths(
   let amountWidth = minimumAmountWidth;
 
   for (const row of rows) {
-    rateWidth = Math.max(rateWidth, formatAmount(row.unitPrice ?? 0, currency, locale, trimDecimals, fractionDigits).length);
-    amountWidth = Math.max(amountWidth, formatAmount(row.amount ?? 0, currency, locale, trimDecimals, fractionDigits).length);
+    rateWidth = Math.max(rateWidth, displayCellWidth(formatAmount(row.unitPrice ?? 0, currency, locale, trimDecimals, fractionDigits)));
+    amountWidth = Math.max(amountWidth, displayCellWidth(formatAmount(row.amount ?? 0, currency, locale, trimDecimals, fractionDigits)));
   }
 
   const valueBudget = cols - qtyWidth - 4;
@@ -313,10 +330,10 @@ function resolveCol4Widths(
 
 function col4Header(widths: Col4Widths, labels: { item: string; qty: string; rate: string; amount: string }): string {
   const [w0, w1, w2, w3] = widths;
-  const item = labels.item.padEnd(w0);
-  const qty = labels.qty.padStart(w1);
-  const rate = labels.rate.padStart(w2);
-  const amt = labels.amount.padStart(w3);
+  const item = padToDisplayCells(labels.item, w0);
+  const qty = padToDisplayCells(labels.qty, w1, 'right');
+  const rate = padToDisplayCells(labels.rate, w2, 'right');
+  const amt = padToDisplayCells(labels.amount, w3, 'right');
   return item + qty + rate + amt;
 }
 
@@ -339,10 +356,10 @@ function col4Rows(
   const amtStr = formatAmount(amount, currency, locale, trimDecimals, fractionDigits);
   const qtyStr = String(qty);
 
-  const useSeparateValueLines = normalizedName.length > nameWidth || nameWidth < 8 || qtyStr.length > qtyWidth || rateStr.length > rateWidth || amtStr.length > amountWidth;
+  const useSeparateValueLines = displayCellWidth(normalizedName) > nameWidth || nameWidth < 8 || displayCellWidth(qtyStr) > qtyWidth || displayCellWidth(rateStr) > rateWidth || displayCellWidth(amtStr) > amountWidth;
   if (useSeparateValueLines) {
-    const itemWidth = Math.max(1, colsForCol4(widths) - qtyStr.length - 1);
-    const itemLine = (truncateForLanguage(normalizedName, itemWidth, language, capabilities).trimEnd() + ' ' + qtyStr).padEnd(colsForCol4(widths));
+    const itemWidth = Math.max(1, colsForCol4(widths) - displayCellWidth(qtyStr) - 1);
+    const itemLine = padToDisplayCells((truncateForLanguage(normalizedName, itemWidth, language, capabilities).trimEnd() + ' ' + qtyStr), colsForCol4(widths));
     return [
       itemLine,
       ...fitLabeledValue('Rate', rateStr, colsForCol4(widths)),
@@ -350,9 +367,9 @@ function col4Rows(
     ];
   }
 
-  const nameColumn = truncateForLanguage(normalizedName, nameWidth, language, capabilities).padEnd(nameWidth);
-  const qtyColumn = qtyStr.padStart(qtyWidth);
-  return [nameColumn + qtyColumn + rateStr.padStart(rateWidth) + amtStr.padStart(amountWidth)];
+  const nameColumn = padToDisplayCells(truncateForLanguage(normalizedName, nameWidth, language, capabilities), nameWidth);
+  const qtyColumn = padToDisplayCells(qtyStr, qtyWidth, 'right');
+  return [nameColumn + qtyColumn + padToDisplayCells(rateStr, rateWidth, 'right') + padToDisplayCells(amtStr, amountWidth, 'right')];
 }
 
 function colsForCol4(widths: Col4Widths): number {
@@ -361,13 +378,22 @@ function colsForCol4(widths: Col4Widths): number {
 
 function fitLabeledValue(label: string, value: string, cols: number): string[] {
   const prefix = `${label}: `;
-  const valueWidth = Math.max(1, cols - prefix.length);
+  const valueWidth = Math.max(1, cols - displayCellWidth(prefix));
   const lines: string[] = [];
-  for (let offset = 0; offset < value.length; offset += valueWidth) {
-    const chunk = value.slice(offset, offset + valueWidth);
-    lines.push(offset === 0 ? prefix + chunk : chunk);
+  let current = '';
+  let currentWidth = 0;
+  for (const grapheme of graphemeSegments(value)) {
+    const graphemeWidth = displayCellWidth(grapheme);
+    if (current && currentWidth + graphemeWidth > valueWidth) {
+      lines.push((lines.length === 0 ? prefix : '') + current);
+      current = '';
+      currentWidth = 0;
+    }
+    current += grapheme;
+    currentWidth += graphemeWidth;
   }
-  return lines.length > 0 ? lines : [prefix];
+  if (current || lines.length === 0) lines.push((lines.length === 0 ? prefix : '') + current);
+  return lines;
 }
 
 // Classic template
@@ -383,7 +409,7 @@ export function buildClassicReceiptBytes(
     useUnicode = false,
     arabicShaping = false,
   } = opts;
-  const cols = CHARS[paperWidth];
+  const cols = opts.columns ?? CHARS[paperWidth];
   const currencyCode = resolveTenantCurrency(tenant.currency, tenant.country);
   const rawCurrency = getCurrencySymbol(currencyCode, getCountryByCode(tenant.country)?.locale);
   const currency = resolveEncoderCurrency(rawCurrency, currencyCode, useUnicode, opts.capabilities);
@@ -444,11 +470,21 @@ export function buildClassicReceiptBytes(
     safePrinterText(enc, meta.table.label.primary.replace('{name}', meta.table.name.text), warnings, false, arabicShaping, cols);
     enc.bold(false).newline();
   }
+  if (customer?.heading) {
+    enc.bold(true);
+    safePrinterText(enc, labelOf(customer.heading), warnings, false, arabicShaping, cols);
+    enc.bold(false).newline();
+  }
   if (customer?.name) {
     safePrinterText(enc, customer.name.text, warnings, false, arabicShaping, cols).newline();
   }
   if (customer?.phone) {
-    enc.text(maskPhoneOnReceipt(customer.phone.text)).newline();
+    enc.text(resolveReceiptPhone(customer.phone.text, opts?.maskCustomerPhone)).newline();
+  }
+  if (customer?.address) {
+    for (const row of wrapPrinterText(`${labelOf(customer.addressLabel)}: ${customer.address.text}`, cols)) {
+      safePrinterText(enc, row, warnings, false, arabicShaping, undefined, cols).newline();
+    }
   }
 
   if (meta) {
@@ -547,7 +583,9 @@ export function buildClassicReceiptBytes(
 
   // Payment methods
   for (const line of payments?.lines ?? []) {
-    safePrinterText(enc, padRow(paymentLabel(line.label), formatAmount(line.amount, currency, locale, opts.trimDecimals === true, fractionDigits), cols), warnings, false, arabicShaping, undefined, undefined, true).newline();
+    for (const row of paymentDisplayRows(line)) {
+      safePrinterText(enc, padRow(paymentLabel(row.label), formatAmount(row.amount, currency, locale, opts.trimDecimals === true, fractionDigits), cols), warnings, false, arabicShaping, undefined, undefined, true).newline();
+    }
   }
   if (totals?.pointsEarned || totals?.pointsBalance) {
     enc.rule({ style: 'single' });
@@ -620,7 +658,7 @@ export function buildCompactReceiptBytes(
     useUnicode = false,
     arabicShaping = false,
   } = opts;
-  const cols = CHARS[paperWidth];
+  const cols = opts.columns ?? CHARS[paperWidth];
   const currencyCode = resolveTenantCurrency(tenant.currency, tenant.country);
   const rawCurrency = getCurrencySymbol(currencyCode, getCountryByCode(tenant.country)?.locale);
   const currency = resolveEncoderCurrency(rawCurrency, currencyCode, useUnicode, opts.capabilities);
@@ -682,18 +720,26 @@ export function buildCompactReceiptBytes(
       safePrinterText(enc, meta.table.label.primary.replace('{name}', meta.table.name.text), warnings, false, arabicShaping, undefined, cols).newline();
     }
   }
+  if (customer?.heading) {
+    safePrinterText(enc, labelOf(customer.heading), warnings, false, arabicShaping, undefined, cols).newline();
+  }
   if (customer?.name) {
     safePrinterText(enc, `${printLabelResolver('print.customerShort', primaryLang)}: ${truncate(customer.name.text, cols - 6)}`, warnings, false, arabicShaping, undefined, cols).newline();
   }
   if (customer?.phone) {
-    safePrinterText(enc, `${printLabelResolver('print.numberShort', primaryLang)}: ${maskPhoneOnReceipt(customer.phone.text)}`, warnings, false, arabicShaping).newline();
+    safePrinterText(enc, `${printLabelResolver('print.numberShort', primaryLang)}: ${resolveReceiptPhone(customer.phone.text, opts?.maskCustomerPhone)}`, warnings, false, arabicShaping).newline();
+  }
+  if (customer?.address) {
+    for (const row of wrapPrinterText(`${labelOf(customer.addressLabel)}: ${customer.address.text}`, cols)) {
+      safePrinterText(enc, row, warnings, false, arabicShaping, undefined, cols).newline();
+    }
   }
 
   enc.rule({ style: 'single' });
 
   // Items — compact: one line per item with total, qty x rate below if qty > 1
   for (const row of items?.rows ?? []) {
-    const nameMax = cols - formatAmount(row.amount, currency, locale, trim, fractionDigits).length - 1;
+    const nameMax = cols - displayCellWidth(formatAmount(row.amount, currency, locale, trim, fractionDigits)) - 1;
     safePrinterText(
       enc,
       padRow(truncate(row.name.text, nameMax), formatAmount(row.amount, currency, locale, trim, fractionDigits), cols),
@@ -765,7 +811,9 @@ export function buildCompactReceiptBytes(
   }
 
   for (const line of payments?.lines ?? []) {
-    safePrinterText(enc, padRow(paymentLabel(line.label), formatAmount(line.amount, currency, locale, trim, fractionDigits), cols), warnings, false, arabicShaping, undefined, undefined, true).newline();
+    for (const row of paymentDisplayRows(line)) {
+      safePrinterText(enc, padRow(paymentLabel(row.label), formatAmount(row.amount, currency, locale, trim, fractionDigits), cols), warnings, false, arabicShaping, undefined, undefined, true).newline();
+    }
   }
 
   enc.newline().align('center');
@@ -808,7 +856,7 @@ export function buildDetailedReceiptBytes(
     isReprint = false,
     trimDecimals = false,
   } = opts;
-  const cols = CHARS[paperWidth];
+  const cols = opts.columns ?? CHARS[paperWidth];
   const primaryLang = opts.languages?.[0] ?? 'en';
   const safePrinterText = safePrinterTextForLanguage(primaryLang, useUnicode, opts.capabilities);
   const padRow = (left: string, right: string, _columns?: number): string => {
@@ -876,7 +924,7 @@ export function buildDetailedReceiptBytes(
     ).newline();
   }
   if (showCustomerPhone && order?.customer?.phone) {
-    safePrinterText(enc, `Customer No: ${maskPhoneOnReceipt(order.customer.phone)}`, warnings, false, arabicShaping).newline();
+    safePrinterText(enc, `Customer No: ${resolveReceiptPhone(order.customer.phone, opts.maskCustomerPhone)}`, warnings, false, arabicShaping).newline();
   }
   if (showTableNumber && order?.table?.name) {
     safePrinterText(enc, `Table: ${order.table.name}`, warnings, false, arabicShaping, undefined, cols).newline();
@@ -972,16 +1020,18 @@ export const buildReceiptBytes = buildClassicReceiptBytes;
 function padRowForLanguage(left: string, right: string, cols: number, language?: string, capabilities?: ThermalPrinterCapabilities): string {
   const normalizedLeft = normalizeThermalText(left, capabilities);
   const normalizedRight = normalizeThermalText(right, capabilities);
-  if (normalizedLeft.length + normalizedRight.length + 1 > cols) return `${normalizedLeft}\n${normalizedRight}`;
-  const gap = cols - normalizedLeft.length - normalizedRight.length;
+  const leftWidth = displayCellWidth(normalizedLeft);
+  const rightWidth = displayCellWidth(normalizedRight);
+  if (leftWidth + rightWidth + 1 > cols) return `${normalizedLeft}\n${normalizedRight}`;
+  const gap = cols - leftWidth - rightWidth;
   return gap > 0
     ? normalizedLeft + ' '.repeat(gap) + normalizedRight
-    : normalizedLeft.slice(0, Math.max(0, cols - normalizedRight.length - 1)) + ' ' + normalizedRight;
+    : truncateToDisplayCells(normalizedLeft, Math.max(0, cols - rightWidth - 1)) + ' ' + normalizedRight;
 }
 
 function truncateForLanguage(str: string, max: number, language?: string, capabilities?: ThermalPrinterCapabilities): string {
   const normalized = normalizeThermalText(str, capabilities);
-  return normalized.length > max ? normalized.slice(0, max - 1) + '\u2026' : normalized;
+  return displayCellWidth(normalized) > max ? truncateToDisplayCells(normalized, Math.max(1, max - 1)) + '\u2026' : normalized;
 }
 
 function formatAmount(value: number | string, currency: string, locale: string, trimDecimals: boolean = false, fractionDigits: number = 2): string {

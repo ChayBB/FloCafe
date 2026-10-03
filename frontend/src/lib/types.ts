@@ -1,5 +1,6 @@
 import type { Language } from '@/lib/i18n';
 import type { CurrencyDisplay, DigitMode, CalendarMode } from '@/lib/countries';
+import type { PermissionId } from '../../../shared/permissions';
 
 export interface User {
   id: number;
@@ -24,6 +25,8 @@ export interface Tenant {
   plan: string;
   status: string;
   role?: string;
+  permission_ids?: PermissionId[];
+  authorization_revision?: string;
   language?: Language;
   /** Raw backend-authoritative print policies included in auth bootstrap. */
   bill_language_policy?: string | null;
@@ -33,7 +36,7 @@ export interface Tenant {
   currency_display?: CurrencyDisplay;
   number_digits?: DigitMode;
   calendar?: CalendarMode;
-  // Regional snapshot fields (docs/regional-snapshot.md) — derived from
+  // Regional snapshot fields (docs/architecture/regional-settings.md) — derived from
   // country + currency by resolveRegionalSnapshot(), not independent state.
   currency_symbol?: string;
   currency_position?: 'prefix' | 'suffix';
@@ -52,6 +55,7 @@ export interface Category {
   is_active: boolean;
   color: string | null;
   icon: string | null;
+  addon_group_ids?: string[];
   children?: Category[];
   products?: Product[];
 }
@@ -73,9 +77,11 @@ export interface Product {
   name: string;
   sku: string | null;
   barcode: string | null;
-  sale_unit: 'each' | 'kg' | 'g' | 'lb';
+  sale_unit: 'each' | 'kg' | 'g' | 'lb' | 'ml' | 'cl' | 'l' | 'fl oz' | 'oz';
   allow_fractional_quantity: boolean;
   weight_precision: number;
+  inventory_product_id?: string | null;
+  inventory_deduction_quantity?: number | null;
   description: string | null;
   price: number;
   cost_price: number | null;
@@ -97,6 +103,7 @@ export interface Product {
   sort_order: number;
   category?: Category;
   addon_groups?: AddonGroup[];
+  addon_group_ids?: string[];
 }
 
 export interface AddonGroup {
@@ -136,7 +143,7 @@ export interface Table {
   activeOrder?: Order | null;
   current_order?: Order | null;
   seated_at?: string | null;
-  reservation_customer_id?: number | null;
+  reservation_customer_id?: string | null;
   reservation_customer_name?: string | null;
   reservation_customer_phone?: string | null;
 }
@@ -164,6 +171,8 @@ export interface Order {
   order_number: string;
   table_id: string | null;
   customer_id: number | string | null;
+  /** Address confirmed for this delivery; printed in full on the courier slip. */
+  delivery_address?: string | null;
   type: 'dine_in' | 'takeaway' | 'delivery' | 'online';
   status: 'pending' | 'preparing' | 'ready' | 'served' | 'completed' | 'cancelled';
   subtotal: number;
@@ -230,7 +239,7 @@ export interface Bill {
   paid_amount: number;
   balance: number;
   payment_status: 'unpaid' | 'partial' | 'paid' | 'refunded' | 'partially_refunded';
-  payment_details: { method: string; payment_method_id?: number; amount: number; timestamp: string }[] | null;
+  payment_details: { method: string; payment_method_id?: number; amount: number; timestamp: string; tendered_amount?: number; change_amount?: number }[] | null;
   split_group_id?: string | null;
   split_label?: string | null;
   tax_breakdown?: { title: string; rate: number; amount: number }[] | null;

@@ -9,7 +9,7 @@ import { ServerTablePicker, activeOrderOf } from '@/components/server-app/Server
 import { useServerReadyAlerts } from '@/hooks/useServerReadyAlerts';
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { parsePhone } from '@/lib/phone';
-import { useSyncServerLanguage } from '@/lib/i18n';
+import { getLanguageDirection, getLanguageLocale, useSyncServerLanguage } from '@/lib/i18n';
 import { useTranslations, type AppConfig } from 'use-intl';
 import { Ltr } from '@/components/layout/Ltr';
 import { toastApiError } from '@/lib/api-error';
@@ -17,6 +17,7 @@ import { formatCurrencyForTenant } from '@/lib/countries';
 import { nameToColor } from '@/lib/image-utils';
 import { parseDbTimestamp } from '@/lib/utils';
 import { createPaymentIdempotencyKey } from '@/lib/payment-idempotency';
+import { usePosSettingsStore } from '@/store/pos-settings';
 import { printerService } from '@/lib/printer/PrinterService';
 import { generateCartItemId } from '@/lib/cart-identity';
 import AddonModal from '@/components/pos/AddonModal';
@@ -80,6 +81,7 @@ function sendAttemptSignature(scopeId: string, draft: DraftLine[], customerName:
 export default function ServerStandalonePage() {
   // Syncs tenant language preference from /api/server-app/info.
   useSyncServerLanguage('/api/server-app/info');
+  const language = usePosSettingsStore((state) => state.language);
   const t = useTranslations('serverApp');
   const tAuth = useTranslations('auth');
   const tOrders = useTranslations('orders');
@@ -408,7 +410,13 @@ export default function ServerStandalonePage() {
         packagingCharge: t('orderSlipPackagingCharge'),
         tax: t('orderSlipTax'),
         total: t('orderSlipTotal'),
-      }, { paperWidth: 80, country: regional?.country, currency: regional?.currency });
+      }, {
+        paperWidth: 80,
+        country: regional?.country,
+        currency: regional?.currency,
+        locale: getLanguageLocale(language),
+        direction: getLanguageDirection(language),
+      });
       await printerService.printViaBrowser(html, 80);
     } catch (fallbackError: unknown) {
       toastApiError(fallbackError, t('billPrintFailed'), apiErrorT);

@@ -1,13 +1,13 @@
 # Customer QR ordering
 
-**Status: CURRENT**
+Status: **CURRENT**
 
 Customers scan a code on their table and order from their own phone. Orders go
 straight to the kitchen. Nobody signs in: the token in the QR is what identifies
 the table, and it authorises nothing else.
 
 The policy behind this — what a token may and may not do — is recorded in
-[business-decisions.md](business-decisions.md) under *Customers can order without
+[reference/product-invariants.md](reference/product-invariants.md) under *Customers can order without
 an account*. This file is the setup guide.
 
 ## Parts

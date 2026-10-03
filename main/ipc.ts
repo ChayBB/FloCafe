@@ -1,24 +1,23 @@
-import { ipcMain, dialog, app, BrowserWindow, shell } from 'electron';
-import { randomUUID } from 'node:crypto';
+import { ipcMain, dialog, app, BrowserWindow, Menu, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { getDatabase, createBackup, restoreBackup, now, getCurrentSchemaVersion, getSchemaVersionFromBackup, resetDatabaseWithBackup, withDatabaseMaintenanceLock, withDatabaseRequest, isManagedBackupFile } from './db';
 import { clearInMemoryRevokedTokens, clearUserAuthCache } from './middleware/security';
 import { getLocalIP } from './server';
-import { clearJWTSecretCache } from './routes/auth';
+import { clearJWTSecretCache } from './security/jwt-secret';
 import { getKdsPort } from './kds-server';
 import { authorizeMasterPin, isMasterPinAvailable, isMasterPinSet } from './services/master-pin';
+import { clearRestoreFileSelection, rememberRestoreFileSelection } from './services/restore-file-selection';
 import { runHealthCheck, applySafeFixes } from './services/schema-health';
 import { getStatus as getWhatsAppStatus, sanitizeLogText } from './services/whatsapp';
 import { createKdsWindow, applyWindowControlAction } from './window-options';
+import { isApplicationMenuSender, listApplicationMenuEntries, openApplicationMenuSubmenu } from './application-menu';
 import {
   isCurrentRendererFrame,
   markWindowRendererReady,
   registerRendererDocument,
 } from './window-readiness';
 import { isThemeMode, appendThemeQueryParam } from './title-bar-theme';
-import { getTenantCurrency } from './services/refund';
-import { getCurrencyMinorUnitFactor } from './countries';
 import { googleDrive } from './services/google-drive';
 import { rasterizeKotDocumentForWebUsb, rasterizePrintDocumentForWebUsb } from './printers/thermal';
 import { isKotDocument, isPrintDocument } from '../shared/print/document';
@@ -33,18 +32,10 @@ const LOG_TAIL_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 // Matches electron-log's default line prefix, e.g. "[2026-09-13 10:15:30.123] [info] ...".
 const LOG_LINE_TIMESTAMP_RE = /^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})/;
 
-// Settings keys the renderer is allowed to write via IPC.
-// Must stay in sync with routes/settings.ts ALLOWED_WILDCARD_KEYS.
+// Settings keys the renderer may write without a permission check.
+// Everything else (currency, country, tax_scheme, business profile, ...) is
+// permission-gated on the HTTP API and must stay there.
 const ALLOWED_IPC_KEYS = new Set([
-  'business_name', 'timezone', 'currency', 'country',
-  'state_code', 'business_address', 'business_phone',
-  'billing_type', 'bill_show_name', 'bill_show_address',
-  'bill_show_phone', 'bill_show_tax_id', 'bill_show_tax_breakdown',
-  'bill_show_customer_name', 'bill_show_customer_phone', 'bill_show_table_number',
-  'tax_scheme',
-  'loyalty_enabled',
-  'printer_method', 'paper_size', 'bill_template', 'bill_footer_message',
-  'telemetry_enabled',
   'theme_mode',
 ]);
 
@@ -90,15 +81,6 @@ export function isTrustedSender(event: Pick<Electron.IpcMainInvokeEvent, 'sender
 type MainWindowGetter = () => BrowserWindow | null;
 type IpcHandler<Args extends unknown[] = unknown[]> =
   (event: Electron.IpcMainInvokeEvent, ...args: Args) => unknown | Promise<unknown>;
-
-interface IpcPrinterInput {
-  id?: string;
-  name: string;
-  connection_type: 'network' | 'usb' | 'webusb';
-  ip_address?: string | null;
-  port?: number | null;
-  is_default?: boolean | number;
-}
 
 /** Preload origin check before Chromium has committed localhost URL. */
 function isEarlyMainWindowSender(
@@ -154,8 +136,22 @@ export function registerIpcHandlers(
       : { success: false, error: 'Invalid document nonce' };
   });
 
+  // Opens the native picker for "Restore from a file...". It only chooses a
+  // path; the restore itself is authorised over HTTP by the session that holds
+  // database.manage, so this handler performs no destructive step and is not
+  // Master-PIN gated. The picked path is bound to a single-use token.
+  handle('pick-restore-file', async () => {
+    const result = await dialog.showOpenDialog({
+      filters: [{ name: 'SQLite Database', extensions: ['db'] }],
+      properties: ['openFile'],
+    });
+    if (result.canceled || !result.filePaths.length) return { canceled: true };
+    const selection = rememberRestoreFileSelection(result.filePaths[0]);
+    return { canceled: false, path: selection.path, token: selection.token };
+  });
+
   // Database backup/restore
-  ipcMain.handle('backup-database', async (event, pin?: string) => {
+  handle('backup-database', async (event, pin?: string) => {
     const auth = authorizeMasterPin(pin, 'ipc:backup');
     if (!auth.ok) return { success: false, error: auth.error };
 
@@ -187,7 +183,8 @@ export function registerIpcHandlers(
     }
   });
 
-  ipcMain.handle('restore-backup', async (event, pin?: string, presetBackupPath?: string) => {
+  handle('restore-backup', async (event, pin?: string, presetBackupPath?: string) => {
+    clearRestoreFileSelection();
     const auth = authorizeMasterPin(pin, 'ipc:restore');
     if (!auth.ok) return { success: false, error: auth.error };
 
@@ -302,7 +299,9 @@ export function registerIpcHandlers(
     });
   });
 
-  handle('db-apply-safe-fixes', async (event, findingIds?: string[]) => {
+  handle('db-apply-safe-fixes', async (event, pin?: string, findingIds?: string[]) => {
+    const auth = authorizeMasterPin(pin, 'ipc:apply-safe-fixes');
+    if (!auth.ok) return { success: false, error: auth.error };
     return withDatabaseRequest(async () => {
     try {
       return applySafeFixes(findingIds);
@@ -316,7 +315,7 @@ export function registerIpcHandlers(
     return { available: isMasterPinAvailable(), isSet: isMasterPinSet() };
   });
 
-  ipcMain.handle('db-initialize', async (event, { pin, confirmationPhrase }: { pin?: string; confirmationPhrase?: string }) => {
+  handle('db-initialize', async (event, { pin, confirmationPhrase }: { pin?: string; confirmationPhrase?: string }) => {
     const auth = authorizeMasterPin(pin, 'ipc:initialize');
     if (!auth.ok) return { success: false, error: auth.error };
     if (confirmationPhrase !== 'INITIALIZE') {
@@ -344,6 +343,45 @@ export function registerIpcHandlers(
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win || win.isDestroyed()) return { error: 'Window unavailable' };
     return applyWindowControlAction(win, action);
+  });
+
+  // Application menu for the frameless Windows/Linux title bar. Electron does
+  // not draw a menu bar on a frameless window, so the renderer renders the
+  // top-level labels and main pops the matching submenu from the same Menu
+  // object createMenu() already applied (accelerators keep working). macOS
+  // keeps its authoritative native menu bar and has no title-bar menu.
+  handle('get-application-menu', () => {
+    if (process.platform === 'darwin') return { entries: [] };
+    const menu = Menu.getApplicationMenu() ?? null;
+    return { entries: menu ? listApplicationMenuEntries(menu.items) : [] };
+  });
+
+  handle('open-application-menu', (event, key: unknown, x: unknown, y: unknown) => {
+    if (process.platform === 'darwin') return { error: 'Application menu is native on macOS' };
+    // The popup is a privileged native surface on the main window, so bind it
+    // to that window's own current renderer frame. The trusted-sender check
+    // alone also admits the KDS window, which is served from localhost too.
+    let currentFrame: Electron.WebFrameMain | null = null;
+    try {
+      currentFrame = event.sender.mainFrame;
+    } catch {
+      return { error: 'Unauthorized sender' };
+    }
+    const mainWindow = getMainWindow?.() ?? null;
+    if (!isApplicationMenuSender(mainWindow, {
+      window: BrowserWindow.fromWebContents(event.sender),
+      currentFrame,
+      senderFrame: event.senderFrame,
+    })) {
+      return { error: 'Unauthorized sender' };
+    }
+    return openApplicationMenuSubmenu(
+      Menu.getApplicationMenu() ?? null,
+      key,
+      mainWindow,
+      x,
+      y,
+    );
   });
 
   handle('get-window-state', (event) => {
@@ -561,37 +599,6 @@ export function registerIpcHandlers(
     });
   });
 
-  handle('save-printer', async (event, printer: IpcPrinterInput) => {
-    return withDatabaseRequest(async () => {
-    try {
-      // Validate printer name — reject names with shell metacharacters (command injection defense)
-      const PRINTER_NAME_REGEX = /^[a-zA-Z0-9\s\-_.()]+$/;
-      if (printer.name && !PRINTER_NAME_REGEX.test(printer.name)) {
-        return { success: false, error: 'Printer name contains invalid characters' };
-      }
-      const db = getDatabase();
-      const port = printer.port === null ? null : (printer.port || 9100);
-      if (printer.id) {
-        db.prepare(`
-          UPDATE printers SET name = ?, connection_type = ?, ip_address = ?,
-            port = ?, is_default = ?, updated_at = ?
-          WHERE id = ?
-        `).run(printer.name, printer.connection_type, printer.ip_address ?? null,
-          port, printer.is_default ? 1 : 0, now(), printer.id);
-      } else {
-        db.prepare(`
-          INSERT INTO printers (id, name, connection_type, ip_address, port, is_default, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(randomUUID(), printer.name, printer.connection_type, printer.ip_address ?? null,
-          port, printer.is_default ? 1 : 0, now(), now());
-      }
-      return { success: true };
-    } catch (error: unknown) {
-      return { success: false, error: getErrorMessage(error) };
-    }
-    });
-  });
-
   handle('rasterize-print-document', async (_event, payload: unknown) => {
     if (!payload || typeof payload !== 'object') return { ok: false, error: 'Invalid raster document request' };
     const request = payload as {
@@ -655,43 +662,6 @@ export function registerIpcHandlers(
     } catch (error: unknown) {
       return { ok: false, error: getErrorMessage(error) };
     }
-  });
-
-  // Reports
-  handle('get-daily-summary', async () => {
-    return withDatabaseRequest(async () => {
-    try {
-      const db = getDatabase();
-      const today = new Date().toISOString().slice(0, 10);
-      const minorFactor = getCurrencyMinorUnitFactor(getTenantCurrency(db));
-
-      const bills = db.prepare(`
-        SELECT
-          (SELECT COUNT(*) FROM bills WHERE date(paid_at) = date(?)) as bill_count,
-          COALESCE((SELECT SUM(paid_amount) FROM bills WHERE date(paid_at) = date(?)), 0)
-          - COALESCE((SELECT SUM(CAST(amount_cents AS REAL)) / ? FROM refunds WHERE date(created_at) = date(?)), 0) as revenue
-      `).get(today, today, minorFactor, today) as { bill_count: number; revenue: number };
-
-      const covers = db.prepare(`
-        SELECT COALESCE(SUM(guest_count), 0) as covers FROM orders
-        WHERE date(created_at) = date(?) AND status != 'cancelled'
-      `).get(today) as { covers: number };
-
-      const pendingOrders = db.prepare(`
-        SELECT COUNT(*) as count FROM orders WHERE status IN ('pending', 'preparing')
-      `).get() as { count: number };
-
-      return {
-        date: today,
-        revenue: bills.revenue,
-        bill_count: bills.bill_count,
-        covers: covers.covers,
-        pending_orders: pendingOrders.count,
-      };
-    } catch (error: unknown) {
-      return { error: getErrorMessage(error) };
-    }
-    });
   });
 
   console.log('[IPC] Handlers registered');

@@ -438,12 +438,14 @@ async function runCatalogSaveBoundaryTests() {
     '@/hooks/useFormatCurrency': { useFormatCurrency: () => (amount: number) => String(amount) },
     'react-hot-toast': { __esModule: true, default: { success: () => undefined, error: () => undefined } },
     'use-intl': { useTranslations: (namespace: string) => translate(namespace) },
-    '@shared/role-permissions': { ROLE_ACCESS: { ownerManager: ['owner', 'manager'] }, hasRole: () => true },
+    '@shared/role-permissions': { ROLE_ACCESS: { ownerManager: ['owner', 'manager'] }, hasRole: () => true, isRole: () => true },
+    '@shared/permissions': { permissionDefaultAllows: () => true },
     'lucide-react': { Plus: Icon, Pencil: Icon, Trash2: Icon, X: Icon, Package: Icon, Folder: Icon, Puzzle: Icon, FileSpreadsheet: Icon, Download: Icon, Upload: Icon, CheckCircle: Icon, AlertCircle: Icon, AlertTriangle: Icon, ChevronDown: Icon, ChevronRight: Icon },
   };
   const originalLoad = moduleApi._load;
   const originalUseState = React.useState;
   const originalUseEffect = React.useEffect;
+  const originalUseRef = React.useRef;
   moduleApi._load = function (request: string, parent: any, isMain: boolean) {
     if (request in mocks) return mocks[request];
     return originalLoad.call(this, request, parent, isMain);
@@ -457,11 +459,11 @@ async function runCatalogSaveBoundaryTests() {
       React.useState = ((initial: unknown) => {
         stateCall += 1;
         if (stateCall === 1) return [activeTab, () => undefined];
-        if (stateCall === 7) return [false, () => undefined];
-        if (stateCall === 8) return [activeTab === 'products', () => undefined];
-        if (stateCall === 14) return [activeTab === 'addons', () => undefined];
-        if (stateCall === 15) return [[{ name: 'Extra Sauce', price: 1.5 }], () => undefined];
-        if (stateCall === 16) return [{
+        if (stateCall === 9) return [false, () => undefined];
+        if (stateCall === 10) return [activeTab === 'products', () => undefined];
+        if (stateCall === 16) return [activeTab === 'addons', () => undefined];
+        if (stateCall === 17) return [[{ name: 'Extra Sauce', price: 1.5 }], () => undefined];
+        if (stateCall === 18) return [{
           name: 'Coffee', category_id: '', price: '1.5', cost_price: '2.5', cb_percent: '', sku: '', barcode: '',
           sale_unit: 'each', allow_fractional_quantity: false, weight_precision: '3', tax_category_id: '',
           tax_behavior: 'country_default', description: '', track_inventory: false, stock_quantity: '0',
@@ -469,6 +471,7 @@ async function runCatalogSaveBoundaryTests() {
         }, () => undefined];
         return [initial, () => undefined];
       }) as typeof React.useState;
+      React.useRef = ((initial: unknown) => ({ current: initial })) as typeof React.useRef;
       return ProductsPage();
     };
     const productTree = renderProductsPage('products');
@@ -519,6 +522,7 @@ async function runCatalogSaveBoundaryTests() {
   } finally {
     React.useState = originalUseState;
     React.useEffect = originalUseEffect;
+    React.useRef = originalUseRef;
     moduleApi._load = originalLoad;
   }
   console.log('  ✓ Product and add-on save handlers verified');

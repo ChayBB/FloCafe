@@ -458,21 +458,26 @@ export default function FloorplanEditor({ mode, canManage = false, tables, order
     }
   };
 
+  const canOpenActionSheet = (tb: Table) => canManage || (tb.status === 'occupied' && !!onViewOrder);
+  const openActionSheet = (tb: Table) => {
+    if (canOpenActionSheet(tb)) setActionTable(tb);
+  };
+
   const onChipKeyDown = (tb: Table, fromTray: boolean) => (e: React.KeyboardEvent<HTMLElement>) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
-      if (fromTray) {
+      if (!edit) {
+        openActionSheet(tb);
+      } else if (fromTray) {
         const canvas = canvasRef.current;
-        if (canvas && edit) {
+        if (canvas) {
           clamp(tb.id, 50, 50, 0, 0);
           requestAnimationFrame(() => {
             canvas.querySelector<HTMLElement>(`[data-testid="floorplan-chip-${CSS.escape(tb.name)}"]`)?.focus();
           });
         }
-      } else if (edit) {
-        openEdit(tb);
       } else {
-        setActionTable(tb);
+        openEdit(tb);
       }
       return;
     }
@@ -704,17 +709,17 @@ export default function FloorplanEditor({ mode, canManage = false, tables, order
 
   const sheetActionsFor = (tb: Table) => {
     const actions: Array<{ label: string; icon: React.ReactNode; run: () => void }> = [];
-    if (tb.status === 'available') {
-      actions.push({ label: t('reserveTable'), icon: <Users size={15} />, run: () => { setActionTable(null); onReserve?.(tb); } });
-      actions.push({ label: t('markCleaning'), icon: <Sparkles size={15} />, run: () => setTableStatus(tb, 'cleaning') });
-    }
     if (tb.status === 'occupied' && onViewOrder) {
       actions.push({ label: t('viewOrder'), icon: <Eye size={15} />, run: () => { setActionTable(null); onViewOrder(); } });
     }
-    if (tb.status !== 'available' && tb.status !== 'occupied') {
-      actions.push({ label: t('markAvailable'), icon: <Table2 size={15} />, run: () => setTableStatus(tb, 'available') });
-    }
     if (canManage) {
+      if (tb.status === 'available') {
+        actions.push({ label: t('reserveTable'), icon: <Users size={15} />, run: () => { setActionTable(null); onReserve?.(tb); } });
+        actions.push({ label: t('markCleaning'), icon: <Sparkles size={15} />, run: () => setTableStatus(tb, 'cleaning') });
+      }
+      if (tb.status !== 'available' && tb.status !== 'occupied') {
+        actions.push({ label: t('markAvailable'), icon: <Table2 size={15} />, run: () => setTableStatus(tb, 'available') });
+      }
       actions.push({ label: t('editTable'), icon: <Pencil size={15} />, run: () => { setActionTable(null); openEdit(tb); } });
       if (posOf(tb) !== null) {
         actions.push({
@@ -733,25 +738,26 @@ export default function FloorplanEditor({ mode, canManage = false, tables, order
   const renderChip = (tb: Table) => {
     const p = posOf(tb)!;
     const dragging = dragId === tb.id;
+    const interactive = edit || canOpenActionSheet(tb);
     return (
       <div
         key={tb.id}
-        role="button"
-        tabIndex={0}
+        role={interactive ? 'button' : undefined}
+        tabIndex={interactive ? 0 : undefined}
         data-testid={`floorplan-chip-${tb.name}`}
         aria-label={`${tb.name} — ${t(TABLE_STATUS_LABEL_KEYS[tb.status])}. ${t('floorplanAriaHint')}`}
-        aria-keyshortcuts="Enter ArrowUp ArrowDown ArrowLeft ArrowRight"
-        title={t('floorplanEditHint')}
+        aria-keyshortcuts={interactive ? 'Enter ArrowUp ArrowDown ArrowLeft ArrowRight' : undefined}
+        title={interactive ? t('floorplanEditHint') : undefined}
         onPointerDown={startDrag(tb)}
         onPointerMove={onDragMove}
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
-        onKeyDown={onChipKeyDown(tb, false)}
-        onClick={!edit ? () => setActionTable(tb) : undefined}
+        onKeyDown={interactive ? onChipKeyDown(tb, false) : undefined}
+        onClick={!edit && interactive ? () => openActionSheet(tb) : undefined}
         className={`absolute -translate-x-1/2 -translate-y-1/2 select-none touch-none rounded-2xl p-[9px] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
           edit
             ? `cursor-grab ${dragging ? 'z-20 scale-110 cursor-grabbing shadow-2xl' : 'transition-transform hover:scale-[1.03]'}`
-            : 'cursor-pointer'
+            : interactive ? 'cursor-pointer' : 'cursor-default'
         } ${!tb.is_active ? 'opacity-50' : ''}`}
         style={{ left: `${p.x}%`, top: `${p.y}%` }}
       >
@@ -1105,21 +1111,21 @@ export default function FloorplanEditor({ mode, canManage = false, tables, order
               {unplaced.map((tb) => (
                 <div
                   key={tb.id}
-                  role="button"
-                  tabIndex={0}
+                  role={edit || canOpenActionSheet(tb) ? 'button' : undefined}
+                  tabIndex={edit || canOpenActionSheet(tb) ? 0 : undefined}
                   data-testid={`floorplan-tray-${tb.name}`}
                   aria-label={`${tb.name} — ${t('floorplanUnplaced')}. ${t('floorplanAriaHint')}`}
-                  aria-keyshortcuts="Enter"
-                  title={t('floorplanEditHint')}
+                  aria-keyshortcuts={edit || canOpenActionSheet(tb) ? 'Enter' : undefined}
+                  title={edit || canOpenActionSheet(tb) ? t('floorplanEditHint') : undefined}
                   onPointerDown={startDrag(tb, true)}
                   onPointerMove={onDragMove}
                   onPointerUp={endDrag}
                   onPointerCancel={endDrag}
-                  onClick={!edit ? () => setActionTable(tb) : undefined}
-                  onKeyDown={onChipKeyDown(tb, true)}
+                  onClick={!edit && canOpenActionSheet(tb) ? () => openActionSheet(tb) : undefined}
+                  onKeyDown={edit || canOpenActionSheet(tb) ? onChipKeyDown(tb, true) : undefined}
                   className={`flex select-none items-center gap-2.5 rounded-xl border-2 bg-card px-3 py-2 shadow-sm transition-shadow hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
                     statusRing[tb.status]
-                  } ${edit ? 'cursor-grab touch-none' : 'cursor-pointer'} ${dragId === tb.id ? 'opacity-40' : ''}`}
+                  } ${edit ? 'cursor-grab touch-none' : canOpenActionSheet(tb) ? 'cursor-pointer' : 'cursor-default'} ${dragId === tb.id ? 'opacity-40' : ''}`}
                 >
                   <span className={`h-7 w-7 rounded-lg border-2 ${statusRing[tb.status]} ${tb.capacity <= 2 ? 'rounded-full' : ''}`} />
                   <span className="text-sm font-bold text-foreground">

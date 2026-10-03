@@ -12,6 +12,7 @@ import { ArrowLeft, ArrowRight, Check, Cloud, Database, KeyRound, Search, Sparkl
 import toast from 'react-hot-toast';
 import { COUNTRIES, getCountryByCode, getLocalizedCountryName, countryMatchesQuery, sortCountriesByLocalizedName, type Country } from '@/lib/countries';
 import { TimeZoneSelect } from '@/components/TimeZoneSelect';
+import { CurrencySelect } from '@/components/CurrencySelect';
 import { useLocale, useTranslations, type AppConfig } from 'use-intl';
 import { LANGUAGES, getBrowserLanguage, type Language } from '@/lib/i18n';
 
@@ -81,11 +82,12 @@ export default function SetupPage() {
   // Wizard language follows shared store to update translations immediately.
   const language = usePosSettingsStore((s) => s.language);
   const setStoreLanguage = usePosSettingsStore((s) => s.setLanguage);
-  const [browserLanguage] = useState<Language>(() => getBrowserLanguage());
+  const [browserLanguage, setBrowserLanguage] = useState<Language>('en');
   // No default country: regional settings come only from what the owner
-  // selects here (docs/business-decisions.md, "Regional settings come from
+  // selects here (docs/reference/product-invariants.md, "Regional settings come from
   // signup, never from a fallback").
   const [country, setCountry] = useState<string>('');
+  const [currency, setCurrency] = useState<string>('');
   const [countryQuery, setCountryQuery] = useState<string>('');
   // The country profile timezone is only a suggested default, set once a
   // country is chosen below; the owner can override it for multi-timezone countries.
@@ -96,6 +98,7 @@ export default function SetupPage() {
     password: '',
     confirmPassword: '',
     business_name: '',
+    instagram_handle: '',
   });
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [productUpdates, setProductUpdates] = useState(false);
@@ -127,14 +130,31 @@ export default function SetupPage() {
   };
   const passwordMeetsRequirements = form.password.length === 0 || isPasswordValid(form.password);
   const t = useTranslations('setup');
+  const tSettings = useTranslations('settings');
   const locale = useLocale();
+  const [mounted, setMounted] = useState(false);
+
+  // Country labels are generated from CLDR data, which can differ between the server
+  // and the browser even within the same locale. Keep the first paint deterministic
+  // and only switch to the locale-specific names after hydration.
+  const resolvedCountryLocale = mounted ? locale : 'en';
 
   useEffect(() => {
-    let mounted = true;
+    const frame = window.requestAnimationFrame(() => {
+      setMounted(true);
+      setBrowserLanguage(getBrowserLanguage());
+    });
+    let mountedFlag = true;
     api.get('/auth/setup/status')
       .then(({ data }) => {
-        if (!mounted) return;
+        if (!mountedFlag) return;
         setMasterPinAvailable(!!data.masterPinAvailable);
+        if (data.currencyReset) {
+          setCountry(String(data.currencyReset.country || ''));
+          setCurrency(String(data.currencyReset.currency || ''));
+          setTimezone(String(data.currencyReset.timezone || ''));
+          setProfile('empty');
+        }
         // Redirect to login if setup was already completed.
         if (!data.needsSetup) {
           toast.error(t('alreadyCompleted'));
@@ -142,11 +162,14 @@ export default function SetupPage() {
         }
       })
       .catch((err: unknown) => {
-        if (!mounted) return;
+        if (!mountedFlag) return;
         console.warn('[Setup] Failed to check setup status:', err);
         setMasterPinAvailable(false);
       });
-    return () => { mounted = false; };
+    return () => {
+      mountedFlag = false;
+      window.cancelAnimationFrame(frame);
+    };
     // One-time mount check — the toast uses the initial language selection.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -155,8 +178,8 @@ export default function SetupPage() {
   const languageOptions: Language[] = SELECTABLE_LANGUAGES.includes(browserLanguage)
     ? [browserLanguage, ...SELECTABLE_LANGUAGES.filter((l) => l !== browserLanguage)]
     : SELECTABLE_LANGUAGES;
-  const filteredCountries = sortCountriesByLocalizedName(COUNTRIES, locale)
-    .filter((c) => countryMatchesQuery(c, countryQuery, locale));
+  const filteredCountries = sortCountriesByLocalizedName(COUNTRIES, resolvedCountryLocale)
+    .filter((c) => countryMatchesQuery(c, countryQuery, resolvedCountryLocale));
 
   const completeSetup = () => {
     usePosSettingsStore.getState().setLanguage(language);
@@ -243,7 +266,7 @@ export default function SetupPage() {
       const countryCode = countryProfile?.code || country;
       const countryPayload = {
         country: countryCode,
-        currency: countryProfile?.currency,
+        currency: currency || countryProfile?.currency,
         timezone,
         language,
       };
@@ -254,6 +277,7 @@ export default function SetupPage() {
         password: form.password,
         business_type: 'restaurant',
         business_name: form.business_name || undefined,
+        instagram_handle: form.instagram_handle.trim() || undefined,
         setup_profile: profile,
         service_model: serviceModel,
         terms_accepted: termsAccepted,
@@ -355,6 +379,9 @@ export default function SetupPage() {
                         onClick={() => {
                           const previousCountry = getCountryByCode(country);
                           setCountry(c.code);
+                          if (!currency || currency === previousCountry?.currency) {
+                            setCurrency(c.currency);
+                          }
                           // Update default timezone when switching countries unless user has manually customized it.
                           if (!previousCountry || timezone === previousCountry.timezone) {
                             setTimezone(c.timezone || timezone);
@@ -365,7 +392,9 @@ export default function SetupPage() {
                         }`}
                       >
                         <div>
-                          <div className="font-semibold">{getLocalizedCountryName(c.code, locale)}</div>
+                          <div className="font-semibold">
+                            {getLocalizedCountryName(c.code, resolvedCountryLocale)}
+                          </div>
                           <div className="text-xs text-muted-foreground">
                             {c.currency} · {c.taxIdLabel || t('noTaxId')} · {c.locale}
                           </div>
@@ -378,6 +407,24 @@ export default function SetupPage() {
                     <p className="text-center text-gray-500 py-6 text-sm">{t('noMatches', { query: countryQuery })}</p>
                   )}
                 </div>
+
+                {selectedCountry ? (
+                  <div className="space-y-2">
+                    <Label htmlFor="setup-currency">{tSettings('currency')}</Label>
+                    <CurrencySelect
+                      id="setup-currency"
+                      value={currency}
+                      recommendedCurrency={selectedCountry.currency}
+                      locale={locale}
+                      onChange={setCurrency}
+                      recommendedLabel={tSettings('currencyRecommended')}
+                      popularLabel={tSettings('currencyPopular')}
+                      allLabel={tSettings('currencyAll')}
+                      className="h-10 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
+                    />
+                    <p className="text-xs text-muted-foreground">{tSettings('currencySelectionHint')}</p>
+                  </div>
+                ) : null}
 
                 <div className="space-y-2">
                   <Label htmlFor="setup-timezone">{t('timezoneLabel')}</Label>
@@ -675,6 +722,18 @@ export default function SetupPage() {
                       onChange={(e) => setForm({ ...form, business_name: e.target.value })}
                       placeholder={t('businessNamePlaceholder')}
                     />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="instagram_handle">{tSettings('instagramHandle')}</Label>
+                    <Input
+                      id="instagram_handle"
+                      value={form.instagram_handle}
+                      onChange={(e) => setForm({ ...form, instagram_handle: e.target.value })}
+                      placeholder="@yourstore"
+                      dir="ltr"
+                      maxLength={100}
+                    />
+                    <p className="text-xs text-muted-foreground">{tSettings('instagramHandleHint')}</p>
                   </div>
 
                   <label className="flex items-start gap-2 text-sm text-muted-foreground">

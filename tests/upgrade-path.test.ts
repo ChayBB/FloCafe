@@ -131,6 +131,10 @@ function main() {
   const latestSchemaVersion = ideal.pragma('user_version', { simple: true }) as number;
   assert.equal(getCurrentSchemaVersion(), latestSchemaVersion,
     'migrated old install reaches the same schema version as a fresh install');
+  const tableColumns = db.prepare('PRAGMA table_info(tables)').all().map((column: any) => column.name);
+  assert.ok(tableColumns.includes('reservation_customer_id'), 'reservation customer association exists after upgrading an old install');
+  assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = 'clear_table_reservation_customer_on_status_change'").get(),
+    'reservation customer cleanup trigger exists after upgrading an old install');
   ideal.close();
   assert.equal(
     (db.prepare("SELECT value FROM settings WHERE key = 'split_checks_enabled'").get() as { value: string }).value,
@@ -138,6 +142,11 @@ function main() {
     'existing stores receive the opt-in split-check default during upgrade',
   );
   console.log('   ✓ existing stores receive split checks disabled by default');
+  assert.equal(
+    (db.prepare("SELECT value FROM settings WHERE key = 'require_kitchen_delivered_before_settlement'").get() as { value: string }).value,
+    'false',
+    'existing stores receive kitchen delivery enforcement disabled by default during upgrade',
+  );
   // #447: migration v72 upgrades the persisted value to the structured
   // selection identity; the bare string keeps resolving during transition.
   assert.deepEqual(
@@ -281,6 +290,11 @@ function main() {
   assert.equal(report.findings.length, 0,
     `a migrated old install should match a fresh install's schema exactly, found: ${JSON.stringify(report.findings)}`);
   console.log('   ✓ runHealthCheck() reports zero drift between the migrated old install and a fresh install');
+  for (const table of ['cash_drawer_movements', 'refunds'] as const) {
+    const columns = db.prepare(`PRAGMA table_info(${table})`).all().map((column: any) => column.name);
+    assert.ok(columns.includes('cash_session_id'), `${table}.cash_session_id exists after upgrading an old install`);
+  }
+  console.log('   ✓ cash ownership columns exist after upgrading an old install');
 
   // ── The columns must actually be usable, not just present ───────────────
   const customerId = db.prepare(`SELECT id FROM customers LIMIT 1`).get() as { id: string } | undefined;

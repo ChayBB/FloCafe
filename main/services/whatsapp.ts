@@ -122,7 +122,7 @@ interface QueuedSend {
   body: string;
   billId: number | null;
   customerId: number | null;
-  kind: 'bill_receipt' | 'manual_reply' | 'auto_followup';
+  kind: 'bill_receipt' | 'manual_reply' | 'auto_followup' | 'z_report';
   userId: string | null;
   signal?: AbortSignal;
 }
@@ -286,7 +286,11 @@ function cancelInFlightWhatsAppWork(): void {
 async function waitForWhatsAppWork(): Promise<void> {
   const drain = (async () => {
     while (inFlightWhatsAppWork.size > 0) {
-      await Promise.allSettled([...inFlightWhatsAppWork]);
+      // Keys, not entries: the key is the in-flight operation. Spreading the Map
+      // yields [operation, cancel] entry arrays, which allSettled treats as
+      // non-thenable, so the loop would spin on microtasks and starve the timer
+      // that bounds this drain.
+      await Promise.allSettled([...inFlightWhatsAppWork.keys()]);
     }
   })();
   void drain.catch(() => {});
@@ -841,6 +845,12 @@ function queueCredentialWrite(socket: BaileysSocket, saveCreds: (...values: unkn
 }
 
 function startSocket(requestSignal?: AbortSignal): Promise<void> {
+  // Test processes never need a live WhatsApp session. Dialing out only adds
+  // third-party latency and a reconnect loop to an otherwise deterministic run.
+  if (process.env.FLO_WHATSAPP_SOCKET_DISABLED === '1') {
+    logWhatsApp('info', 'socket_start_skipped', { reason: 'externally_disabled' });
+    return Promise.resolve();
+  }
   const previousStart = whatsappStartPromise;
   if (previousStart && !whatsappStartController?.signal.aborted) {
     logWhatsApp('info', 'socket_start_deduplicated', { attemptId: whatsappStartAttempt });
@@ -1227,7 +1237,7 @@ export interface SentMessageRow {
   bill_id: number | null;
   customer_id: number | null;
   direction: 'inbound' | 'outbound';
-  kind: 'bill_receipt' | 'manual_reply' | 'auto_followup';
+  kind: 'bill_receipt' | 'manual_reply' | 'auto_followup' | 'z_report';
   status: string;
   body: string;
   error: string | null;
@@ -1248,6 +1258,7 @@ export function listMessages(opts: {
   billId?: number;
   limit: number;
   offset: number;
+  canViewReports: boolean;
 }): SentMessageRow[] {
   const where: string[] = [];
   const params: any[] = [];
@@ -1255,6 +1266,7 @@ export function listMessages(opts: {
   if (opts.status) { where.push('status = ?'); params.push(opts.status); }
   if (opts.phone) { where.push('phone_e164 = ?'); params.push(opts.phone); }
   if (opts.billId) { where.push('bill_id = ?'); params.push(opts.billId); }
+  if (!opts.canViewReports) where.push("kind != 'z_report'");
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
   params.push(opts.limit, opts.offset);
   return getDatabase().prepare(`

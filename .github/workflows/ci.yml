@@ -15,6 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
+  actions: read # required-checks-gate reads this workflow's runs to name the push that superseded it
   contents: read
   pull-requests: read
 
@@ -42,6 +43,7 @@ jobs:
       kds: ${{ steps.filter.outputs.kds }}
       db: ${{ steps.filter.outputs.db }}
       uninstaller: ${{ steps.filter.outputs.uninstaller }}
+      docs: ${{ steps.filter.outputs.docs }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
@@ -53,6 +55,7 @@ jobs:
             kds: ['main/kds-server.ts', 'main/services/kds.ts', 'main/routes/kds.ts', 'tests/kds-*.test.ts']
             db: ['main/db.ts', 'main/migrations/**', 'tests/fixtures/upgrade-snapshots/**', 'tests/upgrade-path.test.ts']
             uninstaller: ['scripts/uninstallers/**', 'tests/windows-uninstaller.Tests.ps1', 'tests/run-windows-uninstaller-tests.cjs', 'package.json', 'package-lock.json', '.github/workflows/ci.yml']
+            docs: ['docs/**', '*.md', 'DOCUMENTATION.md', '.markdownlint-cli2.jsonc', 'scripts/docs/**', 'frontend/**/*.md', '.github/pull_request_template.md']
 
   # 3. Tax Safety Net
   # This deliberately runs independently of path filtering so every push to
@@ -324,25 +327,118 @@ jobs:
       - name: Run Windows uninstaller Pester tests
         run: node tests/run-windows-uninstaller-tests.cjs
 
-  # 7. Required Checks Gate
+  # 7. Documentation Checks
+  # Structural checks (Markdown lint, relative links, index completeness) gate.
+  # The policy half is a ratchet: it reports development-process material and
+  # only warns until the corpus is clean.
+  docs-checks:
+    name: Documentation Checks
+    needs: changes
+    if: ${{ needs.changes.outputs.docs == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint Markdown and validate relative links and index
+        run: npm run docs:check:structure
+
+      - name: Report documentation policy findings
+        run: npm run docs:check:policy
+
+  # 8. Required Checks Gate
   # Always report a conclusion so path-filtered skips can satisfy the ruleset's
-  # required check without hiding actual job failures.
+  # required check without hiding actual job failures. A newer push cancels the
+  # in-flight run of an older push on the same ref, so this gate also sees
+  # `cancelled` results for work that was never broken. That is reported as
+  # supersession, by name, rather than as a job failure - the conclusion is
+  # unchanged and still fails, because the cancelled push never reported its
+  # required checks.
   required-checks-gate:
     name: Required Checks Gate
     needs: [changes, linux-baseline, e2e-playwright, windows-uninstaller]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 2
+    env:
+      GH_TOKEN: ${{ github.token }}
+      # The ref whose runs compete with this one under `concurrency`: the
+      # pull request's source branch, or the pushed branch for a push event.
+      CONCURRENCY_BRANCH: ${{ github.head_ref || github.ref_name }}
     steps:
       - name: Verify no required job actually failed
         run: |
-          if [ "${{ needs.changes.result }}" != "success" ]; then
-            echo "::error::Path Filtering did not succeed (status: ${{ needs.changes.result }}); its dependents' skipped status cannot be trusted."
-            exit 1
+          # `changes` must actually succeed: its dependents reporting
+          # "skipped" is only trustworthy when it did.
+          offenders=""
+          changes_result="${{ needs.changes.result }}"
+          if [ "$changes_result" != "success" ]; then
+            offenders="$changes_result"
           fi
           for result in "${{ needs.linux-baseline.result }}" "${{ needs.e2e-playwright.result }}" "${{ needs.windows-uninstaller.result }}"; do
             if [ "$result" != "success" ] && [ "$result" != "skipped" ]; then
-              echo "::error::A required job did not succeed (status: $result)."
-              exit 1
+              offenders="$offenders $result"
             fi
           done
+          if [ -z "$offenders" ]; then
+            exit 0
+          fi
+
+          # Only a newer push on the same ref explains a whole run of
+          # cancellations, so it is the one case worth naming. Any actual
+          # failure in the run keeps the ordinary failure report.
+          cancelled_only=true
+          for result in $offenders; do
+            if [ "$result" != "cancelled" ]; then
+              cancelled_only=false
+            fi
+          done
+          runs_json="$RUNNER_TEMP/required-checks-runs.json"
+          if [ "$cancelled_only" = true ] \
+            && gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=$CONCURRENCY_BRANCH&per_page=20" > "$runs_json"; then
+            # The newest run on this ref other than this one is the push that
+            # superseded it. A re-run of an older run is not: its run number is
+            # lower, and a re-run of this run keeps the same id.
+            newer_push="$(node - "$runs_json" "$GITHUB_RUN_ID" "$GITHUB_RUN_NUMBER" "$CONCURRENCY_BRANCH" <<'NODE'
+          const fs = require('node:fs');
+          const [, , file, runId, runNumber, branch] = process.argv;
+          let payload = {};
+          try {
+            payload = JSON.parse(fs.readFileSync(file, 'utf8'));
+          } catch {
+            process.exit(0);
+          }
+          const newer = (payload.workflow_runs || [])
+            .filter((run) => run.head_branch === branch && String(run.id) !== runId && run.run_number > Number(runNumber))
+            .sort((a, b) => b.run_number - a.run_number)[0];
+          if (newer) console.log(`${newer.head_sha} ${newer.html_url}`);
+          NODE
+          )"
+            if [ -n "$newer_push" ]; then
+              echo "::notice::Superseded: a newer push to $CONCURRENCY_BRANCH (${newer_push%% *}) cancelled this run's required checks mid-flight, so nothing here failed."
+              echo "::error::This push was superseded by a newer push and never reported its required checks, so the gate still fails. Read the newer run instead: ${newer_push#* }"
+              exit 1
+            fi
+          fi
+
+          # Report the blocking status, exactly as before. `changes` leads
+          # because its dependents' "skipped" status is only trustworthy when
+          # it succeeded.
+          if [ "$changes_result" != "success" ]; then
+            echo "::error::Path Filtering did not succeed (status: $changes_result); its dependents' skipped status cannot be trusted."
+            exit 1
+          fi
+          for result in $offenders; do
+            echo "::error::A required job did not succeed (status: $result)."
+            break
+          done
+          exit 1

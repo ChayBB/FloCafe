@@ -1,5 +1,5 @@
 /**
- * Contract tests for resolveRegionalSnapshot() (docs/regional-snapshot.md).
+ * Contract tests for resolveRegionalSnapshot() (docs/architecture/regional-settings.md).
  * Pure module — no Electron/DB dependency, matches currency.test.ts style.
  */
 import { test } from 'node:test';
@@ -31,6 +31,8 @@ test('COP/0: es-CO prefix, dot group, comma decimal, zero fraction digits', () =
   // data, not a contract this resolver makes (the project floats on Node 22).
   const parts = new Intl.NumberFormat(snap.locale, {
     style: 'currency', currency: snap.currency, currencyDisplay: 'narrowSymbol',
+    minimumFractionDigits: snap.currencyFractionDigits,
+    maximumFractionDigits: snap.currencyFractionDigits,
   }).formatToParts(11000);
   const currencyIndex = parts.findIndex((p) => p.type === 'currency');
   const integerIndex = parts.findIndex((p) => p.type === 'integer');

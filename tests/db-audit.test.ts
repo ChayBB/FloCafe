@@ -161,6 +161,8 @@ for (const dbPath of targets) {
     { child: 'addons', childCol: 'addon_group_id', parent: 'addon_groups' },
     { child: 'addon_group_product', childCol: 'product_id', parent: 'products' },
     { child: 'addon_group_product', childCol: 'addon_group_id', parent: 'addon_groups' },
+    { child: 'category_addon_groups', childCol: 'category_id', parent: 'categories' },
+    { child: 'category_addon_groups', childCol: 'addon_group_id', parent: 'addon_groups' },
     { child: 'orders', childCol: 'table_id', parent: 'tables' },
     { child: 'orders', childCol: 'customer_id', parent: 'customers' },
     { child: 'orders', childCol: 'user_id', parent: 'users' },
@@ -251,9 +253,12 @@ for (const dbPath of targets) {
   }
 
   if (tableExists('bills')) {
+    const serviceChargeTerm = columns('bills').includes('service_charge')
+      ? ' + COALESCE(service_charge,0)'
+      : '';
     const badTotals = count(`
       SELECT COUNT(*) FROM bills
-      WHERE ABS(COALESCE(total,0) - (COALESCE(subtotal,0) + COALESCE(tax_amount,0) + COALESCE(packaging_charge,0) + COALESCE(delivery_charge,0) - COALESCE(discount_amount,0) + COALESCE(round_off,0))) > 0.02
+      WHERE ABS(COALESCE(total,0) - (COALESCE(subtotal,0) + COALESCE(tax_amount,0) + COALESCE(packaging_charge,0) + COALESCE(delivery_charge,0)${serviceChargeTerm} - COALESCE(discount_amount,0) + COALESCE(round_off,0))) > 0.02
     `);
     if (badTotals > 0) warn(badTotals + ' bills where total ≠ subtotal+tax+charges-discount+round_off');
     else ok('bill totals match component sums');

@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { E2E_BASE_URL as BASE, E2E_KDS_BASE_URL } from './helpers/urls';
-import { injectElectronFixture, readFixtureActions } from './helpers/electron-fixture';
+import { injectElectronFixture, readFixtureActions, readOpenedMenuEntries } from './helpers/electron-fixture';
 
 /**
  * Platform test-matrix rows for the custom title-bar work (Refs #457/#462)
@@ -14,7 +14,7 @@ import { injectElectronFixture, readFixtureActions } from './helpers/electron-fi
  *    desktop capability flag offsets it below the 40px title bar (row 5).
  *
  * These rows run in plain Chromium against the static export; the Electron
- * presentation rows live in docs/title-bar-platform-matrix.md with their own
+ * presentation rows live in docs/architecture/desktop-build.md with their own
  * evidence (unit suites + runtime probes). A single login per test keeps the
  * shared e2e server's login rate limit (10 POSTs / 15 min) safe.
  */
@@ -50,6 +50,7 @@ test('browser/LAN has zero title-bar markup and unchanged layout at md+ viewport
       expect(await page.evaluate(() => Boolean(window.electronAPI)), `${label}: capability absent`).toBe(false);
       await expect(page.getByTestId('desktop-title-bar'), label).toHaveCount(0);
       await expect(page.getByTestId('desktop-drag-surface'), label).toHaveCount(0);
+      await expect(page.getByTestId('desktop-application-menu'), label).toHaveCount(0);
       await expect(page.locator('.flo-title-bar'), label).toHaveCount(0);
       await expect(page.locator('.flo-title-bar__fallback-controls'), label).toHaveCount(0);
       await expect(page.locator('html'), `${label}: no desktop CSS flag`).not.toHaveAttribute(
@@ -189,8 +190,8 @@ test('browser Electron fixture exposes the complete renderer API and explicit in
     'dbHealthCheck',
     'dbInitialize',
     'getAppInfo',
+    'getApplicationMenu',
     'getBetaChannel',
-    'getDailySummary',
     'getKdsInfo',
     'getLogTail',
     'getMasterPinStatus',
@@ -200,14 +201,15 @@ test('browser Electron fixture exposes the complete renderer API and explicit in
     'getUpdateStatus',
     'onMenuAction',
     'onUpdateStatus',
+    'openApplicationMenu',
     'openKdsWindow',
     'openWhatsAppShare',
+    'pickRestoreFile',
     'platform',
     'rasterizeKotDocument',
     'rasterizePrintDocument',
     'restartAndInstall',
     'restoreBackup',
-    'savePrinter',
     'setBetaChannel',
     'setSetting',
     'setThemeEffective',
@@ -238,4 +240,135 @@ test('browser Electron fixture drives authenticated title-bar and fallback contr
 
   await page.locator('.flo-title-bar__fallback-button').first().click();
   await expect.poll(() => readFixtureActions(page)).toContain('minimize');
+});
+
+test('browser Electron fixture restores the Windows title-bar application menu', async ({ page }) => {
+  await injectElectronFixture(page, { platform: 'win32', focused: true });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`${BASE}/auth/login`);
+  await page.locator('#email').fill('owner@flo.local');
+  await page.locator('#password').fill('E2ePass123!');
+  await page.locator('button[type="submit"]').click();
+  await page.waitForURL(/\/pos/, { timeout: 20000 });
+
+  const menu = page.getByTestId('desktop-application-menu');
+  await expect(menu).toBeVisible();
+  await expect(menu.locator('button')).toHaveText([
+    'File', 'Edit', 'Orders', 'Reports', 'Settings', 'Window', 'Help', 'Developer',
+  ]);
+
+  // A click reports the entry key and the label's bottom-edge viewport
+  // position. Electron anchors the popup's top-left at that content-bounds-
+  // relative point, so anchoring on the bottom edge drops the submenu below the
+  // label instead of drawing it over the label.
+  const fileButton = menu.getByRole('menuitem', { name: 'File' });
+  const fileBox = await fileButton.boundingBox();
+  await fileButton.click();
+  await expect.poll(async () => (await readOpenedMenuEntries(page)).map((entry) => entry.key)).toEqual(['0']);
+  const [opened] = await readOpenedMenuEntries(page);
+  expect(opened.x).toBeCloseTo(fileBox!.x, 0);
+  expect(opened.y).toBeCloseTo(fileBox!.y + fileBox!.height, 0);
+  expect(Number.isInteger(opened.x), 'popup x coordinate is integer').toBe(true);
+  expect(Number.isInteger(opened.y), 'popup y coordinate is integer').toBe(true);
+
+  // Clicking Edit opens with integer coordinates (guards against Windows float coordinate regression)
+  const editButton = menu.getByRole('menuitem', { name: 'Edit' });
+  await editButton.click();
+  await expect.poll(async () => (await readOpenedMenuEntries(page)).map((entry) => entry.key)).toEqual(['0', '1']);
+  const [, editOpened] = await readOpenedMenuEntries(page);
+  expect(Number.isInteger(editOpened.x), 'Edit popup x coordinate is integer').toBe(true);
+  expect(Number.isInteger(editOpened.y), 'Edit popup y coordinate is integer').toBe(true);
+
+  // The row lives inside the title bar's safe area, so the native caption
+  // buttons on the trailing edge stay clear of it.
+  expect(await menu.evaluate((element) => Boolean(element.closest('.flo-title-bar__safe-area')))).toBe(true);
+
+  // The bar itself is a drag region, so every restored label must land inside
+  // an existing no-drag region or it could not be clicked.
+  const regions = await menu.locator('button').evaluateAll((nodes) =>
+    nodes.map((node) => getComputedStyle(node).getPropertyValue('-webkit-app-region')),
+  );
+  expect(regions.length).toBe(8);
+  expect([...new Set(regions)], 'every menu label is a no-drag region').toEqual(['no-drag']);
+});
+
+test('Windows title-bar menu never overlaps the identity from the minimum window width up and adapts responsively', async ({ page }) => {
+  await injectElectronFixture(page, { platform: 'win32', focused: true });
+  // 1024 is the Electron minWidth, so the narrowest a real window can get is
+  // the tightest case for the menu row against the dead-centered identity.
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await page.goto(`${BASE}/auth/login`);
+  await page.locator('#email').fill('owner@flo.local');
+  await page.locator('#password').fill('E2ePass123!');
+  await page.locator('button[type="submit"]').click();
+  await page.waitForURL(/\/pos/, { timeout: 20000 });
+
+  const menu = page.getByTestId('desktop-application-menu');
+  const identity = page.locator('.flo-title-bar__identity');
+  await expect(menu).toBeVisible();
+  // Dead-center identity remains visible across all breakpoints
+  await expect(identity).toBeVisible();
+
+  // A hydrated long store name can widen the centered identity after the
+  // title-bar observer is mounted, so the menu must recalculate its width.
+  const visibleMenuItems = menu.locator('button:not([data-testid])');
+  const initialVisibleMenuItemCount = await visibleMenuItems.count();
+  await identity.evaluate((element) => {
+    (element as HTMLElement).style.inlineSize = '24rem';
+  });
+  await expect.poll(() => visibleMenuItems.count()).toBeLessThan(initialVisibleMenuItemCount);
+
+  const titleBar = page.getByTestId('desktop-title-bar');
+  const [titleBarBox, menuBox1024, identityBox1024] = await Promise.all([
+    titleBar.boundingBox(),
+    menu.boundingBox(),
+    identity.boundingBox(),
+  ]);
+  expect(
+    menuBox1024!.x + menuBox1024!.width,
+    'menu row ends before the centered identity starts at 1024px',
+  ).toBeLessThanOrEqual(identityBox1024!.x + 1);
+
+  expect(identityBox1024!.y, 'identity is not pushed up out of title bar').toBeGreaterThanOrEqual(titleBarBox!.y + 2);
+  expect(
+    identityBox1024!.y + identityBox1024!.height,
+    'identity is not pushed down out of title bar',
+  ).toBeLessThanOrEqual(titleBarBox!.y + titleBarBox!.height - 2);
+
+  // At this width the long identity requires overflow, which opens the hidden submenus.
+  const overflowBtn = page.getByTestId('desktop-application-menu-overflow');
+  await expect(overflowBtn).toBeVisible();
+  await overflowBtn.click();
+  await expect.poll(async () => (await readOpenedMenuEntries(page)).some((entry) => entry.key.startsWith('overflow:'))).toBe(true);
+
+  // At a very compact width (e.g. 360px), it collapses into the hamburger menu
+  await page.setViewportSize({ width: 360, height: 768 });
+  const hamburgerBtn = page.getByTestId('desktop-application-menu-hamburger');
+  await expect(hamburgerBtn).toBeVisible();
+  await hamburgerBtn.click();
+  await expect.poll(async () => (await readOpenedMenuEntries(page)).some((entry) => entry.key === 'hamburger')).toBe(true);
+
+  await identity.evaluate((element) => {
+    (element as HTMLElement).style.removeProperty('inline-size');
+  });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(identity).toBeVisible();
+  await expect(menu.locator('button')).toHaveCount(8);
+  const [menuBox, identityBox] = await Promise.all([menu.boundingBox(), identity.boundingBox()]);
+  expect(
+    menuBox!.x + menuBox!.width,
+    'menu row ends before the centered identity starts at 1440px',
+  ).toBeLessThanOrEqual(identityBox!.x + 1);
+});
+
+test('macOS keeps the native application menu and renders no title-bar menu row', async ({ page }) => {
+  await injectElectronFixture(page, { platform: 'darwin', focused: true });
+  await page.goto(`${BASE}/auth/login`);
+  await page.locator('#email').fill('owner@flo.local');
+  await page.locator('#password').fill('E2ePass123!');
+  await page.locator('button[type="submit"]').click();
+  await page.waitForURL(/\/pos/, { timeout: 20000 });
+
+  await expect(page.getByTestId('desktop-title-bar')).toBeVisible();
+  await expect(page.getByTestId('desktop-application-menu')).toHaveCount(0);
 });

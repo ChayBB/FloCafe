@@ -5,13 +5,13 @@ import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { useTranslations } from 'use-intl';
 import { MasterPinPrompt } from '@/components/settings/MasterPinPrompt';
+import { dispatchQuickSearchRequest } from '@/lib/quick-search';
 
 type PendingPinAction = 'backup' | 'restore' | null;
 
 export default function MenuActionHandler() {
   const tCommon = useTranslations('common');
   const tBackup = useTranslations('backup');
-  const tRestore = useTranslations('restore');
   const tSettings = useTranslations('settings');
   const router = useRouter();
   const [pendingPinAction, setPendingPinAction] = useState<PendingPinAction>(null);
@@ -37,47 +37,27 @@ export default function MenuActionHandler() {
     }
   }
 
-  async function runRestore(pin: string) {
-    if (!window.electronAPI?.restoreBackup) return { success: false, error: tCommon('notAvailable') };
-
-    try {
-      const result = await window.electronAPI.restoreBackup(pin);
-      if (result.success) {
-        toast.success(tRestore('success'));
-        setTimeout(() => window.location.reload(), 1500);
-      } else if (result.error !== 'Cancelled') {
-        toast.error(tRestore('failedWith', { error: tCommon('somethingWrong') }));
-      }
-      return result;
-    } catch {
-      const message = tCommon('somethingWrong');
-      toast.error(tRestore('failedWith', { error: message }));
-      return { success: false, error: message };
-    }
-  }
-
   async function handlePinSubmit(pin: string) {
-    const result = pendingPinAction === 'backup' ? await runBackup(pin) : await runRestore(pin);
+    const result = await runBackup(pin);
     if (result.success || result.error === 'Cancelled') {
       setPendingPinAction(null);
     }
     return result;
   }
 
-  async function beginPinGatedAction(action: 'backup' | 'restore') {
+  async function beginPinGatedAction(action: 'backup') {
     try {
       const status = await window.electronAPI?.getMasterPinStatus?.();
 
       if (!status || 'error' in status) {
         const message = tCommon('somethingWrong');
-        toast.error(action === 'backup' ? tBackup('failedWith', { error: message }) : tRestore('failedWith', { error: message }));
+        toast.error(tBackup('failedWith', { error: message }));
         return;
       }
 
       if (!status.available) {
         // No OS-backed encryption on this machine — the gate is inert, proceed directly.
-        if (action === 'backup') await runBackup('');
-        else await runRestore('');
+        await runBackup('');
         return;
       }
 
@@ -90,7 +70,7 @@ export default function MenuActionHandler() {
       setPendingPinAction(action);
     } catch {
       const message = tCommon('somethingWrong');
-      toast.error(action === 'backup' ? tBackup('failedWith', { error: message }) : tRestore('failedWith', { error: message }));
+      toast.error(tBackup('failedWith', { error: message }));
     }
   }
 
@@ -106,27 +86,63 @@ export default function MenuActionHandler() {
           break;
         case 'quick-search':
           router.push('/pos');
+          dispatchQuickSearchRequest();
           break;
         case 'view-orders':
+        case 'go-orders':
           router.push('/orders');
           break;
         case 'report-daily':
         case 'report-sales':
+          router.push('/dashboard');
+          break;
         case 'report-x':
+          router.push('/dashboard?action=cash-close&view=x-report');
+          break;
         case 'report-z':
-          router.push('/reports');
+          router.push('/dashboard?action=cash-close&view=z-report');
           break;
         case 'settings-business':
+          router.push('/settings?tab=general');
+          break;
         case 'settings-tax':
+          router.push('/settings?tab=tax');
+          break;
         case 'settings-printer':
+          router.push('/settings?tab=printers');
+          break;
         case 'settings-kitchen':
-          router.push('/settings');
+          router.push('/settings?tab=kds');
+          break;
+        case 'go-pos':
+          router.push('/pos');
+          break;
+        case 'go-dashboard':
+          router.push('/dashboard');
+          break;
+        case 'go-kds':
+          router.push('/kds');
+          break;
+        case 'go-tables':
+          router.push('/tables');
+          break;
+        case 'go-products':
+          router.push('/products');
+          break;
+        case 'go-inventory':
+          router.push('/inventory');
+          break;
+        case 'go-customers':
+          router.push('/customers');
+          break;
+        case 'go-staff':
+          router.push('/staff');
           break;
         case 'backup-database':
           beginPinGatedAction('backup');
           break;
-        case 'restore-backup':
-          beginPinGatedAction('restore');
+        case 'menu-restore-from-file':
+          router.push('/settings?tab=data&action=restore-from-file');
           break;
         case 'menu-db-health-check':
           router.push('/settings?tab=data&action=health-check');

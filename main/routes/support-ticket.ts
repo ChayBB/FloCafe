@@ -1,13 +1,13 @@
 import { Router, Request, Response } from 'express';
 import { randomUUID } from 'crypto';
 import * as os from 'os';
-import { requireRole, rateLimit } from '../middleware/security';
+import { rateLimit } from '../middleware/security';
+import { requirePermission } from '../services/authorization';
 import { asyncHandler } from '../middleware/async-handler';
 import { cloudSync } from '../services/cloud-sync';
 import { getDatabase } from '../db';
 import { getHttpRequestSignal } from '../shutdown';
 import { normalizeOptionalPhone } from '../lib/phone';
-import { ROLE_ACCESS } from '../../shared/role-permissions';
 
 const router = Router();
 
@@ -63,11 +63,14 @@ function resolveProfile(req: Request) {
   return isAuthenticatedRequest(req) ? supportProfile(req) : BLANK_PROFILE;
 }
 
-function resolveCategory(value: unknown): string {
+/** Shared with the diagnostics screen so both surfaces classify a category identically. */
+export function resolveCategory(value: unknown): string {
   return ALLOWED_CATEGORIES.has(String(value || '')) ? String(value) : 'general';
 }
 
-function buildSystemDiagnostics(req: Request, category: string) {
+// Shared with the diagnostics screen so both report the same system state,
+// rather than the screen carrying a second implementation.
+export function buildSystemDiagnostics(req: Request, category: string) {
   const db = getDatabase();
   const schemaVersion = db.pragma('user_version', { simple: true }) as number;
   const profile = resolveProfile(req);
@@ -172,12 +175,12 @@ async function submitTicketHandler(req: Request, res: Response) {
   });
 }
 
-router.get('/profile', requireRole(...ROLE_ACCESS.allStaff), profileHandler);
-router.get('/diagnostics-preview', requireRole(...ROLE_ACCESS.allStaff), (req: Request, res: Response) => {
+router.get('/profile', requirePermission('support.use'), profileHandler);
+router.get('/diagnostics-preview', requirePermission('support.use'), (req: Request, res: Response) => {
   res.json(buildSystemDiagnostics(req, resolveCategory(req.query.category)));
 });
-router.get('/:clientTicketId/status', requireRole(...ROLE_ACCESS.allStaff), statusHandler);
-router.post('/', requireRole(...ROLE_ACCESS.allStaff), asyncHandler(submitTicketHandler));
+router.get('/:clientTicketId/status', requirePermission('support.use'), statusHandler);
+router.post('/', requirePermission('support.use'), asyncHandler(submitTicketHandler));
 
 // Unauthenticated (login-screen) variants, exempted in main/server.ts;
 // rate-limited here (private IPs included) since there is no user to key off.

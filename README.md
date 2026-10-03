@@ -1,6 +1,6 @@
 <div align="center">
   <h1>FloCafe</h1>
-  <p><a href="README.es.md">Español</a> · <a href="README.pt.md">Português</a> · <a href="README.fr.md">Français</a> · <a href="README.tr.md">Türkçe</a> · <a href="README.fil.md">Filipino</a> · <a href="README.de.md">Deutsch</a> · 日本語</p>
+  <p><a href="README.es.md">Español</a> · <a href="README.pt.md">Português</a> · <a href="README.fr.md">Français</a> · <a href="README.tr.md">Türkçe</a> · <a href="README.fil.md">Filipino</a> · <a href="README.de.md">Deutsch</a> · <a href="README.zh-CN.md">简体中文</a> · <a href="README.ar.md">العربية</a> · <a href="README.ur.md">اردو</a></p>
   <p><strong>Free, open-source, offline-first point of sale for cafés, restaurants, and small kitchens.</strong></p>
   <p>
     <a href="https://flopos.com">Website</a> ·
@@ -47,11 +47,22 @@ installation and support](docs/linux.md).
 
 | Requirement | Minimum |
 | --- | --- |
-| Operating system | Windows 10+, macOS 12+, or a current supported Linux distribution |
+| Operating system | Windows 10+, macOS 12+, or a current supported Linux distribution — 64-bit only (x64 or arm64) |
 | Memory | 4 GB RAM |
 | Storage | 500 MB free space, plus room for local backups |
 
 Node.js is only required to develop FloCafe, not to run a packaged release.
+
+FloCafe does not build or publish 32-bit installers. A terminal that can only
+run a 32-bit OS can still be used from a lightweight browser, without
+installing the desktop app locally:
+
+- **Companion screen or POS terminal:** open the Server App or the browser POS,
+  both served over LAN.
+- **KDS station:** open the KDS URL listed in the app's About dialog (macOS:
+  the application menu; Windows and Linux: **Help**). The KDS is a separate
+  LAN-served display on its own port, configurable through `KDS_PORT`; it is
+  not served from the Server App or the browser POS.
 
 <details>
 <summary>Uninstall a direct-download build</summary>
@@ -82,7 +93,7 @@ Both scripts ask whether to keep application data. Do not choose their data-purg
 - **Receipt printing:** ESC/POS thermal printing over USB, local network (TCP), and OS-managed print queues, with WebUSB supported in compatible browsers (58 mm and 80 mm paper support).
 - **Kitchen operations:** Standalone Kitchen Display System (KDS) server and category-based kitchen station routing.
 - **Catalog management:** Product images, barcode scanning, and CSV menu import/export.
-- **Administration:** Role-based staff accounts (Owner, Manager, Cashier, Chef), sales analytics, and audit logs.
+- **Administration:** Role-based staff accounts (Owner, Manager, Cashier, Server, Chef), sales analytics, and audit logs.
 - **Data protection:** Local SQLite database with automated pre-migration backups, manual restore tools, and optional Google Drive backup.
 
 ## Project status
@@ -105,13 +116,28 @@ FloCafe includes UI translations for:
 - Spanish
 - French
 - Brazilian Portuguese
+- Russian
 - Filipino
 - Turkish
 - Persian (Farsi), including RTL support
+- Arabic, including RTL support
+- Urdu, including RTL support
 - German
+- Italian
 - Japanese
+- Simplified Chinese
+- Traditional Chinese (Taiwan)
+- Korean
+- Bahasa Indonesia
+- Dutch
+- Hindi
+- Bengali/Bangla
+- Albanian
+- Vietnamese
+- Thai
+- Nepali
 
-UI language is independent of store country and regional settings, and tax calculation rules remain a separate concern. For details on contributing translations or adding languages, see the [Internationalization and translation guide](docs/i18n.md).
+UI language is independent of store country and regional settings, and tax calculation rules remain a separate concern. For details on contributing translations or adding languages, see the [Internationalization and translation guide](docs/architecture/internationalization.md).
 
 FloCafe ships with 131 country profiles covering 109 currencies. Each profile sets a default currency, locale, and setup timezone; store owners can override the timezone during setup or later in Settings.
 
@@ -260,7 +286,7 @@ FloCafe includes a generic calculation engine and supports signed, versioned cou
 
 > **Notice:** FloCafe is software, not legal or tax advice. Tax packs and configuration tools do not by themselves certify compliance with local regulations. Operators remain responsible for verifying the requirements that apply to their business.
 
-For pack authoring, validation, and schema details, see the [Tax packs developer guide](docs/tax-packs.md).
+For pack authoring, validation, and schema details, see the [Tax packs developer guide](docs/reference/tax-packs.md).
 
 ## Development
 
@@ -304,7 +330,7 @@ If FloCafe is useful to you, consider starring the repository.
 - **Documentation index:** [docs/README.md](docs/README.md)
 - **Printer guide & troubleshooting:** [docs/printers.md](docs/printers.md)
 - **Linux setup & support:** [docs/linux.md](docs/linux.md)
-- **Internationalization & translations:** [docs/i18n.md](docs/i18n.md)
+- **Internationalization & translations:** [docs/architecture/internationalization.md](docs/architecture/internationalization.md)
 - **Google Drive backup setup:** [docs/google-drive-setup.md](docs/google-drive-setup.md)
 - **Bug reports & feature proposals:** [GitHub Issues](https://github.com/FreeOpenSourcePOS/FloCafe/issues)
 - **General questions & ideas:** [GitHub Discussions](https://github.com/FreeOpenSourcePOS/FloCafe/discussions)

@@ -3,6 +3,10 @@
 export interface ElectronAPI {
   // Menu
   onMenuAction: (callback: (action: string) => void) => (() => void);
+  // Windows/Linux title-bar menu row; macOS keeps its native menu bar and the
+  // main process answers with an empty entry list there.
+  getApplicationMenu: () => Promise<{ entries: ApplicationMenuEntry[] } | ElectronIpcError>;
+  openApplicationMenu: (key: string, x: number, y: number) => Promise<ElectronActionResult | ElectronIpcError>;
 
   // Window controls
   windowAction: (action: WindowControlAction) => Promise<ElectronActionResult | ElectronIpcError>;
@@ -12,8 +16,9 @@ export interface ElectronAPI {
   // Database
   backupDatabase: (pin?: string) => Promise<{ success: boolean; path?: string; error?: string }>;
   restoreBackup: (pin?: string, backupPath?: string) => Promise<{ success: boolean; error?: string }>;
+  pickRestoreFile: () => Promise<{ canceled: boolean; path?: string; token?: string }>;
   dbHealthCheck: () => Promise<HealthCheckReport | { error: string }>;
-  dbApplySafeFixes: (findingIds?: string[]) => Promise<ElectronDbSafeFixesResult | ElectronIpcError>;
+  dbApplySafeFixes: (pin: string, findingIds?: string[]) => Promise<ElectronDbSafeFixesResult | ElectronIpcError>;
   dbInitialize: (pin: string, confirmationPhrase: string) => Promise<{ success: boolean; backupPath?: string; error?: string }>;
   getMasterPinStatus: () => Promise<ElectronMasterPinStatus | ElectronIpcError>;
 
@@ -36,9 +41,8 @@ export interface ElectronAPI {
   // Reports caught renderer errors to anonymous telemetry via main process.
   reportRendererError?: (report: { message?: string; stack?: string; digest?: string; route?: string }) => Promise<ElectronActionResult>;
 
-  // Printers
+  // Printers. Writing one goes through the permission-gated HTTP route.
   getPrinters: () => Promise<ElectronPrinter[] | ElectronIpcError>;
-  savePrinter: (printer: ElectronPrinterInput) => Promise<ElectronActionResult | ElectronIpcError>;
   rasterizePrintDocument: (request: unknown) => Promise<{
     ok: boolean;
     data?: Uint8Array;
@@ -55,9 +59,6 @@ export interface ElectronAPI {
     warnings?: Array<{ field: string; text: string; message: string; kind?: string }>;
     error?: string;
   }>;
-
-  // Reports
-  getDailySummary: () => Promise<DailySummary | ElectronIpcError>;
 
   // Status
   getStatus: () => Promise<ElectronStatus>;
@@ -88,6 +89,12 @@ export interface ElectronIpcError {
 export interface ElectronActionResult {
   success: boolean;
   error?: string;
+}
+
+/** A top-level application-menu label rendered in the Windows/Linux title bar. */
+export interface ApplicationMenuEntry {
+  key: string;
+  label: string;
 }
 
 export interface ElectronDbSafeFixesResult {
@@ -150,24 +157,6 @@ export interface ElectronPrinter {
   paper_width: string | null;
   created_at: string;
   updated_at: string;
-}
-
-/** Input accepted by main/ipc.ts save-printer. */
-export interface ElectronPrinterInput {
-  id?: string;
-  name: string;
-  connection_type: PrinterConnectionType;
-  ip_address?: string | null;
-  port?: number | null;
-  is_default?: boolean | number;
-}
-
-export interface DailySummary {
-  date: string;
-  revenue: number;
-  bill_count: number;
-  covers: number;
-  pending_orders: number;
 }
 
 export type HealthFindingRisk = 'safe' | 'manual_review';

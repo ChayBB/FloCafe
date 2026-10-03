@@ -77,26 +77,35 @@ async function run(): Promise<void> {
   );
   assert.deepEqual(Object.keys(exposedApi!).sort(), [
     'backupDatabase', 'checkForUpdates', 'dbApplySafeFixes', 'dbHealthCheck',
-    'dbInitialize', 'getAppInfo', 'getBetaChannel', 'getDailySummary', 'getKdsInfo',
+    'dbInitialize', 'getAppInfo', 'getApplicationMenu', 'getBetaChannel', 'getKdsInfo',
     'getLogTail', 'getMasterPinStatus', 'getPrinters', 'getSettings', 'getStatus', 'getUpdateStatus',
-    'getWindowState', 'onMenuAction', 'onUpdateStatus', 'onWindowStateChanged', 'openKdsWindow', 'openWhatsAppShare', 'platform', 'reportRendererError', 'restartAndInstall',
-    'rasterizeKotDocument', 'rasterizePrintDocument', 'restoreBackup', 'savePrinter', 'setBetaChannel', 'setSetting', 'setThemeEffective',
+    'getWindowState', 'onMenuAction', 'onUpdateStatus', 'onWindowStateChanged', 'openApplicationMenu', 'openKdsWindow', 'openWhatsAppShare', 'pickRestoreFile', 'platform', 'reportRendererError', 'restartAndInstall',
+    'rasterizeKotDocument', 'rasterizePrintDocument', 'restoreBackup', 'setBetaChannel', 'setSetting', 'setThemeEffective',
     'windowAction', 'windowReady',
   ].sort());
+
+  // The printer and daily-summary bridges are removed, not merely unwired:
+  // both are reachable only through permission-gated HTTP routes now, and an
+  // origin-checked IPC channel is the wrong place for either one.
+  for (const removed of ['savePrinter', 'getDailySummary']) {
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(exposedApi, removed),
+      false,
+      `preload no longer exposes ${removed}`,
+    );
+  }
 
   assert.equal(typeof exposedApi!.setThemeEffective, 'function');
 
   const call = (name: string, ...args: unknown[]) =>
     (exposedApi![name] as (...callArgs: unknown[]) => Promise<unknown>)(...args);
   await call('getSettings');
-  await call('setSetting', 'business_name', 'Flo Cafe');
+  await call('setSetting', 'theme_mode', 'dark');
   await call('getKdsInfo');
   await call('openKdsWindow');
   await call('getPrinters');
-  await call('savePrinter', { name: 'Kitchen Printer', connection_type: 'network' });
   await call('rasterizePrintDocument', { document: {}, template: 'classic', profileId: 'profile', options: {} });
   await call('rasterizeKotDocument', { document: kotDocument, profileId: 'profile', options: {} });
-  await call('getDailySummary');
   await call('getBetaChannel');
   await call('setBetaChannel', true);
   await call('windowReady', { epoch: 1 });
@@ -104,6 +113,8 @@ async function run(): Promise<void> {
   await call('getWindowState');
   await call('openWhatsAppShare', 'https://wa.me/15555550100?text=test');
   await call('reportRendererError', { message: 'boom', stack: 'stack', digest: 'd1', route: '/dashboard' });
+  await call('getApplicationMenu');
+  await call('openApplicationMenu', '0', 12, 0);
 
   const receivedStatuses: unknown[] = [];
   const unsubscribe = (exposedApi!['onUpdateStatus'] as (callback: (status: unknown) => void) => () => void)(
@@ -130,14 +141,12 @@ async function run(): Promise<void> {
 
   assert.deepEqual(calls, [
     { channel: 'get-settings', args: [] },
-    { channel: 'set-setting', args: ['business_name', 'Flo Cafe'] },
+    { channel: 'set-setting', args: ['theme_mode', 'dark'] },
     { channel: 'get-kds-info', args: [] },
     { channel: 'open-kds-window', args: [] },
     { channel: 'get-printers', args: [] },
-    { channel: 'save-printer', args: [{ name: 'Kitchen Printer', connection_type: 'network' }] },
     { channel: 'rasterize-print-document', args: [{ document: {}, template: 'classic', profileId: 'profile', options: {} }] },
     { channel: 'rasterize-kot-document', args: [{ document: kotDocument, profileId: 'profile', options: {} }] },
-    { channel: 'get-daily-summary', args: [] },
     { channel: 'updates:get-beta-channel', args: [] },
     { channel: 'updates:set-beta-channel', args: [true] },
     { channel: 'window-ready', args: [{ epoch: 1, documentNonce }] },
@@ -145,7 +154,17 @@ async function run(): Promise<void> {
     { channel: 'get-window-state', args: [] },
     { channel: 'whatsapp-open-share', args: ['https://wa.me/15555550100?text=test'] },
     { channel: 'report-renderer-error', args: [{ message: 'boom', stack: 'stack', digest: 'd1', route: '/dashboard' }] },
+    { channel: 'get-application-menu', args: [] },
+    { channel: 'open-application-menu', args: ['0', 12, 0] },
   ]);
+
+  for (const removedChannel of ['save-printer', 'get-daily-summary']) {
+    assert.equal(
+      calls.some(({ channel }) => channel === removedChannel),
+      false,
+      `no renderer call reaches the ${removedChannel} channel`,
+    );
+  }
 
   console.log('Electron preload methods expose the expected narrow IPC channels.');
 }

@@ -4,7 +4,7 @@ Status: **REFERENCE — not built or run in this repository**
 
 There is no mobile app in this repo, so none of the code below has been executed.
 The service contract it depends on *is* verified: see `main/services/flo-discovery.ts`
-and `npm run test:flo-discovery`, and the mDNS section of [API.md](API.md).
+and `npm run test:flo-discovery`, and the mDNS section of [reference/api.md](reference/api.md).
 
 What the POS publishes, and what this code consumes:
 

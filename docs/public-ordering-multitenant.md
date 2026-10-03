@@ -1,5 +1,7 @@
 # Multi-tenant public ordering
 
+<!-- docs:policy-allow: phase-numbering -->
+
 Status: **PHASE 1 IMPLEMENTED IN THE CLIENT** — phases 2 and 3 are design only.
 
 Phase 1 decided 2026-09-26: portal read-only first. What is built in this repository is listed
@@ -14,7 +16,8 @@ configures customer ordering there, and has it sync with their POS machine.
 
 It builds on cloud coordination that already exists — `main/services/cloud-sync.ts`, the FloAdmin
 store identity (`store_id`, `pos_hash`, `api_key`) and the outbound relay — rather than inventing a
-second cloud. See [cloud-v2-plan.md](cloud-v2-plan.md) for that groundwork.
+second cloud. See [architecture/cloud-integrations.md](architecture/cloud-integrations.md)
+for what the POS already talks to.
 
 ---
 

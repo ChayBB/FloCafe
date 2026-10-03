@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuthStore } from '@/store/auth';
@@ -12,8 +12,9 @@ import {
   parseStoredReceiptLanguagePolicy,
 } from '@/lib/print-language-policies';
 import { usePrinterStore } from '@/hooks/usePrinter';
-import { Settings, Monitor, Users, Gift, Lock, Smartphone, RefreshCw, Copy, Check, Trash2, Plus, ChefHat, QrCode, CheckCircle2, Cloud, CloudOff, Zap, Percent, AlertTriangle, SunMoon } from 'lucide-react';
+import { Settings, Monitor, Users, Gift, Info, Lock, Smartphone, RefreshCw, Copy, Check, Trash2, Plus, ChefHat, QrCode, CheckCircle2, Cloud, CloudOff, Zap, Percent, AlertTriangle, SunMoon } from 'lucide-react';
 import { Tabs, TabsContent } from '@/components/ui/tabs';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import api from '@/lib/api';
@@ -25,6 +26,7 @@ import { MasterPinPrompt } from '@/components/settings/MasterPinPrompt';
 import BetaChannelToggle from '@/components/settings/BetaChannelToggle';
 import { HealthCheckDialog } from '@/components/settings/HealthCheckDialog';
 import { InitializeDatabaseDialog } from '@/components/settings/InitializeDatabaseDialog';
+import { CurrencyResetDialog } from '@/components/settings/CurrencyResetDialog';
 import { WhatsAppEnableCard } from '@/components/settings/WhatsAppEnableCard';
 import { TaxConfigurationPanel } from '@/components/settings/TaxConfigurationPanel';
 import { PaymentMethodsSettings } from '@/components/settings/PaymentMethodsSettings';
@@ -54,12 +56,14 @@ import { Ltr } from '@/components/layout/Ltr';
 import { toastApiError } from '@/lib/api-error';
 import { useFormatDate } from '@/hooks/useFormatDate';
 import { useUpdateStatus } from '@/hooks/useUpdateStatus';
-import { ROLE_ACCESS, hasRole } from '@shared/role-permissions';
+import { tenantCan } from '@/lib/permissions';
 
 
 const CLOUD_ACCOUNT_STATUS_CHANGED_EVENT = 'flo:cloud-account-status-changed';
 const GOOGLE_DRIVE_JOB_POLL_INTERVAL_MS = 500;
 const GOOGLE_DRIVE_JOB_STATUS_RETRY_WINDOW_MS = 30_000;
+// Must match RESTORE_CONFIRMATION in main/routes/database.ts.
+const RESTORE_CONFIRMATION = 'RESTORE BACKUP';
 
 function isRequestCancelled(error: unknown): boolean {
   return axios.isCancel(error);
@@ -123,6 +127,27 @@ const TEMPLATE_CARDS: TemplateCard[] = [
   { id: 'classic', nameKey: 'billTemplateClassicName', preview: CLASSIC_PREVIEW, source: 'core', selectionSource: 'core' },
   { id: 'compact', nameKey: 'billTemplateCompactName', preview: COMPACT_PREVIEW, source: 'core', selectionSource: 'core' },
 ];
+
+// Bounded backoff for settings reads the server rate-limited. Long enough to ride out a
+// shared per-IP read limit, short enough that a merchant does not notice the pause.
+const THROTTLED_READ_RETRIES = 3;
+const THROTTLED_READ_BACKOFF_MS = 300;
+
+/** A tab fires its reads together, so a fixed delay would retry them all in lockstep
+ * and collide again. Jitter spreads the batch, and the abort listener stops the timer
+ * as soon as the merchant leaves the tab. */
+function waitBeforeRetryRead(signal: AbortSignal, baseMs: number): Promise<void> {
+  const delayMs = baseMs / 2 + Math.random() * (baseMs / 2);
+  return new Promise<void>((resolve) => {
+    const finish = () => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', finish);
+      resolve();
+    };
+    const timer = setTimeout(finish, delayMs);
+    signal.addEventListener('abort', finish, { once: true });
+  });
+}
 
 // Sanitize prefix on load to alphanumeric characters so legacy values pass save validation.
 function sanitizeStoredNumberPrefix(value: string | null | undefined): string {
@@ -260,9 +285,12 @@ export default function SettingsPage() {
   const tRestore = useTranslations('restore');
   const tWhatsappSettings = useTranslations('whatsapp.settings');
   const { formatDate, formatTime, formatDateTime } = useFormatDate();
-  const isAdmin = hasRole(currentTenant?.role, ROLE_ACCESS.ownerManager);
-  const isOwner = hasRole(currentTenant?.role, ROLE_ACCESS.owner);
-  const canViewTaxConfiguration = isAdmin;
+  const isAdmin = tenantCan(currentTenant, 'settings.manage');
+  const isOwner = tenantCan(currentTenant, 'cloud.account.manage');
+  const canManageDatabase = tenantCan(currentTenant, 'database.manage');
+  const canManageTaxPacks = tenantCan(currentTenant, 'tax-packs.manage');
+  const canViewTaxConfiguration = tenantCan(currentTenant, 'tax-packs.view-test');
+  const canManageMobileAccess = tenantCan(currentTenant, 'mobile-access.manage');
   const { confirm, ConfirmDialog } = useConfirm();
 
   const [loyaltyEnabled, setLoyaltyEnabled] = useState(false);
@@ -453,7 +481,12 @@ export default function SettingsPage() {
   };
 
   const searchParams = useSearchParams();
-  const requestedTab = searchParams?.get('tab') || 'store';
+  const requestedTabParam = searchParams?.get('tab') || 'store';
+  const requestedTab = requestedTabParam === 'general'
+    ? 'store'
+    : requestedTabParam === 'printers'
+      ? 'receipts-printers'
+      : requestedTabParam;
   const requestedAction = searchParams?.get('action');
   // Deep-link query param state for active tab and database actions.
   const [activeTab, setActiveTab] = useState(requestedTab);
@@ -482,6 +515,7 @@ export default function SettingsPage() {
   const [healthReport, setHealthReport] = useState<HealthCheckReport | null>(null);
   const [applyingFixes, setApplyingFixes] = useState(false);
   const [initializeDbOpen, setInitializeDbOpen] = useState(() => searchParams?.get('action') === 'initialize-db');
+  const [currencyResetTarget, setCurrencyResetTarget] = useState('');
   const [shakeSaveBar, setShakeSaveBar] = useState(false);
   const [savingAllSettings, setSavingAllSettings] = useState(false);
   const [saveAllHydrationRun, setSaveAllHydrationRun] = useState(0);
@@ -540,10 +574,16 @@ export default function SettingsPage() {
 
   // Sync active settings tab when query string changes while mounted.
   useEffect(() => {
+    // Diagnostics moved to the Support hub, so an old link lands there instead
+    // of on a tab Settings no longer has.
+    if (requestedTab === 'diagnostics') {
+      router.replace('/support?tab=diagnostics');
+      return;
+    }
     // This is navigation state arriving from Next.js, not an async data effect.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setActiveTab(requestedTab);
-  }, [requestedTab]);
+  }, [requestedTab, router]);
 
   const handleSettingsTabChange = (value: string) => {
     setActiveTab(value);
@@ -1006,9 +1046,41 @@ export default function SettingsPage() {
   const [showStationForm, setShowStationForm] = useState(false);
   const [editingStationId, setEditingStationId] = useState<string | null>(null);
   const [stationForm, setStationForm] = useState<{
-    name: string; category_ids: string[]; printer_id: string; chef_user_id: string;
-  }>({ name: '', category_ids: [], printer_id: '', chef_user_id: '' });
+    name: string; category_ids: string[]; printer_id: string; chef_user_ids: string[];
+  }>({ name: '', category_ids: [], printer_id: '', chef_user_ids: [] });
   const [savingStation, setSavingStation] = useState(false);
+
+  const stationCategoryIdsByStation = new Map<string, string[]>();
+  const stationsByCategoryId = new Map<string, KitchenStation[]>();
+  for (const station of stations) {
+    let categoryIds: string[] = [];
+    try {
+      const parsed = station.category_ids ? JSON.parse(station.category_ids) : [];
+      categoryIds = Array.isArray(parsed) ? parsed.map(String) : [];
+    } catch { /* ignore malformed legacy values */ }
+    stationCategoryIdsByStation.set(station.id, categoryIds);
+    for (const categoryId of categoryIds) {
+      const assignedStations = stationsByCategoryId.get(categoryId) || [];
+      assignedStations.push(station);
+      stationsByCategoryId.set(categoryId, assignedStations);
+    }
+  }
+  const defaultStationCategories = stationCategories.filter((category) => !stationsByCategoryId.has(category.id));
+  const defaultKitchenPrinter = [...hwPrinters]
+    .filter((printer) => printer.connection_type !== 'webusb')
+    .sort((a, b) => (b.is_default - a.is_default) || a.name.localeCompare(b.name))[0];
+  const selectedStationCategories = stationCategories.filter((category) => stationForm.category_ids.includes(category.id));
+  const availableStationCategories = stationCategories.filter((category) => {
+    if (stationForm.category_ids.includes(category.id)) return false;
+    const assignedElsewhere = (stationsByCategoryId.get(category.id) || [])
+      .some((station) => station.id !== editingStationId);
+    return !assignedElsewhere;
+  });
+  const categoriesAssignedElsewhere = stationCategories.filter((category) => {
+    if (stationForm.category_ids.includes(category.id)) return false;
+    return (stationsByCategoryId.get(category.id) || [])
+      .some((station) => station.id !== editingStationId);
+  });
 
   const fetchStations = async (signal?: AbortSignal): Promise<boolean> => {
     try {
@@ -1045,7 +1117,7 @@ export default function SettingsPage() {
 
   const openAddStation = () => {
     setEditingStationId(null);
-    setStationForm({ name: '', category_ids: [], printer_id: '', chef_user_id: '' });
+    setStationForm({ name: '', category_ids: [], printer_id: '', chef_user_ids: [] });
     setShowStationForm(true);
   };
 
@@ -1053,16 +1125,16 @@ export default function SettingsPage() {
     setEditingStationId(station.id);
     let categoryIds: string[] = [];
     try { categoryIds = station.category_ids ? JSON.parse(station.category_ids) : []; } catch { categoryIds = []; }
-    let chefUserId = stationUsersByStation[station.id]?.find((u) => u.role === 'chef')?.id || '';
+    let chefUserIds = (stationUsersByStation[station.id] || []).filter((u) => u.role === 'chef').map((u) => u.id);
     if (!stationUsersByStation[station.id]) {
       try {
         const res = await api.get(`/kitchen-stations/${station.id}`);
         const users = res.data.kitchenStation.users || [];
         setStationUsersByStation((prev) => ({ ...prev, [station.id]: users }));
-        chefUserId = users.find((u: StaffOption) => u.role === 'chef')?.id || '';
+        chefUserIds = users.filter((u: StaffOption) => u.role === 'chef').map((u: StaffOption) => u.id);
       } catch { /* ignore */ }
     }
-    setStationForm({ name: station.name, category_ids: categoryIds, printer_id: station.printer_id || '', chef_user_id: chefUserId });
+    setStationForm({ name: station.name, category_ids: categoryIds, printer_id: station.printer_id || '', chef_user_ids: chefUserIds });
     setShowStationForm(true);
   };
 
@@ -1093,7 +1165,7 @@ export default function SettingsPage() {
       if (stationId) {
         if (kdsEnabledSetting && kdsSettingTenantId === currentTenant?.id) {
           await api.put(`/kitchen-stations/${stationId}/users`, {
-            user_ids: stationForm.chef_user_id ? [stationForm.chef_user_id] : [],
+            user_ids: stationForm.chef_user_ids,
           });
         }
         await fetchStationUsers(stationId);
@@ -1215,6 +1287,7 @@ export default function SettingsPage() {
     billShowTaxBreakdown: posSettings.billShowTaxBreakdown,
     billShowCustomerName: posSettings.billShowCustomerName,
     billShowCustomerPhone: posSettings.billShowCustomerPhone,
+    billDeliveryShowCustomerPhoneAlways: posSettings.billDeliveryShowCustomerPhoneAlways,
     billShowTableNumber: posSettings.billShowTableNumber,
   });
   const [printingForm, setPrintingForm] = useState<PrintingForm>(initPrinting);
@@ -1277,6 +1350,7 @@ export default function SettingsPage() {
         bill_show_tax_breakdown: formSnapshot.billShowTaxBreakdown,
         bill_show_customer_name: formSnapshot.billShowCustomerName,
         bill_show_customer_phone: formSnapshot.billShowCustomerPhone,
+        bill_delivery_show_customer_phone_always: formSnapshot.billDeliveryShowCustomerPhoneAlways,
         bill_show_table_number: formSnapshot.billShowTableNumber,
         ...(formSnapshot.cashDrawerPulseEnabled !== undefined ? {
           cash_drawer_pulse_enabled: formSnapshot.cashDrawerPulseEnabled,
@@ -1302,6 +1376,7 @@ export default function SettingsPage() {
       posSettings.setBillShowTaxBreakdown(formSnapshot.billShowTaxBreakdown);
       posSettings.setBillShowCustomerName(formSnapshot.billShowCustomerName);
       posSettings.setBillShowCustomerPhone(formSnapshot.billShowCustomerPhone);
+      posSettings.setBillDeliveryShowCustomerPhoneAlways(formSnapshot.billDeliveryShowCustomerPhoneAlways);
       posSettings.setBillShowTableNumber(formSnapshot.billShowTableNumber);
       setSavedPrinting(formSnapshot);
       if (!silent) toast.success(t('printingSettingsSaved'));
@@ -1472,6 +1547,8 @@ export default function SettingsPage() {
   // Kitchen workflow toggle states (defaults to enabled).
   const [kdsEnabledSetting, setKdsEnabledSetting] = useState(true);
   const [savingKdsEnabled, setSavingKdsEnabled] = useState(false);
+  const [requireKitchenDeliveredSetting, setRequireKitchenDeliveredSetting] = useState(false);
+  const [savingRequireKitchenDelivered, setSavingRequireKitchenDelivered] = useState(false);
   const [serverAppEnabledSetting, setServerAppEnabledSetting] = useState(true);
   const [savingServerAppEnabled, setSavingServerAppEnabled] = useState(false);
   const [serverAppBillPrintingEnabledSetting, setServerAppBillPrintingEnabledSetting] = useState(false);
@@ -1568,6 +1645,7 @@ export default function SettingsPage() {
         billShowTaxBreakdown: d.bill_show_tax_breakdown !== false,
         billShowCustomerName: d.bill_show_customer_name !== false,
         billShowCustomerPhone: d.bill_show_customer_phone !== false,
+        billDeliveryShowCustomerPhoneAlways: d.bill_delivery_show_customer_phone_always !== false,
         billShowTableNumber: d.bill_show_table_number !== false,
       };
       setPrintingForm((previous) => ({ ...previous, ...billDisplay }));
@@ -1579,6 +1657,7 @@ export default function SettingsPage() {
       posSettings.setBillShowTaxBreakdown(billDisplay.billShowTaxBreakdown);
       posSettings.setBillShowCustomerName(billDisplay.billShowCustomerName);
       posSettings.setBillShowCustomerPhone(billDisplay.billShowCustomerPhone);
+      posSettings.setBillDeliveryShowCustomerPhoneAlways(billDisplay.billDeliveryShowCustomerPhoneAlways);
       posSettings.setBillShowTableNumber(billDisplay.billShowTableNumber);
 
       setLoyaltyEnabled(!!loyaltyRes.data.loyalty_enabled);
@@ -1694,7 +1773,21 @@ export default function SettingsPage() {
   };
 
   const loadSettingsTab = async (tab: string, signal: AbortSignal, includeStatusOnly = true): Promise<void> => {
-    const get = (path: string) => api.get(path, { signal });
+    const get = async (path: string) => {
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          return await api.get(path, { signal });
+        } catch (error) {
+          // A 429 means throttled, not unavailable: the stored value is unknown but
+          // readable. Letting it fail hydration makes Save Changes discard every
+          // edit, so back off and read again. A genuinely unavailable read still
+          // throws, which is what keeps an unhydrated tab from being written back.
+          const throttled = axios.isAxiosError(error) && error.response?.status === 429;
+          if (!throttled || attempt >= THROTTLED_READ_RETRIES || signal.aborted) throw error;
+          await waitBeforeRetryRead(signal, THROTTLED_READ_BACKOFF_MS * 2 ** attempt);
+        }
+      }
+    };
     const active = () => !signal.aborted;
     const hydrationTouchSnapshot = new Map(hydrationTouchVersions.current);
     const readOptional = async (path: string) => {
@@ -1766,6 +1859,7 @@ export default function SettingsPage() {
           billShowTaxBreakdown: d.bill_show_tax_breakdown !== false,
           billShowCustomerName: d.bill_show_customer_name !== false,
           billShowCustomerPhone: d.bill_show_customer_phone !== false,
+          billDeliveryShowCustomerPhoneAlways: d.bill_delivery_show_customer_phone_always !== false,
           billShowTableNumber: d.bill_show_table_number !== false,
         };
         mergeHydratedPrinting(billDisplay, printingAtHydrationStart, hydrationTouchSnapshot);
@@ -1777,6 +1871,7 @@ export default function SettingsPage() {
         posSettings.setBillShowTaxBreakdown(billDisplay.billShowTaxBreakdown);
         posSettings.setBillShowCustomerName(billDisplay.billShowCustomerName);
         posSettings.setBillShowCustomerPhone(billDisplay.billShowCustomerPhone);
+        posSettings.setBillDeliveryShowCustomerPhoneAlways(billDisplay.billDeliveryShowCustomerPhoneAlways);
         posSettings.setBillShowTableNumber(billDisplay.billShowTableNumber);
         if (d.tax_registration_number) posSettings.setBillTaxRegistrationNumber(d.tax_registration_number);
         if (d.business_address) posSettings.setBillAddress(d.business_address);
@@ -2119,7 +2214,7 @@ export default function SettingsPage() {
         return;
       }
       if (tab === 'kds') {
-        const [kdsInfoLoaded, settingLoaded] = await Promise.all([
+        const [kdsInfoLoaded, settingLoaded, deliverySettingLoaded] = await Promise.all([
           fetchKdsInfo(signal),
           get('/settings/kds_enabled').then((res) => {
             if (!active()) return false;
@@ -2135,8 +2230,16 @@ export default function SettingsPage() {
           // Stations route tickets to a printer, so this tab needs the printer list too —
           // without it the station form only ever offers "use the default printer".
           fetchPrinters(signal),
+          get('/settings/require_kitchen_delivered_before_settlement').then((res) => {
+            if (!active()) return false;
+            setRequireKitchenDeliveredSetting(res.data.setting?.value === 'true');
+            return true;
+          }).catch((error) => {
+            if (isRequestCancelled(error)) throw error;
+            return false;
+          }),
         ]);
-        if (!kdsInfoLoaded || !settingLoaded) {
+        if (!kdsInfoLoaded || !settingLoaded || !deliverySettingLoaded) {
           throw new Error('KDS hydration failed');
         }
         return;
@@ -2351,6 +2454,51 @@ export default function SettingsPage() {
     });
     return () => controller.abort();
   }, [activeTab, currentTenant?.id, requestedAction, t]);
+
+  // Restore a backup file the operator picks from anywhere on disk. This is the
+  // path a shop on Windows needs so nobody has to hand-copy flo.db over the live
+  // database; the app closes and reopens the database itself.
+  const handleRestoreFromFile = useCallback(async () => {
+    if (!window.electronAPI?.pickRestoreFile) {
+      toast.error(tCommon('notAvailable'));
+      return;
+    }
+    const picked = await window.electronAPI.pickRestoreFile();
+    if (picked.canceled || !picked.path || !picked.token) return;
+
+    const fileName = picked.path.split(/[\\/]/).pop() || picked.path;
+    const ok = await confirm(
+      `${t('restoreConfirm', { fileName })}\n\n${t('restoreReplacesDetail')}\n\n${t('restoreKeepsDetail')}\n\n${t('restoreSafetyCopyDetail')}`,
+      { title: t('confirmRestoreTitle'), confirmLabel: t('restoreBackup'), destructive: true },
+    );
+    if (!ok) return;
+
+    try {
+      const { data } = await api.post('/db/restore', {
+        confirmation: RESTORE_CONFIRMATION,
+        selection_token: picked.token,
+      });
+      toast.success(tRestore('success'));
+      setTimeout(() => window.location.reload(), 1500);
+      return data;
+    } catch (error) {
+      const detail = axios.isAxiosError(error)
+        ? (error.response?.data as { error?: string } | undefined)?.error
+        : undefined;
+      toast.error(detail || t('restoreFailedGeneric'));
+    }
+  }, [confirm, t, tCommon, tRestore]);
+
+  useEffect(() => {
+    if (requestedAction !== 'restore-from-file') return;
+    // Consume the deep link exactly once, before the work runs. Stripping the
+    // parameter first is what keeps a finished restore from reopening the picker
+    // when the page reloads, and it leaves no armed parameter behind when the
+    // operator cancels, so the next menu click lands on a different address and
+    // fires the action again.
+    router.replace(`/settings?tab=${activeTabRef.current || 'data'}`, { scroll: false });
+    void handleRestoreFromFile();
+  }, [requestedAction, handleRestoreFromFile, router]);
 
   const saveCloud = async (silent = false) => {
     setSavingCloud(true);
@@ -2650,6 +2798,20 @@ export default function SettingsPage() {
       toast.error(t('saveFailed'));
     } finally {
       setSavingKdsEnabled(false);
+    }
+  };
+
+  const saveRequireKitchenDelivered = async (enabled: boolean) => {
+    const previous = requireKitchenDeliveredSetting;
+    setRequireKitchenDeliveredSetting(enabled);
+    setSavingRequireKitchenDelivered(true);
+    try {
+      await api.put('/settings/require_kitchen_delivered_before_settlement', { value: enabled ? 'true' : 'false' });
+    } catch {
+      setRequireKitchenDeliveredSetting(previous);
+      toast.error(t('saveFailed'));
+    } finally {
+      setSavingRequireKitchenDelivered(false);
     }
   };
 
@@ -3057,8 +3219,12 @@ export default function SettingsPage() {
             <div className="hidden md:block px-3 pt-4 pb-2 mt-3 mb-1 border-b border-border">
               <p className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">{t('navGroupData')}</p>
             </div>
-            <SettingsNavItem label={t('tabMobileAccess')} value="mobile-access" active={activeTab} onClick={handleSettingsTabChange} />
-            <SettingsNavItem label={t('tabBackupData')} value="data" active={activeTab} onClick={handleSettingsTabChange} />
+            {canManageMobileAccess && (
+              <SettingsNavItem label={t('tabMobileAccess')} value="mobile-access" active={activeTab} onClick={handleSettingsTabChange} />
+            )}
+            {canManageDatabase && (
+              <SettingsNavItem label={t('tabBackupData')} value="data" active={activeTab} onClick={handleSettingsTabChange} />
+            )}
             <SettingsNavItem label={t('tabOrderflow')} value="orderflow" active={activeTab} onClick={handleSettingsTabChange} />
 
             {/* Account group */}
@@ -3075,9 +3241,17 @@ export default function SettingsPage() {
 
         <div className={`flex-1 min-w-0 md:h-full md:min-h-0 md:overflow-y-auto md:overscroll-contain pb-8 md:pb-12 ${isDirty ? 'pb-32 md:pb-32' : ''}`}>
 
+        {!isAdmin && (
+          <p data-testid="settings-read-only-notice" className="mb-5 flex items-start gap-2 rounded-lg border border-border bg-muted p-3 text-sm text-muted-foreground">
+            <Lock size={16} aria-hidden="true" className="mt-0.5 shrink-0" />
+            <span>{t('viewOnlyNotice')}</span>
+          </p>
+        )}
+
         <TabsContent value="store">
           <GeneralSettingsTab
             isAdmin={isAdmin}
+            isOwner={canManageDatabase}
             form={form}
             setForm={setForm}
             taxIdFormat={taxIdFormat}
@@ -3085,6 +3259,7 @@ export default function SettingsPage() {
             orderNumberForm={orderNumberForm}
             setOrderNumberForm={setOrderNumberForm}
             markHydrationTouched={markHydrationTouched}
+            onRequestCurrencyChange={setCurrencyResetTarget}
           />
         </TabsContent>
 
@@ -3144,7 +3319,7 @@ export default function SettingsPage() {
 
         {canViewTaxConfiguration && (
           <TabsContent value="tax">
-            <TaxConfigurationPanel isOwner={isOwner} />
+            <TaxConfigurationPanel isOwner={canManageTaxPacks} />
           </TabsContent>
         )}
 
@@ -3222,9 +3397,26 @@ export default function SettingsPage() {
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full">
                         {posInfo.ips_data.map((ipInfo: { ip: string; url: string; qr_data: string | null }, idx: number) => (
                           <div key={idx} className="flex flex-col items-center p-4 bg-muted border border-border rounded-lg">
-                            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">
-                              {ipInfo.ip.startsWith('100.') ? t('vpnMeshNetwork') : t('localNetwork')}
-                            </p>
+                            <div className="w-full mb-3">
+                              <div className="flex items-center justify-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                                <span>{ipInfo.ip.startsWith('100.') ? t('vpnMeshNetwork') : t('localNetwork')}</span>
+                                <TooltipProvider>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <button type="button" aria-label={ipInfo.ip.startsWith('100.') ? t('vpnMeshNetwork') : t('localNetwork')} className="rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
+                                        <Info size={14} aria-hidden="true" />
+                                      </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="max-w-xs text-center">
+                                      {ipInfo.ip.startsWith('100.') ? t('vpnMeshNetworkHint') : t('localNetworkHint')}
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
+                              </div>
+                              <p className="mt-1 text-[11px] text-muted-foreground text-center">
+                                {ipInfo.ip.startsWith('100.') ? t('vpnMeshNetworkHint') : t('localNetworkHint')}
+                              </p>
+                            </div>
                             {ipInfo.qr_data ? (
                               <img src={ipInfo.qr_data} alt={`QR Code for ${ipInfo.ip}`} className="w-40 h-40 rounded-lg mb-3 bg-card p-2 border border-border" />
                             ) : (
@@ -3321,13 +3513,26 @@ export default function SettingsPage() {
               </div>
               <p className="text-sm text-muted-foreground mb-5">{t('kitchenStationsHint')}</p>
 
-              {stations.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-4 text-center">{t('noStationsYet')}</p>
-              ) : (
-                <div className="space-y-2">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between p-3 border border-dashed border-border rounded-lg bg-muted/30">
+                  <div className="min-w-0">
+                    <p className="font-medium text-foreground">
+                      {t('default').toUpperCase()} → {defaultKitchenPrinter?.name || t('stationNoPrinterConfigured')}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {defaultStationCategories.length > 0
+                        ? defaultStationCategories.map((category) => category.name).join(', ')
+                        : t('stationNoDefaultCategories')}
+                    </p>
+                  </div>
+                </div>
+
+                {stations.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-4 text-center">{t('noStationsYet')}</p>
+                ) : (
+                  <>
                   {stations.map((station) => {
-                    let categoryIds: string[] = [];
-                    try { categoryIds = station.category_ids ? JSON.parse(station.category_ids) : []; } catch { categoryIds = []; }
+                    const categoryIds = stationCategoryIdsByStation.get(station.id) || [];
                     const categoryNames = categoryIds
                       .map((id) => stationCategories.find((c) => c.id === id)?.name)
                       .filter(Boolean);
@@ -3342,7 +3547,7 @@ export default function SettingsPage() {
                             {' · '}
                             {printer ? printer.name : t('stationNoPrinter')}
                             {' · '}
-                            {chefs[0]?.name || t('stationNoChef')}
+                            {chefs.length > 0 ? chefs.map((chef) => chef.name).join(', ') : t('stationNoChef')}
                           </p>
                         </div>
                         <div className="flex items-center gap-1 shrink-0">
@@ -3358,8 +3563,9 @@ export default function SettingsPage() {
                       </div>
                     );
                   })}
-                </div>
-              )}
+                  </>
+                )}
+              </div>
 
               {showStationForm && (
                 <Dialog open={showStationForm} onOpenChange={setShowStationForm}>
@@ -3382,15 +3588,61 @@ export default function SettingsPage() {
                         {stationCategories.length === 0 ? (
                           <p className="text-xs text-muted-foreground">{t('noCategoriesYet')}</p>
                         ) : (
-                          <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
-                            {stationCategories.map((cat) => (
-                              <label key={cat.id} className="flex items-center gap-1.5 px-2.5 py-1 border border-border rounded-full text-xs cursor-pointer hover:bg-muted">
-                                <input type="checkbox" checked={stationForm.category_ids.includes(cat.id)}
-                                  onChange={() => toggleStationFormValue('category_ids', cat.id)}
-                                  className="rounded border-gray-300 dark:border-border text-brand focus:ring-brand" />
-                                {cat.name}
-                              </label>
-                            ))}
+                          <div className="space-y-3 max-h-56 overflow-y-auto pe-1">
+                            <div>
+                              <p className="text-xs font-medium text-foreground mb-1.5">{t('stationSelectedCategories')}</p>
+                              {selectedStationCategories.length > 0 ? (
+                                <div className="flex flex-wrap gap-2">
+                                  {selectedStationCategories.map((cat) => (
+                                    <label key={cat.id} className="flex items-center gap-1.5 px-2.5 py-1 border border-brand/50 bg-brand/5 rounded-full text-xs cursor-pointer hover:bg-brand/10">
+                                      <input type="checkbox" checked={stationForm.category_ids.includes(cat.id)}
+                                        onChange={() => toggleStationFormValue('category_ids', cat.id)}
+                                        className="rounded border-gray-300 dark:border-border text-brand focus:ring-brand" />
+                                      {cat.name}
+                                    </label>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="text-xs text-muted-foreground">{t('stationNoCategories')}</p>
+                              )}
+                            </div>
+
+                            <div>
+                              <p className="text-xs font-medium text-foreground mb-1.5">{t('stationAvailableCategories')}</p>
+                              {availableStationCategories.length > 0 ? (
+                                <div className="flex flex-wrap gap-2">
+                                  {availableStationCategories.map((cat) => (
+                                    <label key={cat.id} className="flex items-center gap-1.5 px-2.5 py-1 border border-border rounded-full text-xs cursor-pointer hover:bg-muted">
+                                      <input type="checkbox" checked={stationForm.category_ids.includes(cat.id)}
+                                        onChange={() => toggleStationFormValue('category_ids', cat.id)}
+                                        className="rounded border-gray-300 dark:border-border text-brand focus:ring-brand" />
+                                      {cat.name}
+                                    </label>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="text-xs text-muted-foreground">{t('stationNoAvailableCategories')}</p>
+                              )}
+                            </div>
+
+                            {categoriesAssignedElsewhere.length > 0 && (
+                              <div>
+                                <p className="text-xs font-medium text-muted-foreground mb-1.5">{t('stationAssignedCategories')}</p>
+                                <div className="flex flex-wrap gap-2">
+                                  {categoriesAssignedElsewhere.map((cat) => (
+                                    <label key={cat.id} className="flex items-center gap-1.5 px-2.5 py-1 border border-border rounded-full text-xs cursor-pointer hover:bg-muted">
+                                      <input type="checkbox" checked={stationForm.category_ids.includes(cat.id)}
+                                        onChange={() => toggleStationFormValue('category_ids', cat.id)}
+                                        className="rounded border-gray-300 dark:border-border text-brand focus:ring-brand" />
+                                      {cat.name} · {(stationsByCategoryId.get(cat.id) || [])
+                                        .filter((station) => station.id !== editingStationId)
+                                        .map((station) => station.name)
+                                        .join(', ')}
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
@@ -3409,20 +3661,27 @@ export default function SettingsPage() {
 
                       <div>
                         <label className="block text-sm font-medium text-foreground mb-1">{t('stationChef')}</label>
-                        <select value={stationForm.chef_user_id}
-                          onChange={(e) => setStationForm((f) => ({ ...f, chef_user_id: e.target.value }))}
-                          disabled={!kdsEnabledSetting || kdsSettingTenantId !== currentTenant?.id}
-                          className="w-full px-3 py-2 border border-border rounded-lg text-sm bg-card">
-                          <option value="">{t('stationNoChef')}</option>
+                        <div className={`flex flex-wrap gap-2 rounded-lg border border-border p-2 ${(!kdsEnabledSetting || kdsSettingTenantId !== currentTenant?.id) ? 'opacity-60' : ''}`}>
                           {stationStaff.map((chef) => (
-                            <option key={chef.id} value={chef.id}>{chef.name}</option>
+                            <label key={chef.id} className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs hover:bg-muted">
+                              <input type="checkbox"
+                                checked={stationForm.chef_user_ids.includes(chef.id)}
+                                onChange={() => setStationForm((current) => ({
+                                  ...current,
+                                  chef_user_ids: current.chef_user_ids.includes(chef.id)
+                                    ? current.chef_user_ids.filter((id) => id !== chef.id)
+                                    : [...current.chef_user_ids, chef.id],
+                                }))}
+                                disabled={!kdsEnabledSetting || kdsSettingTenantId !== currentTenant?.id}
+                                className="rounded border-gray-300 dark:border-border text-brand focus:ring-brand" />
+                              {chef.name}
+                            </label>
                           ))}
-                        </select>
+                          {stationStaff.length === 0 && <p className="text-xs text-muted-foreground">{t('noChefsYet')}</p>}
+                        </div>
                         {(!kdsEnabledSetting || kdsSettingTenantId !== currentTenant?.id) ? (
                           <p className="text-xs text-muted-foreground mt-1">{t('stationChefRequiresKds')}</p>
-                        ) : stationStaff.length === 0 && (
-                          <p className="text-xs text-muted-foreground mt-1">{t('noChefsYet')}</p>
-                        )}
+                        ) : null}
                       </div>
                     </div>
                     <DialogFooter>
@@ -3460,6 +3719,20 @@ export default function SettingsPage() {
               )}
             </div>
 
+            <div className="bg-card rounded-xl border border-border p-6">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium text-foreground">{t('requireKitchenDeliveredToggle')}</p>
+                  <p className="text-sm text-muted-foreground">{t('requireKitchenDeliveredHint')}</p>
+                </div>
+                <Toggle
+                  value={requireKitchenDeliveredSetting}
+                  label={t('requireKitchenDeliveredToggle')}
+                  onChange={(value) => { if (!savingRequireKitchenDelivered) void saveRequireKitchenDelivered(value); }}
+                />
+              </div>
+            </div>
+
             {!kdsEnabledSetting && (
               <p className="text-sm text-muted-foreground italic">
                 {t('kdsPairingHiddenHint')}
@@ -3489,9 +3762,26 @@ export default function SettingsPage() {
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full">
                         {kdsInfo.ips_data.map((ipInfo: { ip: string; url: string; qr_data: string | null }, idx: number) => (
                           <div key={idx} className="flex flex-col items-center p-4 bg-muted border border-border rounded-lg">
-                            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">
-                              {ipInfo.ip.startsWith('100.') ? t('vpnMeshNetwork') : t('localNetwork')}
-                            </p>
+                            <div className="w-full mb-3">
+                              <div className="flex items-center justify-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                                <span>{ipInfo.ip.startsWith('100.') ? t('vpnMeshNetwork') : t('localNetwork')}</span>
+                                <TooltipProvider>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <button type="button" aria-label={ipInfo.ip.startsWith('100.') ? t('vpnMeshNetwork') : t('localNetwork')} className="rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
+                                        <Info size={14} aria-hidden="true" />
+                                      </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="max-w-xs text-center">
+                                      {ipInfo.ip.startsWith('100.') ? t('vpnMeshNetworkHint') : t('localNetworkHint')}
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
+                              </div>
+                              <p className="mt-1 text-[11px] text-muted-foreground text-center">
+                                {ipInfo.ip.startsWith('100.') ? t('vpnMeshNetworkHint') : t('localNetworkHint')}
+                              </p>
+                            </div>
                             {ipInfo.qr_data ? (
                               <img src={ipInfo.qr_data} alt={`QR Code for ${ipInfo.ip}`} className="w-40 h-40 rounded-lg mb-3 bg-card p-2 border border-border" />
                             ) : (
@@ -3829,9 +4119,26 @@ export default function SettingsPage() {
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full">
                           {serverAppInfo.ips_data.map((ipInfo: { ip: string; url: string; qr_data: string | null }, idx: number) => (
                             <div key={idx} className="flex flex-col items-center p-4 bg-muted border border-border rounded-lg">
-                              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">
-                                {ipInfo.ip.startsWith('100.') ? t('vpnMeshNetwork') : t('localNetwork')}
-                              </p>
+                              <div className="w-full mb-3">
+                                <div className="flex items-center justify-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                                  <span>{ipInfo.ip.startsWith('100.') ? t('vpnMeshNetwork') : t('localNetwork')}</span>
+                                  <TooltipProvider>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <button type="button" aria-label={ipInfo.ip.startsWith('100.') ? t('vpnMeshNetwork') : t('localNetwork')} className="rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
+                                          <Info size={14} aria-hidden="true" />
+                                        </button>
+                                      </TooltipTrigger>
+                                      <TooltipContent className="max-w-xs text-center">
+                                        {ipInfo.ip.startsWith('100.') ? t('vpnMeshNetworkHint') : t('localNetworkHint')}
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  </TooltipProvider>
+                                </div>
+                                <p className="mt-1 text-[11px] text-muted-foreground text-center">
+                                  {ipInfo.ip.startsWith('100.') ? t('vpnMeshNetworkHint') : t('localNetworkHint')}
+                                </p>
+                              </div>
                               {ipInfo.qr_data ? (
                                 <img src={ipInfo.qr_data} alt={`QR Code for ${ipInfo.ip}`} className="w-40 h-40 rounded-lg mb-3 bg-card p-2 border border-border" />
                               ) : (
@@ -4246,7 +4553,7 @@ export default function SettingsPage() {
         {/* Backup & Data tab - database tools only */}
         <TabsContent value="data">
           <DatabaseSettingsTab
-            isOwner={isOwner}
+            isOwner={canManageDatabase}
             masterPinStatus={masterPinStatus}
             backups={backups}
             backupsLoading={backupsLoading}
@@ -4265,6 +4572,7 @@ export default function SettingsPage() {
             onCreateBackup={handleCreateBackup}
             onChooseBackupLocation={handleChooseBackupLocation}
             onRestoreFromHistory={handleRestoreFromHistory}
+            onRestoreFromFile={handleRestoreFromFile}
             onDeleteBackup={handleDeleteBackup}
             onConnectGoogleDrive={connectGoogleDrive}
             onDisconnectGoogleDrive={disconnectGoogleDrive}
@@ -4302,6 +4610,7 @@ export default function SettingsPage() {
         </TabsContent>
 
         <TabsContent value="mobile-access">
+          {canManageMobileAccess ? (
           <SettingsTabShell title={t('tabMobileAccess')}>
 
             {/* FloAdmin — reporting sync */}
@@ -4532,6 +4841,12 @@ export default function SettingsPage() {
               )}
             </div>
           </SettingsTabShell>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-24 text-center">
+              <h1 className="text-xl font-bold text-foreground mb-2">{t('tabMobileAccess')}</h1>
+              <p className="text-muted-foreground">{t('noAccessMobileAccess')}</p>
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent value="orderflow">
@@ -4826,6 +5141,15 @@ export default function SettingsPage() {
         onSuccess={() => {
           toast.success(t('dbInitializedRedirecting'));
           setTimeout(() => window.location.replace('/setup'), 1200);
+        }}
+      />
+      <CurrencyResetDialog
+        open={Boolean(currencyResetTarget)}
+        targetCurrency={currencyResetTarget}
+        onOpenChange={(open) => { if (!open) setCurrencyResetTarget(''); }}
+        onSuccess={() => {
+          toast.success(t('currencyResetComplete'));
+          window.location.replace('/setup');
         }}
       />
       {isAdmin && isDirty && (

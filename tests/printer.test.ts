@@ -309,6 +309,20 @@ console.log('\n✅ Test 1a: cash drawer pulse is opt-in');
   assert('appendCashDrawerPulse adds ESC p drawer-kick bytes', bytesContain(withPulse, [ESC, 0x70, 0x00, 0x19, 0xFA]));
 }
 
+console.log('\n✅ Test 1a2: ESC/POS commands match a whole trimmed line');
+{
+  const inline = buildEscPos(['Text {INIT}', 'Text {FEED}', 'Item {CUT} Special']);
+  const padded = buildEscPos([' {INIT} ', ' {FEED} ', ' {CUT} ']);
+
+  assert('inline INIT is not dispatched', !bytesContain(inline, [ESC, 0x40]));
+  assert('inline FEED is not dispatched', !bytesContain(inline, [ESC, 0x64, 0x05]));
+  assert('inline CUT is not dispatched', !bytesContain(inline, [GS, 0x56, 0x00]));
+  assert('inline CUT does not discard the surrounding item text', inline.toString('utf8').includes('Item  Special'));
+  assert('trimmed INIT is dispatched', bytesContain(padded, [ESC, 0x40]));
+  assert('trimmed FEED is dispatched', bytesContain(padded, [ESC, 0x64, 0x05]));
+  assert('trimmed CUT is dispatched', bytesContain(padded, [GS, 0x56, 0x00]));
+}
+
 console.log('\n✅ Test 1b: Unsupported receipt text is skipped with a warning');
 {
   const warnings: Array<{ field: string; text: string; message: string }> = [];
@@ -448,7 +462,13 @@ console.log('\n✅ Test 1b2: Arabic shaping capability gate');
   const asciiControlLine = 'No onions\x07\nNo garlic\x7f';
   const asciiShaped = buildEscPos([asciiControlLine], true, { arabicShaping: true });
   const asciiUnshaped = buildEscPos([asciiControlLine], true, { arabicShaping: false });
-  assert('ASCII output stays byte-identical with shaping enabled', asciiShaped.equals(asciiUnshaped) && bytesContain(asciiShaped, Array.from(Buffer.from(asciiControlLine))));
+  // Shaping must not change ASCII output. Control bytes are stripped from every
+  // line, not only the non-ASCII ones — an ASCII order note used to reach the
+  // printer with its ESC/GS bytes intact, because the strip sat inside the
+  // non-ASCII branch.
+  assert('ASCII output stays byte-identical with shaping enabled', asciiShaped.equals(asciiUnshaped));
+  assert('ASCII control bytes are stripped like non-ASCII ones', !bytesContain(asciiShaped, [0x07]) && !bytesContain(asciiShaped, [0x7f]));
+  assert('the words around the stripped bytes still print', asciiShaped.toString('utf8').includes('No onions') && asciiShaped.toString('utf8').includes('No garlic'));
 
   // Mixed-script lines (Persian + Latin é) are still skipped even with the flag,
   // so the flag cannot be used to emit unshapeable mixed text.
@@ -811,7 +831,7 @@ console.log('\n✅ Test 3d: Trim decimals hides only trailing .00');
   assert('trim decimals keeps non-zero decimals', fractionalText.includes('₹78.75') && fractionalText.includes('₹3.75'));
 }
 
-console.log('\n✅ Test 3e: Thermal receipt ignores a stale stored currency symbol (docs/regional-snapshot.md, third surface)');
+console.log('\n✅ Test 3e: Thermal receipt ignores a stale stored currency symbol (docs/architecture/regional-settings.md, third surface)');
 {
   // country/currency say MAD, but a stale stored symbol from a prior INR
   // configuration is still passed on the business object — the resolver's
@@ -1046,6 +1066,12 @@ console.log('\n✅ Test 10: Print failure telemetry classification');
   assert('classifies raw write failure', classifyPrintFailure('WritePrinter failed (Win32 error 1722)') === 'write_error');
   assert('classifies timeout', classifyPrintFailure('Timed out connecting to 192.168.1.10:9100') === 'timeout');
   assert('does not expose unknown detail as a new telemetry class', classifyPrintFailure('some vendor-specific failure') === 'unknown');
+  assert('classifies a refused network printer as offline', classifyPrintFailure('Network error: connect ECONNREFUSED 127.0.0.1:9') === 'offline');
+  assert('classifies an unreachable network host as offline', classifyPrintFailure('Network error: connect EHOSTUNREACH 192.168.1.10:9100') === 'offline');
+  assert('classifies a missing CUPS queue as not configured', classifyPrintFailure('lp: No such file or directory') === 'not_configured');
+  assert('does not blame the printer for a missing temp directory', classifyPrintFailure("ENOENT: no such file or directory, open '/tmp/flo_print_1_2.bin'") === 'unknown');
+  assert('classifies a Windows paper jam as needing attention', classifyPrintFailure('Exception calling "SendRaw" with "1" argument(s): "printer has a paper jam"') === 'needs_attention');
+  assert('classifies a disabled CUPS queue as unavailable', classifyPrintFailure("disabled since 'Fri 26 Sep 2026 10:00:00 BST'") === 'queue_unavailable');
 }
 
 console.log('\n✅ Test 11: IR country thermal receipt financial-line preservation & currency safety');

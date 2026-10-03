@@ -1,15 +1,18 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { useAuthStore } from '@/store/auth';
 import api from '@/lib/api';
-import { useTranslations } from 'use-intl';
+import { useLocale, useTranslations } from 'use-intl';
 import toast from 'react-hot-toast';
 import { useFormatCurrency } from '@/hooks/useFormatCurrency';
 import { useCurrencyUnitAdapter } from '@/hooks/useCurrencyUnitAdapter';
 import { getCurrencyMinorUnitFactor } from '@/lib/countries';
 import { printerService } from '@/lib/printer/PrinterService';
-import { businessDateInTimezone } from '@/lib/business-date';
+import { displayAmountToCents } from '@/lib/money';
+import { businessDateForInstant } from '@shared/business-date';
+import { downloadBlob } from '@/lib/download';
+import { shareCashCloseViaWhatsApp, type XReportExport, type ZReportExport } from '@/lib/whatsapp-share';
 /** Live day aggregates returned by GET /api/reports/x-report. Display totals
  *  are in tenant major units (minorFactor-divided); expectedCashCents is the
  *  integer-cents drawer expected figure. Do not rename fields — the backend
@@ -85,10 +88,13 @@ export function useCashClose() {
   const { currentTenant } = useAuthStore();
   const t = useTranslations('dashboard');
   const tCommon = useTranslations('common');
+  const tPrint = useTranslations('print');
+  const tSettings = useTranslations('settings');
+  const locale = useLocale();
   const fmt = useFormatCurrency();
   const timeZone = currentTenant?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
   const dayStartTime = currentTenant?.business_day_start_time || '00:00';
-  const todayLocal = businessDateInTimezone(timeZone, dayStartTime);
+  const todayLocal = businessDateForInstant({ instant: new Date(), timezone: timeZone, startTime: dayStartTime });
   // ── Close-day modal state ────────────────────────────────────────────────
   // Modal flow: open → load X (live aggregates) + prior-day Z (default float)
   // → operator edits float + counted → POST /cash-closures → immutable Z view
@@ -97,6 +103,7 @@ export function useCashClose() {
   // the POST boundary via the unit adapter, and back to display for the
   // preview).
   const [closeOpen, setCloseOpen] = useState(false);
+  const [entryView, setEntryView] = useState<'x-report' | 'z-report' | null>(null);
   // Bumping this token is how we re-trigger the load effect on each open.
   // Reset of the form fields happens during render via the token comparison
   // below (React-recommended idiom for "adjusting state when a prop
@@ -138,6 +145,8 @@ export function useCashClose() {
   const [printingZ, setPrintingZ] = useState(false);
   const [hasPrintedFresh, setHasPrintedFresh] = useState(false);
   const [hydratedZ, setHydratedZ] = useState(false);
+  const [exportingReport, setExportingReport] = useState(false);
+  const [whatsAppReportType, setWhatsAppReportType] = useState<'x' | 'z' | null>(null);
   const unitAdapter = useCurrencyUnitAdapter();
   // Storage minor-unit factor (`Math.pow(10, fractionDigits)`) is the cents
   // denominator; the adapter's `maxDecimals` would be wrong for IRR/Toman
@@ -145,7 +154,7 @@ export function useCashClose() {
   const minorFactor = getCurrencyMinorUnitFactor(currentTenant?.currency || '');
 
   // Prior business date = day before the modal's date. ISO date arithmetic on
-  // the YYYY-MM-DD string is timezone-safe — no need for `localDateInTimezone`
+  // the YYYY-MM-DD string is timezone-safe — no need for `businessDateForInstant`
   // in the renderer.
   const shiftDate = (yyyymmdd: string, deltaDays: number): string => {
     const d = new Date(`${yyyymmdd}T00:00:00Z`);
@@ -292,14 +301,15 @@ export function useCashClose() {
   // of step 3. Fire only after the closed-Z hydrate finishes — otherwise the
   // operator lands on a blank step 3 with no Back path. Recomputes on every
   // render of the open modal — the cost is two field reads and a conditional.
-  if (closeOpen && xReport?.alreadyClosed && !xLoading && closedZ !== null && closeStep !== 3) {
+  if (closeOpen && entryView !== 'x-report' && xReport?.alreadyClosed && !xLoading && closedZ !== null && closeStep !== 3) {
     setCloseStep(3);
   }
 
-  const openCloseModal = () => {
+  const openCloseModal = useCallback((view: 'x-report' | 'z-report' | null = null) => {
+    setEntryView(view);
     setOpenToken((n) => n + 1);
     setCloseOpen(true);
-  };
+  }, []);
   // Close-another-day entry point from the stored-Z view. The reset block
   // above (driven by `openToken !== resetToken`) already wipes closedZ,
   // hasPrintedFresh, countedInput, submitError and forces closeStep back to
@@ -308,25 +318,140 @@ export function useCashClose() {
   // resets to todayLocal, matching the open-from-header behavior — the
   // operator then uses the existing step-1 date picker to navigate back.
   const closeAnotherDay = () => {
+    setEntryView(null);
     setDateOverride('');
     setOpenToken((n) => n + 1);
   };
 
-  // Convert a display-amount input string to integer cents. The adapter's
-  // `toStored` returns the value in MAJOR units (Rial for IRR/Toman — the
-  // adapter folds the Toman-to-Rial ratio itself), so multiplying by the
-  // storage minor factor gives integer cents. Empty/invalid/negative →
-  // null: the operator can type `-5` and the input would render `-5`
-  // while submit sent 0, leaving a misleading variance preview and a
-  // 400 on a row that is about to become immutable. The X already
-  // exposes `expectedCashCents` in cents and the submit gate now reads
-  // `amountsValid`, so we can return null and let the caller decide.
-  const displayToCents = (raw: string): number | null => {
-    if (raw.trim() === '') return null;
-    const n = Number(raw);
-    if (!Number.isFinite(n) || n < 0) return null;
-    return Math.round(unitAdapter.toStored(n) * minorFactor);
+  const exportReport = async (report: 'x' | 'z', format: 'csv' | 'xlsx') => {
+    if (report === 'z' && !closedZ) return;
+    setExportingReport(true);
+    try {
+      const res = await api.get(`/reports/${report}-report/export`, {
+        params: { date: businessDate, format },
+        responseType: 'blob',
+      });
+      const filename = report === 'x'
+        ? `x-report-${businessDate}.${format}`
+        : `z-report-Z${closedZ!.z_number}-${businessDate}.${format}`;
+      downloadBlob(res.data as Blob, filename);
+    } catch {
+      toast.error(tCommon('downloadFailed'));
+    } finally {
+      setExportingReport(false);
+    }
   };
+
+  const openWhatsAppReport = (report: 'x' | 'z') => {
+    if ((report === 'x' && xReport) || (report === 'z' && closedZ)) setWhatsAppReportType(report);
+  };
+
+  const whatsappReport: XReportExport | ZReportExport | null = whatsAppReportType === 'x' && xReport
+    ? {
+        businessDate: xReport.businessDate,
+        periodStart: xReport.periodStart,
+        periodEnd: xReport.periodEnd,
+        grossSales: xReport.grossCollected,
+        refunds: xReport.refunded,
+        netCollections: xReport.netCollected,
+        billCount: xReport.billCount,
+        expectedCash: xReport.expectedCashCents / minorFactor,
+        openingFloat: (xReport.openingFloatCents ?? 0) / minorFactor,
+        payIn: xReport.payInCents / minorFactor,
+        payOut: xReport.payOutCents / minorFactor,
+        safeDrops: xReport.safeDropCents / minorFactor,
+        paymentMethods: xReport.paymentMethods.map((payment) => ({
+          method: payment.method ?? '-',
+          count: payment.count,
+          total: payment.total,
+        })),
+      }
+    : whatsAppReportType === 'z' && closedZ
+      ? {
+          businessDate: closedZ.business_date,
+          periodStart: closedZ.period_start,
+          periodEnd: closedZ.period_end,
+          grossSales: closedZ.gross_collected_cents / minorFactor,
+          refunds: closedZ.refunded_cents / minorFactor,
+          netCollections: closedZ.net_collected_cents / minorFactor,
+          billCount: closedZ.bill_count,
+          expectedCash: closedZ.expected_cash_cents / minorFactor,
+          openingFloat: closedZ.opening_float_cents / minorFactor,
+          payIn: closedZ.pay_in_cents / minorFactor,
+          payOut: closedZ.pay_out_cents / minorFactor,
+          safeDrops: closedZ.safe_drop_cents / minorFactor,
+          paymentMethods: closedZ.payment_methods.map((payment) => ({
+            method: payment.method,
+            count: payment.count,
+            total: payment.total_cents / minorFactor,
+          })),
+          zNumber: closedZ.z_number,
+          closedAt: closedZ.created_at,
+          closedBy: closedZ.closed_by_name,
+          notes: closedZ.notes,
+          countedCash: closedZ.counted_cash_cents / minorFactor,
+          cashVariance: closedZ.variance_cents / minorFactor,
+        }
+      : null;
+
+  const sendWhatsAppReport = async (phoneE164: string): Promise<boolean> => {
+    if (!whatsappReport || !currentTenant || !whatsAppReportType) return false;
+    try {
+      const result = await shareCashCloseViaWhatsApp(
+        whatsappReport,
+        currentTenant,
+        phoneE164,
+        {
+          xReport: t('xReport'),
+          zReport: t('zReport'),
+          date: t('businessDateLabel'),
+          closedBy: t('ticketSectionOperator'),
+          grossSales: t('grossCollections'),
+          refunds: t('refunds'),
+          netCollections: t('netCollections'),
+          billCount: (count) => t('billsCount', { count }),
+          openingFloat: t('openingFloat'),
+          expectedCash: t('expectedCash'),
+          countedCash: t('countedCash'),
+          variance: t('variance'),
+          notes: t('closureNotes'),
+          none: tPrint('zReport.none'),
+          varianceExact: t('varianceExact'),
+          varianceShort: t('varianceShort'),
+          varianceOver: t('varianceOver'),
+          paymentMethod: (method) => {
+            switch (method.toLowerCase()) {
+              case 'cash': return tSettings('paymentMethodCash');
+              case 'card': return tSettings('paymentMethodCard');
+              case 'upi': return tSettings('paymentMethodUpi');
+              default: return method;
+            }
+          },
+          salesSummary: t('salesSummary'),
+          paymentBreakdown: t('paymentBreakdown'),
+          drawerReconciliation: t('drawerReconciliation'),
+        },
+        whatsAppReportType === 'z' ? closedZ?.id : undefined,
+        locale,
+      );
+      if (result === false) {
+        toast.error(tCommon('somethingWrong'));
+        return false;
+      }
+      toast.success(t(result === 'sent' ? 'reportSentSuccess' : 'reportOpeningWhatsAppWeb'));
+      setWhatsAppReportType(null);
+      return true;
+    } catch {
+      toast.error(tCommon('somethingWrong'));
+      return false;
+    }
+  };
+
+  // Shared display→cents semantics with shift close (lib/money.ts): the
+  // adapter's `toStored` returns MAJOR units, so multiply by the storage
+  // minor factor. Empty/invalid/negative → null (see that file).
+  const displayToCents = (raw: string): number | null =>
+    displayAmountToCents(raw, unitAdapter, minorFactor);
 
   const openingFloatCentsOrNull = displayToCents(openingFloatInput);
   const countedCashCentsOrNull = displayToCents(countedInput);
@@ -407,9 +532,18 @@ export function useCashClose() {
     xReport, xLoading, xError, closeStep, setCloseStep,
     openingFloatInput, setOpeningFloatInput, countedInput, setCountedInput,
     submittingClose, submitError, alreadyClosedOverride, setAlreadyClosedOverride,
-    amountsValid, expectedCashTotalCents, varianceCents, closedZ, printingZ,
+    amountsValid, expectedCashTotalCents, varianceCents, closedZ, printingZ, exportingReport, exportReport,
     hasPrintedFresh, setHasPrintedFresh, hydratedZ, minorFactor, fmt, unitAdapter, t, tCommon,
     shiftDate, todayLocal, submitClose, printZ,
+    whatsAppOpen: whatsAppReportType !== null,
+    setWhatsAppOpen: (open: boolean) => { if (!open) setWhatsAppReportType(null); },
+    whatsAppReport: whatsappReport,
+    whatsAppCashCloseId: whatsAppReportType === 'z' ? closedZ?.id : undefined,
+    openWhatsAppReport,
+    sendWhatsAppReport,
+    canSendWhatsApp: currentTenant?.permission_ids?.includes('whatsapp.use') === true,
+    canViewSettings: currentTenant?.permission_ids?.includes('settings.view') === true,
+    whatsappCountry: currentTenant?.country ?? '',
   };
 }
 

@@ -24,9 +24,14 @@ import TableCheckoutModal from '@/components/pos/TableCheckoutModal';
 import PaymentModal from '@/components/pos/PaymentModal';
 import PrepaidCheckoutModal, { type PrepaidPayment, type PrepaidDiscount } from '@/components/pos/PrepaidCheckoutModal';
 import PosTopbar from '@/components/pos/PosTopbar';
+import { ShiftOpenModal } from '@/components/dashboard/ShiftOpenModal';
+import { ShiftCloseModal } from '@/components/dashboard/ShiftCloseModal';
+import { useCashSession } from '@/hooks/useCashSession';
+import { tenantCan } from '@/lib/permissions';
 import { CashDrawerMovementModal } from '@/components/dashboard/CashDrawerMovementModal';
 import { useCashDrawerMovements } from '@/hooks/useCashDrawerMovements';
 import { usePrinterStore } from '@/hooks/usePrinter';
+import { printerService } from '@/lib/printer/PrinterService';
 import { showPrintWarningsToast } from '@/lib/printer/warnings-toast';
 import { formatKotErrorToast, formatReceiptErrorToast } from '@/lib/printer/warnings';
 import { AI_HELP_PROVIDERS, copyPrinterDiagnostic } from '@/lib/printer/ai-help';
@@ -103,6 +108,10 @@ export default function POSPage() {
   const currencyFmt = useFormatCurrency();
   const { confirm, ConfirmDialog } = useConfirm();
   const cashDrawer = useCashDrawerMovements();
+  const shift = useCashSession();
+  // Shift actions follow the same owner/manager/cashier group as the
+  // backend route gates (backend still enforces; this only hides the entry).
+  const canUseShift = tenantCan(currentTenant, 'cash.shifts.view');
 
   // A takeaway order placed on an occupied table reads as dine-in on the kitchen
   // ticket, so every line of such an order carries a takeaway tag.
@@ -125,6 +134,7 @@ export default function POSPage() {
   const [editingCartItem, setEditingCartItem] = useState<CartItem | null>(null);
   const [checkoutTable, setCheckoutTable] = useState<Table | null>(null);
   const [paymentBill, setPaymentBill] = useState<Bill | null>(null);
+  const [checkoutOverridePin, setCheckoutOverridePin] = useState<string | undefined>();
   const [showCustomerPrompt, setShowCustomerPrompt] = useState(false);
   const [showPrepaidCheckout, setShowPrepaidCheckout] = useState(false);
   const [pendingOrder, setPendingOrder] = useState<Order | null>(null);
@@ -324,6 +334,14 @@ export default function POSPage() {
         diagnostics: { stage: 'order_place', http_status: entry.status, message: entry.detail },
       },
     });
+    // Fire-and-forget remote diagnostics: a dismissed support prompt must still
+    // leave a record. Swallow every failure so telemetry never surfaces a toast.
+    void api.post('/diagnostics/event', {
+      event_code: entry.code,
+      severity: 'error',
+      message: entry.detail,
+      metadata: { detail: entry.detail, status: entry.status, stage: 'order_place' },
+    }).catch(() => {});
     toast.error(entry.message);
   };
 
@@ -430,12 +448,14 @@ export default function POSPage() {
     return data.bill as Bill;
   };
 
-  const printBillForTenant = async (bill: Bill, force = false) => {
-    if (!currentTenant) return;
-    if (!force && !autoPrintBill) return;
+  const printBillForTenant = async (bill: Bill, force = false, reservedWindow?: Window | null) => {
+    if (!currentTenant || (!force && !autoPrintBill)) {
+      if (reservedWindow && !reservedWindow.closed) reservedWindow.close();
+      return;
+    }
 
     try {
-      const printWarnings = await printBill(bill, currentTenant);
+      const printWarnings = await printBill(bill, currentTenant, undefined, reservedWindow);
       showPrintWarningsToast(printWarnings);
     } catch (err) {
       // Non-fatal: print failure should not block the checkout flow.
@@ -563,7 +583,8 @@ export default function POSPage() {
   // A modal already open means the scan (if one lands) isn't meant for the
   // product grid — e.g. it could be a barcode field inside that modal.
   const anyModalOpen = showTablePicker || !!addonProduct || !!editingCartItem || !!checkoutTable
-    || !!paymentBill || showCustomerPrompt || showPrepaidCheckout || cashDrawer.open;
+    || !!paymentBill || showCustomerPrompt || showPrepaidCheckout || cashDrawer.open
+    || shift.openModalOpen || shift.closeModalOpen;
 
   useBarcodeScanner((code) => {
     const scan = resolveScannedProduct(code, products);
@@ -645,6 +666,7 @@ export default function POSPage() {
           special_instructions: cart.orderNotes || undefined,
           online_platform: cart.orderType === 'online' ? cart.onlinePlatform || undefined : undefined,
           external_order_id: cart.orderType === 'online' ? cart.externalOrderId || undefined : undefined,
+          delivery_address: cart.orderType === 'delivery' ? cart.deliveryAddress || undefined : undefined,
           items: cart.items.map((item) => ({
             product_id: item.product.id,
             quantity: item.quantity,
@@ -808,6 +830,7 @@ export default function POSPage() {
           special_instructions: cart.orderNotes || undefined,
           online_platform: cart.orderType === 'online' ? cart.onlinePlatform || undefined : undefined,
           external_order_id: cart.orderType === 'online' ? cart.externalOrderId || undefined : undefined,
+          delivery_address: cart.orderType === 'delivery' ? cart.deliveryAddress || undefined : undefined,
           items: orderItems,
         }, { headers: { 'Idempotency-Key': attempt.orderIdempotencyKey } });
         orderData = data;
@@ -859,7 +882,7 @@ export default function POSPage() {
       // makes a lost response safe to retry without creating a second order.
       const paymentResponse = await api.post(
         `/bills/${billData.bill.id}/payments`,
-        { payments: paymentLines, customer_id: cart.customerId },
+        { payments: paymentLines, customer_id: billData.bill.customer_id ?? orderData.order.customer_id ?? null },
         { headers: { 'Idempotency-Key': attempt.paymentIdempotencyKey } },
       );
       const paidBill: Bill = paymentResponse.data?.bill || billData.bill;
@@ -904,10 +927,14 @@ export default function POSPage() {
   };
 
 
-  const handleSelectAvailableTable = (tableId: string, customer?: { id: number; name: string; phone: string } | null) => {
+  const handleSelectAvailableTable = (tableId: string, customer?: { id: string; name: string; phone: string } | null) => {
+    const cartCustomerWasInherited = cart.customerSource === 'reservation';
+
     cart.setTableId(tableId);
-    if (customer) {
-      cart.setCustomer({ ...customer, email: null, visits_count: 0, total_spent: 0, last_visit_at: null, country_code: '' });
+    if (customer && (!cart.customerId || cartCustomerWasInherited)) {
+      cart.setReservationCustomer({ ...customer, email: null, visits_count: 0, total_spent: 0, last_visit_at: null, country_code: '' });
+    } else if (!customer && cartCustomerWasInherited) {
+      cart.setCustomer(null);
     }
     setShowTablePicker(false);
   };
@@ -1037,6 +1064,7 @@ export default function POSPage() {
   const handlePaymentComplete = async () => {
     const bill = paymentBill; // capture before clearing state
     setPaymentBill(null);
+    setCheckoutOverridePin(undefined);
     setCheckoutTable(null);
     refreshTables();
 
@@ -1143,6 +1171,22 @@ export default function POSPage() {
         tables={tables}
         onShowTablePicker={() => setShowTablePicker(true)}
         onShowCashMovement={cashDrawer.openModal}
+        // Re-fetch on entry: the mount snapshot can be hours stale on a
+        // multi-terminal POS (backend still guards stale operations). On a
+        // load failure offer nothing — unknown state is not "no shift".
+        onShowShift={async () => {
+          const result = await shift.refresh();
+          if (result.status !== 'ok') return;
+          if (result.error) {
+            toast.error(result.error || shift.shiftLoadFailedMessage);
+            return;
+          }
+          if (result.session) shift.setCloseModalOpen(true); else shift.setOpenModalOpen(true);
+        }}
+        shiftHasOpenSession={!!shift.session}
+        shiftLoading={shift.loading}
+        shiftError={shift.error}
+        canUseShift={canUseShift}
         fullscreen={fullscreen}
         onToggleFullscreen={toggleFullscreen}
       />
@@ -1193,6 +1237,8 @@ export default function POSPage() {
 
       {/* Modals */}
       <CashDrawerMovementModal model={cashDrawer} />
+      <ShiftOpenModal model={shift} />
+      <ShiftCloseModal model={shift} />
       {isRestaurant && showTablePicker && (
         <TablePickerModal
           tables={tables}
@@ -1235,7 +1281,20 @@ export default function POSPage() {
           cartItemCount={cart.itemCount()}
           onClose={() => setCheckoutTable(null)}
           onAddItems={handleAddItemsToOrder}
-          onPayment={(bill) => { setCheckoutTable(null); setPaymentBill(bill); }}
+          onPrintBill={async (bill, reservedWindow) => {
+            await printBillForTenant(bill, true, reservedWindow);
+          }}
+          reservePrintWindow={() => {
+            const printer = usePrinterStore.getState();
+            const expectedBrowserPrint = printer.printMethod === 'browser'
+              || (printer.printMethod === 'escpos'
+                && !printer.hardwarePrinter
+                && !printerService.isConnected
+                && printer.status !== 'connecting');
+            return expectedBrowserPrint ? printerService.reserveBrowserPrintWindow() : undefined;
+          }}
+          canGenerateBill={tenantCan(currentTenant, 'bills.generate')}
+          onPayment={(bill, overridePin) => { setCheckoutTable(null); setPaymentBill(bill); setCheckoutOverridePin(overridePin); }}
           onAddCartToOrder={handleAddCartToOrder}
         />
       )}
@@ -1244,7 +1303,8 @@ export default function POSPage() {
         <PaymentModal
           bill={paymentBill}
           currency={currency}
-          onClose={() => setPaymentBill(null)}
+          initialOverridePin={checkoutOverridePin}
+          onClose={() => { setPaymentBill(null); setCheckoutOverridePin(undefined); }}
           onPaid={handlePaymentComplete}
           onBillUpdate={(updated) => setPaymentBill(updated)}
         />

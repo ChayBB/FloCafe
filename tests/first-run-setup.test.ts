@@ -221,6 +221,29 @@ assert.equal(getCurrentSchemaVersion(), MIGRATIONS[MIGRATIONS.length - 1].versio
     assert.equal(count('users'), 0, 'no owner is created when the currency is invalid');
     console.log('   ✓ setup rejects an invalid currency code');
 
+    const unsupportedCurrency = await request(baseUrl, '/setup/initialize', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: 'First Owner',
+        email: 'owner@example.com',
+        password: 'TestPass123',
+        business_type: 'restaurant',
+        business_name: 'First Cafe',
+        setup_profile: 'express',
+        service_model: 'qsr',
+        terms_accepted: true,
+        owner_approval_pin: '5678',
+        owner_approval_pin_confirmation: '5678',
+        country: 'CA',
+        currency: 'ZZZ',
+        timezone: 'America/Vancouver',
+      }),
+    });
+    assert.equal(unsupportedCurrency.status, 400, 'setup rejects a three-letter currency code unsupported by Intl');
+    assert.equal(unsupportedCurrency.data.error, 'Invalid currency', 'setup reports a currency-specific validation error');
+    assert.equal(count('users'), 0, 'no owner is created when the currency is unsupported');
+    console.log('   ✓ setup rejects an unsupported currency code');
+
     // A non-string country must not reach getCountryByCode's .toUpperCase()
     // call (which would throw and surface as a 500, not this 400).
     const nonStringCountry = await request(baseUrl, '/setup/initialize', {
@@ -262,6 +285,7 @@ assert.equal(getCurrentSchemaVersion(), MIGRATIONS[MIGRATIONS.length - 1].versio
         country: 'CA',
         currency: 'cad',
         timezone: 'America/Vancouver',
+        instagram_handle: '@'.repeat(150),
         // Deliberately sent as false: first-run setup no longer asks about
         // telemetry, it discloses it. The route must ignore this field
         // entirely rather than let a stale client switch telemetry off.
@@ -284,6 +308,7 @@ assert.equal(getCurrentSchemaVersion(), MIGRATIONS[MIGRATIONS.length - 1].versio
     assert.equal(setting('country'), 'CA', 'setup persists the chosen country');
     assert.equal(setting('currency'), 'CAD', 'setup persists the chosen currency');
     assert.equal(setting('timezone'), 'America/Vancouver', 'setup persists a custom tenant timezone independently of the country default');
+    assert.equal(setting('instagram_handle'), '@'.repeat(100), 'setup truncates overlong Instagram handles to 100 characters');
     assert.equal(setting('billing_type'), 'prepaid');
     assert.equal(setting('tables_required'), 'false');
     assert.equal(setting('onboarding_completed'), 'true');

@@ -13,6 +13,7 @@ import {
   Utensils,
   ShoppingBag,
   Truck,
+  Bike,
   Globe,
   Clock,
   Printer,
@@ -89,7 +90,9 @@ const ORDER_TYPE_KEYS = {
 interface OrderCardProps {
   order: Order;
   now: number;
-  isOwnerOrManager: boolean;
+  canCancelItems: boolean;
+  canRestoreItems: boolean;
+  canRefund: boolean;
   isWhatsAppReady: boolean;
   printHistory: Record<number, { id: number; print_type: string; user_name: string; printed_at: string }[]>;
   generatingBillId: number | null;
@@ -107,6 +110,9 @@ interface OrderCardProps {
   onConvertToTakeaway: (order: Order) => void;
   onCancelOrder: (order: Order) => void;
   onPrint: (billId: number) => void;
+  onPrintOrder?: (order: Order) => void;
+  onPrintDeliverySlip?: (order: Order) => void;
+  printingSlipOrderId?: number | null;
   onSendWhatsApp: (order: Order) => void;
   onLinkCustomer: (orderId: number) => void;
   onCancelLinkCustomer?: () => void;
@@ -123,7 +129,9 @@ interface OrderCardProps {
 export function OrderCard({
   order,
   now,
-  isOwnerOrManager,
+  canCancelItems,
+  canRestoreItems,
+  canRefund,
   isWhatsAppReady,
   printHistory,
   generatingBillId,
@@ -141,6 +149,9 @@ export function OrderCard({
   onConvertToTakeaway,
   onCancelOrder,
   onPrint,
+  onPrintOrder,
+  onPrintDeliverySlip,
+  printingSlipOrderId,
   onSendWhatsApp,
   onLinkCustomer,
   onCancelLinkCustomer,
@@ -275,16 +286,19 @@ export function OrderCard({
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0">
-            {bill && (
+            {(bill || (onPrintOrder && order.type === 'dine_in' && order.status !== 'cancelled')) && (
               <Button
                 variant="outline"
                 size="icon"
-                onClick={() => onPrint(bill.id)}
-                disabled={printingBillId === bill.id}
+                onClick={() => {
+                  if (bill) onPrint(bill.id);
+                  else if (onPrintOrder) onPrintOrder(order);
+                }}
+                disabled={(bill && printingBillId === bill.id) || generatingBillId === order.id}
                 className="size-9 rounded-lg border-border/70 text-muted-foreground hover:text-foreground touch-manipulation active:scale-95"
                 title={printCount > 0 ? tCommon('reprint') : tCommon('print')}
               >
-                {printingBillId === bill.id ? (
+                {(bill && printingBillId === bill.id) || generatingBillId === order.id ? (
                   <Loader2 size={16} className="animate-spin" />
                 ) : (
                   <Printer size={17} />
@@ -580,7 +594,7 @@ export function OrderCard({
                     </span>
 
                     {/* Touchscreen-accessible item actions for Manager */}
-                    {isOwnerOrManager && !isPaid && !['completed', 'cancelled'].includes(order.status) && (
+                    {canCancelItems && !isPaid && !['completed', 'cancelled'].includes(order.status) && (
                       <div className="flex items-center gap-1 ms-1 shrink-0">
                         {item.status === 'pending' && onDeleteItem && (
                           <button
@@ -639,7 +653,7 @@ export function OrderCard({
               </button>
             )}
 
-            {inactiveItems.length > 0 && isOwnerOrManager && (
+            {inactiveItems.length > 0 && canRestoreItems && (
               <button
                 type="button"
                 onClick={() => setShowVoidedItems((prev) => !prev)}
@@ -655,7 +669,7 @@ export function OrderCard({
           </div>
 
           {/* Expanded voided items list */}
-          {showVoidedItems && inactiveItems.length > 0 && isOwnerOrManager && (
+          {showVoidedItems && inactiveItems.length > 0 && canRestoreItems && (
             <div id={`order-voided-${order.id}`} className="mt-2 ps-2.5 border-s-2 border-red-200 dark:border-red-900/40 space-y-1.5 py-1">
               {inactiveItems.map((cItem: OrderItem) => (
                 <div key={cItem.id} className="flex items-center justify-between text-xs opacity-70">
@@ -819,8 +833,8 @@ export function OrderCard({
               </Button>
             )}
 
-            {/* Refund button for Owner / Manager (neutral outline, no purple) */}
-            {isOwnerOrManager && hasEligibleRefund && (
+            {/* Refund button (neutral outline, no purple) */}
+            {canRefund && hasEligibleRefund && (
               <Button
                 variant="outline"
                 onClick={() => onRefund(order, paidBills)}
@@ -833,6 +847,24 @@ export function OrderCard({
           </div>
         ) : (
           <div className="flex items-center gap-2">
+            {onPrintOrder && order.type === 'dine_in' && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  if (bill) onPrint(bill.id);
+                  else onPrintOrder(order);
+                }}
+                disabled={(bill && printingBillId === bill.id) || generatingBillId === order.id}
+                className="h-10 px-3 justify-center border-border text-foreground hover:bg-muted active:scale-95 touch-manipulation font-semibold text-xs"
+              >
+                {(bill && printingBillId === bill.id) || generatingBillId === order.id ? (
+                  <Loader2 size={15} className="animate-spin me-1.5" />
+                ) : (
+                  <Printer size={15} className="me-1.5 text-muted-foreground" />
+                )}
+                {tReceipt('printBill')}
+              </Button>
+            )}
             <Button
               onClick={() => onCheckout(order.id)}
               disabled={generatingBillId === order.id}
@@ -855,6 +887,24 @@ export function OrderCard({
               {tOrders('addItem')}
             </Button>
           </div>
+        )}
+
+        {/* Outside the payment branches: the courier is handed the slip before
+            the customer pays, which is why this exists. */}
+        {onPrintDeliverySlip && order.type === 'delivery' && order.status !== 'cancelled' && (
+          <Button
+            variant="outline"
+            onClick={() => onPrintDeliverySlip(order)}
+            disabled={printingSlipOrderId === order.id}
+            className="mt-2 w-full h-10 border-border text-foreground hover:bg-muted active:scale-95 touch-manipulation font-semibold text-xs"
+          >
+            {printingSlipOrderId === order.id ? (
+              <Loader2 size={15} className="animate-spin me-1.5" />
+            ) : (
+              <Bike size={15} className="me-1.5 text-muted-foreground" />
+            )}
+            {tOrders('printDeliverySlip')}
+          </Button>
         )}
       </div>
     </div>

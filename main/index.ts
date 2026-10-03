@@ -1083,7 +1083,7 @@ function createMenu(): void {
         { label: 'Quick Search', accelerator: 'CmdOrCtrl+K', click: () => mainWindow?.webContents.send('quick-search') },
         { type: 'separator' },
         { label: 'Backup Database', click: () => mainWindow?.webContents.send('backup-database') },
-        { label: 'Restore Backup', click: () => mainWindow?.webContents.send('restore-backup') },
+        { label: 'Restore Backup', click: () => mainWindow?.webContents.send('menu-restore-from-file') },
         { type: 'separator' },
         { label: 'Database Health Check', click: () => mainWindow?.webContents.send('menu-db-health-check') },
         { label: 'Initialize Database', click: () => mainWindow?.webContents.send('menu-db-initialize') },
@@ -1102,6 +1102,20 @@ function createMenu(): void {
         { role: 'copy' },
         { role: 'paste' },
         { role: 'selectAll' }
+      ],
+    },
+    {
+      label: 'View',
+      submenu: [
+        { label: 'POS', accelerator: 'CmdOrCtrl+1', click: () => mainWindow?.webContents.send('go-pos') },
+        { label: 'Dashboard', accelerator: 'CmdOrCtrl+2', click: () => mainWindow?.webContents.send('go-dashboard') },
+        { label: 'Orders', accelerator: 'CmdOrCtrl+3', click: () => mainWindow?.webContents.send('go-orders') },
+        { label: 'Kitchen Display', accelerator: 'CmdOrCtrl+4', click: () => mainWindow?.webContents.send('go-kds') },
+        { label: 'Tables', accelerator: 'CmdOrCtrl+5', click: () => mainWindow?.webContents.send('go-tables') },
+        { label: 'Catalog', accelerator: 'CmdOrCtrl+6', click: () => mainWindow?.webContents.send('go-products') },
+        { label: 'Inventory', accelerator: 'CmdOrCtrl+7', click: () => mainWindow?.webContents.send('go-inventory') },
+        { label: 'Customers', accelerator: 'CmdOrCtrl+8', click: () => mainWindow?.webContents.send('go-customers') },
+        { label: 'Staff', accelerator: 'CmdOrCtrl+9', click: () => mainWindow?.webContents.send('go-staff') },
       ],
     },
     {

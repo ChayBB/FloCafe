@@ -11,6 +11,7 @@ import type { PrintConceptId } from '../../shared/print/concepts';
 import type { PrinterCutMode } from './profiles';
 import { isThermalTextRepresentable, type ThermalPrinterCapabilities } from '../../shared/print/thermal-capabilities';
 import type { RasterSemanticLineGroup, RasterTextLayout } from '../../shared/print/raster';
+import { displayCellWidth, padToDisplayCells, truncateToDisplayCells } from '../../shared/print/width';
 import {
   addonRows,
   appendPoweredByFooter,
@@ -24,6 +25,7 @@ import {
   normalizePrintLanguage,
   maskPhoneOnReceipt,
   pushCenteredWrapped,
+  pushWrapped,
   resolveCurrencyPrefix,
   truncate,
   truncateShapedLine,
@@ -33,6 +35,7 @@ import {
   buildBillDocument,
   containsRtlScript,
   type ItemTableBlock,
+  type PaymentSnapshot,
   type PrintContext,
   type PrintData,
   type PrintDocument,
@@ -42,6 +45,8 @@ import {
   type TextDirection,
   type TotalsBlock,
   layoutStyledUnit,
+  optionalPaymentAmount,
+  paymentDisplayRows,
   type ThermalLayoutContext,
 } from '../../shared/print';
 
@@ -65,7 +70,7 @@ export function detectPrintLanguageDirection(lang: string): TextDirection {
 
 // PrintData / PrintContext normalization (caller-side, main-process layer).
 
-function parsePaymentDetails(raw: unknown): Array<{ method: string; amount: number }> {
+function parsePaymentDetails(raw: unknown): PaymentSnapshot[] {
   let value: unknown = raw;
   if (typeof value === 'string') {
     try {
@@ -77,10 +82,16 @@ function parsePaymentDetails(raw: unknown): Array<{ method: string; amount: numb
   if (!Array.isArray(value)) return [];
   return value
     .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === 'object')
-    .map((entry) => ({
-      method: String(entry.method ?? ''),
-      amount: Number(entry.amount) || 0,
-    }));
+    .map((entry) => {
+      const tendered = optionalPaymentAmount(entry.tendered_amount);
+      const change = optionalPaymentAmount(entry.change_amount);
+      return {
+        method: String(entry.method ?? ''),
+        amount: Number(entry.amount) || 0,
+        ...(tendered !== undefined ? { tendered } : {}),
+        ...(change !== undefined ? { change } : {}),
+      };
+    });
 }
 
 /** Normalize raw bill/order/business rows into authoritative PrintData. */
@@ -94,6 +105,7 @@ export function buildBillPrintData(order: any, bill: any, business: any, isRepri
       tableName: String(order?.table?.name ?? ''),
       onlinePlatform: String(order?.online_platform ?? ''),
       externalOrderId: String(order?.external_order_id ?? ''),
+      deliveryAddress: String(order?.delivery_address ?? ''),
       items: items.map((item: any) => ({
         productName: String(item?.product_name ?? ''),
         quantity: Number(item?.quantity) || 0,
@@ -176,7 +188,7 @@ export function buildBillPrintContext(opts: {
     locale,
     currency,
     // CLDR-derived only — a stored currency_symbol setting is not an input
-    // (docs/business-decisions.md: no per-store override of a snapshot value).
+    // (docs/reference/product-invariants.md: no per-store override of a snapshot value).
     currencySymbol: String(getCurrencySymbol(currency, locale) || currency),
     trimDecimals: opts.business?.trim_decimals === true,
     ...(opts.business?.timezone ? { timezone: String(opts.business.timezone) } : {}),
@@ -242,11 +254,11 @@ function classicItemHeader(block: ItemTableBlock, nameLen: number, amtLen: numbe
   const amountLabel = normalizeThermalText(labelOf(block.header.amount), capabilities);
   const fit = (value: string, length: number): string => capabilities?.raster.enabled === true && !isThermalTextRepresentable(value, capabilities)
     ? value
-    : value.slice(0, length);
-  const item = fit(itemLabel, nameLen).padEnd(nameLen);
-  const qty = fit(qtyLabel, qtyW).padEnd(qtyW);
+    : truncateToDisplayCells(value, length);
+  const item = padToDisplayCells(fit(itemLabel, nameLen), nameLen);
+  const qty = padToDisplayCells(fit(qtyLabel, qtyW), qtyW);
   const amount = fit(amountLabel, Math.max(1, amtLen - 1));
-  return item + qty + ' '.repeat(Math.max(0, amtLen - amount.length)) + amount;
+  return item + qty + ' '.repeat(Math.max(0, amtLen - displayCellWidth(amount))) + amount;
 }
 
 /** Map a PrintDocument onto classic token-line layout. */
@@ -376,6 +388,13 @@ export function renderBillDocumentToClassicLines(
       case 'customer': {
         const segment = segmentOf('customer');
         const start = segment.main.length;
+        // The heading is what keeps a receipt that also prints the store address
+        // from reading as carrying a second business address.
+        if (block.heading) {
+          segment.main.push('{CENTER}{BOLD}' + truncateShapedLine(labelOf(block.heading), cols, options.arabicShaping, options.language, options.capabilities) + '{/BOLD}{/CENTER}');
+          segment.sourceLines.main.push(labelOf(block.heading));
+          segment.sourceControlLines.main.push(segment.main.at(-1) ?? '');
+        }
         if (block.name) {
           segment.main.push('{CENTER}{FONT_B}' + truncateShapedLine(block.name.text, cols, options.arabicShaping, options.language, options.capabilities) + '{/FONT_B}{/CENTER}');
           segment.sourceLines.main.push(block.name.text);
@@ -386,6 +405,14 @@ export function renderBillDocumentToClassicLines(
           segment.main.push('{CENTER}' + phone + '{/CENTER}');
           segment.sourceLines.main.push(phone);
           segment.sourceControlLines.main.push(segment.main.at(-1) ?? '');
+        }
+        if (block.address) {
+          const labeled = labelOf(block.addressLabel) + ': ' + block.address.text;
+          // Wrapped, not truncated, so a long address stays readable end to end.
+          const addressStart = segment.main.length;
+          pushWrapped(segment.main, labeled, cols, options.language, options.capabilities);
+          segment.sourceLines.main.push(labeled);
+          segment.sourceControlLines.main.push(segment.main[addressStart] ?? '');
         }
         if (segment.main.length > start) segment.groups.push({ groupId: 'customer', start, count: segment.main.length - start, sourceLines: segment.sourceLines.main.slice(start), sourceControlLines: segment.sourceControlLines.main.slice(start) });
         break;
@@ -604,23 +631,27 @@ export function renderBillDocumentToClassicLines(
       }
       case 'payments': {
         const segment = segmentOf('payments');
-        for (const line of block.lines) {
-          const rawMethodLabel = paymentLabel(line.label);
-          const methodLabel = truncate(rawMethodLabel, cols - 12, options.language, options.capabilities);
-          const value = formatCurrency(line.amount, prefix, options.locale, trimDecimals, fractionDigits);
+        const pushPaymentRow = (rawLabel: string, amount: number): void => {
+          const methodLabel = truncate(rawLabel, cols - 12, options.language, options.capabilities);
+          const value = formatCurrency(amount, prefix, options.locale, trimDecimals, fractionDigits);
           const rendered = financialRows(methodLabel, value, cols, options.language, options.capabilities);
           const start = segment.main.length;
           segment.main.push(...rendered);
           segment.financialRanges.main.push({ start, count: rendered.length });
-          segment.sourceLines.main.push(`${rawMethodLabel} ${value.trimStart()}`);
+          segment.sourceLines.main.push(`${rawLabel} ${value.trimStart()}`);
           segment.sourceControlLines.main.push(rendered[0] ?? '');
           segment.sourceLayouts.main.push({
             kind: 'financial-summary',
             columns: [
-              { text: rawMethodLabel, align: 'left', widthRatio: Math.max(0.1, (cols - 12) / cols) },
+              { text: rawLabel, align: 'left', widthRatio: Math.max(0.1, (cols - 12) / cols) },
               { text: value.trimStart(), align: 'right', widthRatio: Math.min(0.9, 12 / cols) },
             ],
           });
+        };
+        for (const line of block.lines) {
+          for (const row of paymentDisplayRows(line)) {
+            pushPaymentRow(paymentLabel(row.label), row.amount);
+          }
         }
         break;
       }

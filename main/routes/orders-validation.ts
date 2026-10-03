@@ -1,9 +1,14 @@
 /** Order and item notes validation functions. */
 
+/** The read-only handle these validators need: a settings lookup and nothing more. */
+type SettingsLookup = { prepare(sql: string): { get(...params: unknown[]): unknown } };
+
 const DEFAULT_MAX_ORDER_NOTES_LENGTH = 200;
 const DEFAULT_MAX_ITEM_NOTES_LENGTH = 100;
+const DEFAULT_MAX_CUSTOMER_ADDRESS_LENGTH = 300;
+const DEFAULT_MAX_DELIVERY_ADDRESS_LENGTH = 300;
 
-function validateNoteLength(db: any, settingKey: string, defaultLimit: number, notes: string | null | undefined, label: string): void {
+function validateNoteLength(db: SettingsLookup, settingKey: string, defaultLimit: number, notes: string | null | undefined, label: string): void {
   if (!notes) return;
   const rawValue = (db.prepare('SELECT value FROM settings WHERE key = ?').get(settingKey) as { value?: string } | undefined)?.value;
   const parsed = parseInt(rawValue || '', 10);
@@ -13,12 +18,22 @@ function validateNoteLength(db: any, settingKey: string, defaultLimit: number, n
   }
 }
 
-export function validateOrderNotes(db: any, notes: string | null | undefined): void {
+export function validateOrderNotes(db: SettingsLookup, notes: string | null | undefined): void {
   validateNoteLength(db, 'max_order_notes_length', DEFAULT_MAX_ORDER_NOTES_LENGTH, notes, 'Order notes');
 }
 
-export function validateItemNotes(db: any, notes: string | null | undefined): void {
+export function validateItemNotes(db: SettingsLookup, notes: string | null | undefined): void {
   validateNoteLength(db, 'max_item_notes_length', DEFAULT_MAX_ITEM_NOTES_LENGTH, notes, 'Item notes');
+}
+
+/** Refuses a too-long new value; never rewrites a legacy row that is too long. */
+export function validateCustomerAddress(db: SettingsLookup, address: string | null | undefined): void {
+  validateNoteLength(db, 'max_customer_address_length', DEFAULT_MAX_CUSTOMER_ADDRESS_LENGTH, address, 'Customer address');
+}
+
+/** Free text bound for a printed document, so nothing unbounded is persisted. */
+export function validateDeliveryAddress(db: SettingsLookup, address: string | null | undefined): void {
+  validateNoteLength(db, 'max_delivery_address_length', DEFAULT_MAX_DELIVERY_ADDRESS_LENGTH, address, 'Delivery address');
 }
 
 export function validateProductQuantity(
@@ -30,7 +45,7 @@ export function validateProductQuantity(
     throw Object.assign(new Error(`Invalid quantity for ${productName}: must be a positive number`), { statusCode: 400 });
   }
   if (Number.isInteger(quantity)) return;
-  if (!['kg', 'g', 'lb'].includes(product.sale_unit || 'each') || Number(product.allow_fractional_quantity) !== 1) {
+  if (!['kg', 'g', 'lb', 'ml', 'cl', 'l', 'fl oz', 'oz'].includes(product.sale_unit || 'each') || Number(product.allow_fractional_quantity) !== 1) {
     throw Object.assign(new Error(`Invalid quantity for ${productName}: fractional quantities are not allowed`), { statusCode: 400 });
   }
 

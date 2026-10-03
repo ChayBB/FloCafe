@@ -366,6 +366,9 @@ jobs:
         # already-fresh entry and skips. Safe to run on both.
         run: node scripts/update-metainfo.js
 
+      - name: Prepare Snapcraft desktop entry
+        run: node scripts/prepare-snap-build.cjs
+
       - name: Build Linux artifacts
         # Builds AppImage + deb + rpm + snap for the host arch. The release
         # overrides below use the safe x64/arm64 matrix label rather than
@@ -477,16 +480,7 @@ jobs:
             --file "$SNAP_EVIDENCE"
 
   release-mac:
-    # Self-hosted: the release signing keychain has repeatedly failed to
-    # unlock on GitHub-hosted macos-latest runners with
-    # "SecKeychainUnlock: The user name or passphrase you entered is not
-    # correct" during `security set-key-partition-list`, even against
-    # freshly re-exported, locally-verified-working certs/password (the
-    # exact same `security import` + `set-key-partition-list` sequence
-    # succeeds reliably on the signing Mac itself). Building here sidesteps
-    # whatever host-specific keychain behavior causes that on the hosted
-    # image.
-    runs-on: [self-hosted, macOS]
+    runs-on: macos-14
     needs: create-release
     if: needs.create-release.outputs.promotion_only != 'true'
     # Was two parallel 60-minute matrix jobs (one per arch); now one job builds,
@@ -558,6 +552,29 @@ jobs:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
 
+      - name: Set up macOS signing keychain
+        # Create an ephemeral keychain explicitly so set-key-partition-list receives
+        # the keychain password (not the cert password). electron-builder then consumes
+        # CSC_KEYCHAIN directly without attempting internal keychain recreation.
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain"
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+          echo "$CSC_LINK" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          security import "$RUNNER_TEMP/certificate.p12" -k "$KEYCHAIN_PATH" -P "$CSC_KEY_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+          echo "CSC_KEYCHAIN=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+        env:
+          CSC_LINK: ${{ secrets.MAC_CERTS }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTS_PASSWORD }}
+
       - name: Build macOS
         # Both archs in one electron-builder invocation (#199, #178): package.json's
         # build.mac.target already declares arch: [x64, arm64] for dmg/zip, and
@@ -575,8 +592,7 @@ jobs:
             -c.publish.channel="${{ needs.create-release.outputs.manifest_prefix }}"
           node scripts/assert-release-artifact-names.cjs release
         env:
-          CSC_LINK: ${{ secrets.MAC_CERTS }}
-          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTS_PASSWORD }}
+          CSC_KEYCHAIN: ${{ env.CSC_KEYCHAIN }}
           APPLE_API_KEY: ${{ env.APPLE_API_KEY_PATH }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
@@ -586,10 +602,13 @@ jobs:
 
       - name: Verify macOS release assets
         run: |
+          export PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
           MANIFEST_PREFIX="${{ needs.create-release.outputs.manifest_prefix }}"
           test -f "release/${MANIFEST_PREFIX}-mac.yml" || { echo "::error::release/${MANIFEST_PREFIX}-mac.yml is missing — macOS auto-update would be broken for this release"; exit 1; }
-          find release -maxdepth 1 -type f -name '*.zip' -print -quit | grep -q . || { echo "::error::no .zip in release/ — macOS auto-update would be broken for this release"; exit 1; }
-          find release -maxdepth 1 -type f -name '*.zip.blockmap' -print -quit | grep -q . || { echo "::error::no .zip.blockmap in release/ — macOS auto-update would be broken for this release"; exit 1; }
+          ZIP_FILES=(release/*.zip)
+          ZIP_BLOCKMAP_FILES=(release/*.zip.blockmap)
+          [ -f "${ZIP_FILES[0]}" ] || { echo "::error::no .zip in release/ — macOS auto-update would be broken for this release"; exit 1; }
+          [ -f "${ZIP_BLOCKMAP_FILES[0]}" ] || { echo "::error::no .zip.blockmap in release/ — macOS auto-update would be broken for this release"; exit 1; }
           # Guards against a regression back to #199/#178: this should list one
           # `files:` entry per .zip built (both archs), not just exist.
           #
@@ -601,7 +620,7 @@ jobs:
           # entries were being counted as if they were missing zip entries).
           # electron-updater's MacUpdater only ever selects a `.zip` entry, so
           # only those need to be counted here.
-          ZIP_COUNT=$(find release -maxdepth 1 -type f -name '*.zip' | wc -l | tr -d ' ')
+          ZIP_COUNT=${#ZIP_FILES[@]}
           MANIFEST_COUNT=$(grep -cE '^\s*- url: .*\.zip$' "release/${MANIFEST_PREFIX}-mac.yml" || true)
           if [ "$MANIFEST_COUNT" -ne "$ZIP_COUNT" ]; then
             echo "::error::latest-mac.yml lists $MANIFEST_COUNT .zip file(s) but $ZIP_COUNT .zip(s) were built — auto-update would be broken for whichever architecture's entry is missing"
@@ -613,7 +632,7 @@ jobs:
             APP_DIR="$VERIFY_DIR/$(basename "$ZIP" .zip)"
             mkdir -p "$APP_DIR"
             ditto -x -k "$ZIP" "$APP_DIR"
-            APP=$(find "$APP_DIR" -maxdepth 2 -type d -name '*.app' -print -quit)
+            APP=$(find "$APP_DIR" -type d -name '*.app' -print -quit)
             [ -n "$APP" ] || { echo "::error::no app bundle in $ZIP"; exit 1; }
             codesign --verify --deep --strict --verbose=2 "$APP"
             spctl --assess --type execute --verbose=4 "$APP"
@@ -645,6 +664,7 @@ jobs:
         # checks against that, so a "clean" local build can't mask a broken
         # published release.
         run: |
+          export PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
           VERSION=$(node -p "require('./package.json').version")
           DOWNLOAD_DIR=$(mktemp -d)
           VERIFY_DIR=$(mktemp -d)
@@ -656,7 +676,7 @@ jobs:
             APP_DIR="$VERIFY_DIR/$(basename "$ZIP" .zip)"
             mkdir -p "$APP_DIR"
             ditto -x -k "$ZIP" "$APP_DIR"
-            APP=$(find "$APP_DIR" -maxdepth 2 -type d -name '*.app' -print -quit)
+            APP=$(find "$APP_DIR" -type d -name '*.app' -print -quit)
             [ -n "$APP" ] || { echo "::error::no app bundle in downloaded $ZIP"; exit 1; }
             codesign --verify --deep --strict --verbose=2 "$APP"
             spctl --assess --type execute --verbose=4 "$APP"

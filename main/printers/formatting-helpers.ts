@@ -2,7 +2,7 @@
 
 import CodepageEncoder from '@point-of-sale/codepage-encoder';
 import { CURRENCY_ASCII_MAP, normalizeCurrencyToAscii } from '../../shared/print/currency';
-import { fitThermalLine, wrapToDisplayCells } from '../../shared/print/width';
+import { displayCellWidth, fitThermalLine, padToDisplayCells, truncateToDisplayCells, wrapToDisplayCells } from '../../shared/print/width';
 import {
   escPosCodePageId,
   GENERIC_THERMAL_CAPABILITIES,
@@ -67,10 +67,10 @@ export function itemAmountWidth(
 ): number {
   let width = 10;
   for (const item of order?.items ?? []) {
-    width = Math.max(width, formatCurrency(item.total ?? 0, prefix, locale, trimDecimals, fractionDigits).length + 1);
+    width = Math.max(width, displayCellWidth(formatCurrency(item.total ?? 0, prefix, locale, trimDecimals, fractionDigits)) + 1);
     for (const addon of parseAddons(item.addons)) {
       if (addon?.price) {
-        width = Math.max(width, formatCurrency(addon.price, prefix, locale, trimDecimals, fractionDigits).length + 1);
+        width = Math.max(width, displayCellWidth(formatCurrency(addon.price, prefix, locale, trimDecimals, fractionDigits)) + 1);
       }
     }
   }
@@ -79,20 +79,20 @@ export function itemAmountWidth(
 
 export function itemRows(item: any, nameLen: number, amtLen: number, cols: number, prefix: string, locale: string = 'en-US', trimDecimals: boolean = false, _language: string = 'en', fractionDigits: number = 2, capabilities?: ThermalPrinterCapabilities): string[] {
   const qtyW = 4;
-  const productName = normalizeThermalText(item.product_name, capabilities);
+  const productName = normalizeThermalText(String(item.product_name ?? ''), capabilities);
   const amount = formatCurrency(item.total, prefix, locale, trimDecimals, fractionDigits);
-  const qty = String(item.quantity).padEnd(qtyW);
+  const qty = padToDisplayCells(String(item.quantity), qtyW);
   const maxLine1Name = Math.max(1, nameLen - 1);
 
-  if (productName.length <= maxLine1Name) {
-    const label = productName.padEnd(nameLen) + qty;
-    return [label + rightAlign(amount, cols - label.length)];
+  if (displayCellWidth(productName) <= maxLine1Name) {
+    const label = padToDisplayCells(productName, nameLen) + qty;
+    return [label + rightAlign(amount, cols - displayCellWidth(label))];
   }
 
   const nameLines = wrapText(productName, maxLine1Name);
-  const firstLineName = (nameLines[0] || '').padEnd(nameLen);
+  const firstLineName = padToDisplayCells(nameLines[0] || '', nameLen);
   const firstRowLabel = firstLineName + qty;
-  const firstRow = firstRowLabel + rightAlign(amount, cols - firstRowLabel.length);
+  const firstRow = firstRowLabel + rightAlign(amount, cols - displayCellWidth(firstRowLabel));
 
   const result = [firstRow];
   for (let i = 1; i < nameLines.length; i++) {
@@ -102,25 +102,25 @@ export function itemRows(item: any, nameLen: number, amtLen: number, cols: numbe
 }
 
 export function addonRows(addon: any, nameLen: number, amtLen: number, cols: number, prefix: string, locale: string = 'en-US', trimDecimals: boolean = false, _language: string = 'en', fractionDigits: number = 2, capabilities?: ThermalPrinterCapabilities): string[] {
-  const addonName = normalizeThermalText(addon.name, capabilities);
+  const addonName = normalizeThermalText(String(addon.name ?? ''), capabilities);
   const quantity = typeof addon.quantity === 'number' && addon.quantity > 1 ? ` x${addon.quantity}` : '';
   const fullName = '  + ' + addonName + quantity;
 
   if (!addon.price) {
     const lines = wrapText(fullName, cols);
-    return lines.map((l) => l + ' '.repeat(Math.max(0, cols - l.length)));
+    return lines.map((line) => padToDisplayCells(line, cols));
   }
 
   const price = formatCurrency(addon.price, prefix, locale, trimDecimals, fractionDigits);
 
-  if (fullName.length <= nameLen) {
-    const label = fullName.padEnd(nameLen);
-    return [label + rightAlign(price, cols - label.length)];
+  if (displayCellWidth(fullName) <= nameLen) {
+    const label = padToDisplayCells(fullName, nameLen);
+    return [label + rightAlign(price, cols - displayCellWidth(label))];
   }
 
   const nameLines = wrapText(fullName, nameLen);
-  const firstLine = (nameLines[0] || '').padEnd(nameLen);
-  const firstRow = firstLine + rightAlign(price, cols - firstLine.length);
+  const firstLine = padToDisplayCells(nameLines[0] || '', nameLen);
+  const firstRow = firstLine + rightAlign(price, cols - displayCellWidth(firstLine));
 
   const result = [firstRow];
   for (let i = 1; i < nameLines.length; i++) {
@@ -133,21 +133,17 @@ export function financialRows(label: string, value: string, cols: number, _langu
   const normalizedLabel = normalizeThermalText(label, capabilities);
   const safeLabel = capabilities?.raster.enabled === true && !isThermalTextRepresentable(normalizedLabel, capabilities)
     ? normalizedLabel
-    : normalizedLabel.slice(0, Math.max(1, cols - 1));
-  const inlineWidth = Math.max(1, cols - safeLabel.length - 1);
-  if (value.length <= inlineWidth) {
-    return [safeLabel + rightAlign(value, cols - safeLabel.length)];
+    : truncateToDisplayCells(normalizedLabel, Math.max(1, cols - 1));
+  const labelWidth = displayCellWidth(safeLabel);
+  const inlineWidth = Math.max(1, cols - labelWidth - 1);
+  if (displayCellWidth(value) <= inlineWidth) {
+    return [safeLabel + rightAlign(value, cols - labelWidth)];
   }
   return [safeLabel, ...wrapValue(value, cols)];
 }
 
 function wrapValue(value: string, cols: number): string[] {
-  const width = Math.max(1, cols);
-  const lines: string[] = [];
-  for (let offset = 0; offset < value.length; offset += width) {
-    lines.push(value.slice(offset, offset + width));
-  }
-  return lines.length > 0 ? lines : [''];
+  return wrapToDisplayCells(value, cols);
 }
 
 export function parseAddons(addons: any): any[] {
@@ -178,13 +174,13 @@ export function formatCurrency(amount: number, prefix: string, locale: string = 
 }
 
 export function rightAlign(text: string, width: number = 24): string {
-  return ' '.repeat(Math.max(1, width - text.length)) + text;
+  return ' '.repeat(Math.max(1, width - displayCellWidth(text))) + text;
 }
 
 export function truncate(text: string, length: number, _language: string = 'en', capabilities?: ThermalPrinterCapabilities): string {
   const normalizedText = normalizeThermalText(text, capabilities);
   if (capabilities?.raster.enabled === true && !isThermalTextRepresentable(normalizedText, capabilities)) return normalizedText;
-  return normalizedText.length > length ? normalizedText.substring(0, length - 2) + '..' : normalizedText;
+  return displayCellWidth(normalizedText) > length ? truncateToDisplayCells(normalizedText, Math.max(1, length - 2)) + '..' : normalizedText;
 }
 
 export function truncateShapedLine(text: string, length: number, arabicShaping: boolean, language: string = 'en', capabilities?: ThermalPrinterCapabilities): string {
@@ -209,6 +205,7 @@ export function pushWrapped(lines: string[], text: string, cols: number, _langua
   for (const line of wrapText(normalized, cols)) lines.push(line);
 }
 
+/** Centred counterpart of {@link pushWrapped}. */
 export function pushCenteredWrapped(lines: string[], text: string, cols: number, _language: string = 'en', capabilities?: ThermalPrinterCapabilities): void {
   const normalized = normalizeThermalText(text, capabilities);
   if (capabilities?.raster.enabled === true && !isThermalTextRepresentable(normalized, capabilities)) {
@@ -254,7 +251,8 @@ export function resolveCurrencyPrefix(symbol: string, useUnicode: boolean, capab
       ? normalizedSymbol
       : mappedFallback;
   const prefix = rawPrefix;
-  return prefix.length >= 3 ? prefix : ' '.repeat(3 - prefix.length) + prefix;
+  const prefixWidth = displayCellWidth(prefix);
+  return prefixWidth >= 3 ? prefix : ' '.repeat(3 - prefixWidth) + prefix;
 }
 
 export function appendCashDrawerPulse(data: Buffer): Buffer {
@@ -349,7 +347,7 @@ export function buildEscPos(lines: string[], _useUnicode: boolean = false, optio
       continue;
     }
     if (rasterRanges.some((range) => range.start < lineIndex && lineIndex < range.end)) continue;
-    if (line.includes('{INIT}')) {
+    if (line.trim() === '{INIT}') {
       buf.push(0x1B, 0x40);
       resetAllStyles();
       if (!useLegacyUnicode && activeCodePage !== 'ascii') {
@@ -358,12 +356,12 @@ export function buildEscPos(lines: string[], _useUnicode: boolean = false, optio
       continue;
     }
 
-    if (line.includes('{FEED}')) {
+    if (line.trim() === '{FEED}') {
       buf.push(0x1B, 0x64, 0x05);
       continue;
     }
 
-    if (line.includes('{CUT}')) {
+    if (line.trim() === '{CUT}') {
       buf.push(0x1B, 0x64, 0x05);
       if (options.cutMode === 'partial') {
         buf.push(0x1D, 0x56, 0x42, 0x00);
@@ -381,6 +379,13 @@ export function buildEscPos(lines: string[], _useUnicode: boolean = false, optio
       && Number.isSafeInteger(range.lineCount)
       && range.lineIndex <= lineIndex
       && lineIndex < range.lineIndex + range.lineCount);
+    // A printer command is a byte sequence, so the C0 range is stripped from every
+    // line before anything else looks at it. It used to sit inside the non-ASCII
+    // branch below, which meant a pure-ASCII line — an English order note, say —
+    // never reached it and its ESC/GS bytes went to the wire. The renderer's own
+    // sequences are unaffected: they are pushed straight to `buf`, never carried
+    // in a line.
+    line = line.replace(ESCPOS_TEXT_CONTROL_RE, '');
     line = line.replace(/\{STORE_NAME\}/g, '');
     let printableLine = line.replace(ESC_POS_CONTROL_TOKEN_RE, '');
     const lineBold = line.includes('{BOLD}');
@@ -421,7 +426,6 @@ export function buildEscPos(lines: string[], _useUnicode: boolean = false, optio
         }
         continue;
       }
-      line = line.replace(ESCPOS_TEXT_CONTROL_RE, '');
       printableLine = line.replace(ESC_POS_CONTROL_TOKEN_RE, '');
       if (Number.isInteger(options.columns) && (options.columns as number) > 0) {
         const maxCols = lineDW ? Math.floor((options.columns as number) / 2) : (options.columns as number);

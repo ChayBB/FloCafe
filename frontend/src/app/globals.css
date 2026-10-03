@@ -5,7 +5,7 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --font-sans: "Geist", system-ui, sans-serif;
+  --font-sans: "Geist", "Noto Sans Devanagari", "Nirmala UI", "Kohinoor Devanagari", "Devanagari Sangam MN", system-ui, sans-serif;
   --font-mono: "Geist Mono", monospace;
   --radius: 0.625rem;
   --background: oklch(1 0 0);
@@ -89,7 +89,6 @@ input[type="number"] {
   min-block-size: var(--flo-titlebar-height);
   align-items: center;
   overflow: hidden;
-  border-block-end: 1px solid var(--border);
   background: var(--background);
   color: var(--foreground);
   -webkit-app-region: drag;
@@ -177,6 +176,49 @@ body:has(.flo-title-bar__fallback-controls) .flo-title-bar__safe-area {
 .flo-title-bar__fallback-button--close:hover {
   background: #e81123;
   color: #ffffff;
+}
+
+/* Windows/Linux application menu: Electron never draws a menu bar for a
+ * frameless window, so the title bar renders the top-level labels and each
+ * click pops that entry's real submenu from the main-process menu. macOS
+ * renders nothing here and keeps its native menu bar. Logical properties keep
+ * the row on the inline-start edge for RTL locales; the buttons are already
+ * no-drag through the shared `.flo-title-bar button` rule above. */
+.flo-title-bar__menu {
+  gap: 0.125rem;
+}
+
+.flo-title-bar__menu-button {
+  padding: 0.25rem 0.5rem;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 0.75rem;
+  line-height: 1rem;
+  white-space: nowrap;
+}
+
+.flo-title-bar__menu-button:hover {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+/* Dead-center business identity similar to modern desktop title bars (e.g. VS Code). */
+.flo-title-bar__identity {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  max-inline-size: min(45vw, 24rem);
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.15;
+  text-align: center;
+  user-select: none;
 }
 
 .flo-title-bar--root-drag {

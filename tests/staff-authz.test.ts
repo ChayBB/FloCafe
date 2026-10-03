@@ -37,6 +37,7 @@ const {
   now,
 } = require('./helpers/test-setup');
 const { staffRoutes } = require('../main/routes/staff');
+const { authorizationRoutes } = require('../main/routes/authorization');
 const { getJWTSecret } = require('../main/routes/auth');
 
 function seedUser(db: any, id: string, role: string, pin = '1234') {
@@ -70,8 +71,16 @@ async function main() {
   seedUser(db, 'cashier-target-145', 'cashier', '');
   seedUser(db, 'server-target-145', 'server', '');
   seedUser(db, 'chef-target-145', 'chef', '');
+  db.prepare(`INSERT INTO kitchen_stations (id, name, is_active, created_at, updated_at)
+    VALUES ('station-145', 'Main Kitchen', 1, ?, ?)`
+  ).run(now(), now());
 
-  const app = createApp({ '/api/staff': staffRoutes });
+  // The authorization router is mounted so the precondition below is set up
+  // through a real write rather than by poking the override tables directly.
+  // createApp's mock middleware skips authentication for any path starting with
+  // /api/auth, which also matches /api/authorization, so the router is mounted
+  // under a neutral prefix that production actually authenticates.
+  const app = createApp({ '/api/staff': staffRoutes, '/api/permissions': authorizationRoutes });
 
   console.log('\n── Manager boundaries ─────────────────────────────────────────');
   let result = await request(app).put('/api/staff/owner-145').set(managerAuth).send({
@@ -113,7 +122,32 @@ async function main() {
     assertEqual(result.status, 201, `manager can create ${role}`);
     managerCreated[role] = result.body.staff?.id;
     assert(!('pin_hash' in result.body.staff), `create ${role} response does not expose pin_hash`);
+    if (role !== 'chef') {
+      assert(!('station_ids' in result.body.staff), `create ${role} response omits station_ids`);
+    }
   }
+
+  result = await request(app).post('/api/staff').set(managerAuth).send({
+    name: 'Station Chef', email: 'station-chef@test.local', password: 'StrongPass1', role: 'chef', station_ids: ['station-145'],
+  });
+  assertEqual(result.status, 201, 'chef can be optionally assigned to a station during creation');
+  assertEqual(result.body.staff.station_ids[0], 'station-145', 'created chef response includes the station assignment');
+  const stationChef = db.prepare('SELECT station_assignments_configured FROM users WHERE id = ?').get(result.body.staff.id) as any;
+  assertEqual(stationChef.station_assignments_configured, 1, 'station-scoped chef is marked as explicitly configured');
+  const stationLink = db.prepare('SELECT station_id FROM station_users WHERE user_id = ?').get(result.body.staff.id) as any;
+  assertEqual(stationLink.station_id, 'station-145', 'chef station assignment is persisted');
+
+  result = await request(app).post('/api/staff').set(managerAuth).send({
+    name: 'Unassigned Chef', email: 'unassigned-chef@test.local', password: 'StrongPass1', role: 'chef', station_ids: [],
+  });
+  assertEqual(result.status, 201, 'chef creation does not require a station');
+  const unassignedChef = db.prepare('SELECT station_assignments_configured FROM users WHERE id = ?').get(result.body.staff.id) as any;
+  assertEqual(unassignedChef.station_assignments_configured, 0, 'unassigned chef remains unrestricted by station configuration');
+
+  result = await request(app).post('/api/staff').set(managerAuth).send({
+    name: 'Invalid Station Cashier', email: 'station-cashier@test.local', password: 'StrongPass1', role: 'cashier', station_ids: ['station-145'],
+  });
+  assertEqual(result.status, 400, 'non-chef accounts cannot receive kitchen station assignments');
 
   for (const role of ['cashier', 'server', 'chef']) {
     result = await request(app).put(`/api/staff/${managerCreated[role]}`).set(managerAuth).send({
@@ -226,22 +260,100 @@ async function main() {
   const lastOwner = db.prepare('SELECT role FROM users WHERE id = ?').get('owner-145') as any;
   assertEqual(lastOwner.role, 'owner', 'last active owner keeps the owner role after a rejected demotion');
 
-  seedUser(db, 'owner-145-second', 'owner');
+  const secondOwnerAuth = seedUser(db, 'owner-145-second', 'owner');
   result = await request(app).put('/api/staff/owner-145').set(ownerAuth).send({ role: 'cashier' });
   assertEqual(result.status, 200, 'owner can demote after another active owner exists');
 
   console.log('\n── Owner full access ───────────────────────────────────────────');
-  result = await request(app).post('/api/staff').set(ownerAuth).send({
+  result = await request(app).post('/api/staff').set(secondOwnerAuth).send({
     name: 'Owner-created manager', email: 'owner-created-manager@test.local', password: 'StrongPass1', role: 'manager', pin: '9876',
   });
   assertEqual(result.status, 201, 'owner can create a manager with a valid PIN');
   assertEqual(result.body.staff.has_pin, 1, 'staff responses expose has_pin for configured PINs');
 
-  result = await request(app).post('/api/staff/cashier-target-145/deactivate').set(ownerAuth);
+  result = await request(app).post('/api/staff/cashier-target-145/deactivate').set(secondOwnerAuth);
   assertEqual(result.status, 200, 'owner can deactivate operational staff');
-  result = await request(app).post('/api/staff/cashier-target-145/reactivate').set(ownerAuth);
+  result = await request(app).post('/api/staff/cashier-target-145/reactivate').set(secondOwnerAuth);
   assertEqual(result.status, 200, 'owner can reactivate operational staff');
 
+  console.log('\n── Administration reachability ───────────────────────────────');
+  seedUser(db, 'admin-target', 'manager');
+  const adminOwnerA = seedUser(db, 'admin-owner-a', 'owner');
+  const adminOwnerB = seedUser(db, 'admin-owner-b', 'owner');
+
+  // The rest of this suite seeded owners of its own. The scenario below is only
+  // meaningful while admin-owner-a and admin-owner-b are the active owners.
+  result = await request(app).put('/api/staff/owner-145-second').set(adminOwnerA).send({ role: 'manager' });
+  assertEqual(result.status, 200, 'precondition: the suite\'s other owner is demoted first');
+
+  // Denying staff.operational.manage is legal while another active owner still
+  // reaches administration, and it is exactly the state that used to make the
+  // protected staff.privileged.manage gate inert: every staff mutation was
+  // gated on the outer, configurable permission only. The save costs A their
+  // own administrative access, so it carries the owner PIN seedUser stored.
+  const ownerAPayload = await request(app).get('/api/permissions/users/admin-owner-a').set(adminOwnerA);
+  const stripOperational = await request(app)
+    .put('/api/permissions/users/admin-owner-a')
+    .set(adminOwnerA)
+    .send({
+      revision: ownerAPayload.body.revision,
+      overrides: [
+        { permission_id: 'staff.operational.manage', effect: 'deny' },
+        { permission_id: 'settings.manage', effect: 'deny' },
+      ],
+      override_pin: '1234',
+    });
+  assertEqual(stripOperational.status, 200, 'an owner may self-limit while a second active owner still administers');
+
+  result = await request(app).put('/api/staff/admin-target').set(adminOwnerA).send({ name: 'Renamed through privileged gate' });
+  assertEqual(result.status, 200, 'staff.privileged.manage still admits the staff update once staff.operational.manage is denied');
+  // Both directions matter. The operational half must stay refused, because
+  // canModifyTargetStaff refuses the same account on edit, deactivate and
+  // reactivate of a cashier; admitting creation here would be incoherent.
+  result = await request(app).post('/api/staff').set(adminOwnerA).send({
+    name: 'Cashier by limited owner', email: 'limited-owner-cashier@test.local', password: 'StrongPass1', role: 'cashier',
+  });
+  assertEqual(result.status, 403, 'staff.privileged.manage alone must not create operational staff');
+  assertEqual(result.body.error, 'This account cannot create operational staff accounts',
+    'the refused operational creation says why');
+  result = await request(app).post('/api/staff').set(adminOwnerA).send({
+    name: 'Owner created by limited owner', email: 'limited-owner-created@test.local', password: 'StrongPass1', role: 'owner',
+  });
+  assertEqual(result.status, 201, 'staff.privileged.manage still admits privileged staff creation');
+  const limitedOwnerId = result.body.staff?.id;
+  result = await request(app).post('/api/staff/admin-target/deactivate').set(adminOwnerA);
+  assertEqual(result.status, 200, 'staff.privileged.manage still admits deactivation of a privileged account');
+  result = await request(app).post('/api/staff/admin-target/reactivate').set(adminOwnerA);
+  assertEqual(result.status, 200, 'staff.privileged.manage still admits reactivation of a privileged account');
+
+  result = await request(app).put(`/api/staff/${limitedOwnerId}`).set(adminOwnerB).send({ role: 'manager' });
+  assertEqual(result.status, 200, 'precondition: the owner created above is demoted again');
+
+  // Owner A now holds neither configurable administrative permission, so A is
+  // not an administrator. Removing the other owner would leave the store with
+  // no administrator at all, which the last-owner count check does not see
+  // because there are still two active owners.
+  result = await request(app).put('/api/staff/admin-owner-b').set(adminOwnerA).send({ role: 'manager' });
+  assertEqual(result.status, 400, 'demoting the last remaining administrator is rejected');
+  assertEqual(result.body.code, 'administration_unreachable', 'the rejected demotion carries a stable code');
+  assertEqual(
+    (db.prepare('SELECT role FROM users WHERE id = ?').get('admin-owner-b') as any).role,
+    'owner',
+    'the rejected demotion leaves the target as owner',
+  );
+
+  result = await request(app).post('/api/staff/admin-owner-b/deactivate').set(adminOwnerA);
+  assertEqual(result.status, 400, 'deactivating the last remaining administrator is rejected');
+  assertEqual(result.body.code, 'administration_unreachable', 'the rejected deactivation carries a stable code');
+  assertEqual(
+    (db.prepare('SELECT is_active FROM users WHERE id = ?').get('admin-owner-b') as any).is_active,
+    1,
+    'the rejected deactivation leaves the target active',
+  );
+
+  // The same writes from an owner who still reaches administration are allowed.
+  result = await request(app).post('/api/staff/admin-owner-a/deactivate').set(adminOwnerB);
+  assertEqual(result.status, 200, 'an owner who still reaches administration may deactivate the other owner');
   const results = getResults();
   console.log(`\nResults: ${results.passed}/${results.total} passed`);
   if (results.failed > 0) {

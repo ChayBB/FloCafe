@@ -4,6 +4,7 @@ import {
   dayBoundsInTimezone, localDateInTimezone, tenantBusinessDayStartTime, recordOrderAudit,
 } from '../db';
 import { invertTaxBreakdown, invertTaxSnapshot } from './tax';
+import { getOpenSession, NO_CASH_SESSION_ID, requireOpenSessionForCashTender } from './shift-session-gate';
 import { ROLE_ACCESS } from '../../shared/role-permissions';
 import { getCurrencyMinorUnitFactor, resolveRegionalSnapshot, resolveTenantCurrency } from '../countries';
 
@@ -14,8 +15,6 @@ const LOYALTY_REDEMPTION_RATE = 1;
 // Items already served/completed become refundable once an order is past the short window below.
 const REFUND_ITEM_ELIGIBLE_STATUSES = ['preparing', 'ready', 'served', 'completed'];
 const REFUND_WINDOW_MS = 60 * 60 * 1000;
-// Terminal item statuses excluded from active order calculations.
-export const TERMINAL_ITEM_STATUSES = ['cancelled', 'voided', 'void_adjustment', 'refunded'];
 
 export function getTenantCurrency(db?: Database): string {
   const explicit = db ? (db.prepare("SELECT value FROM settings WHERE key = 'currency'").get() as any)?.value : getSettingValue('currency');
@@ -92,6 +91,8 @@ export function createRefund(db: Database, req: RefundRequest): RefundResult {
     }
   }
 
+  requireOpenSessionForCashTender(db, [{ method: req.method }]);
+
   const bill = db.prepare('SELECT * FROM bills WHERE id = ?').get(req.billId) as any;
   if (!bill) throw httpError('Bill not found', 404);
   const order = db.prepare('SELECT created_at FROM orders WHERE id = ?').get(bill.order_id) as { created_at: string } | undefined;
@@ -99,7 +100,7 @@ export function createRefund(db: Database, req: RefundRequest): RefundResult {
   const orderCreatedAt = parseDbTimestamp(order.created_at).getTime();
   if (!Number.isFinite(orderCreatedAt)) throw httpError('Order creation time is invalid', 500);
   const nowMs = Date.now();
-  // Past the short window, an owner-only PIN is required for the rest of the business day (docs/business-decisions.md).
+  // Past the short window, an owner-only PIN is required for the rest of the business day (docs/reference/product-invariants.md).
   let lateRefund = false;
   if (nowMs - orderCreatedAt > REFUND_WINDOW_MS) {
     // Resolves through the country profile when the stored timezone is
@@ -207,10 +208,11 @@ export function createRefund(db: Database, req: RefundRequest): RefundResult {
       .run(timestamp, timestamp, item.id);
   }
 
+  const cashSessionId = getOpenSession(db)?.id ?? NO_CASH_SESSION_ID;
   const insertResult = db.prepare(`
-    INSERT INTO refunds (bill_id, order_item_id, amount_cents, method, reason, shift_id, approved_by, created_by, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(req.billId, req.orderItemId ?? null, amountCents, req.method, req.reason ?? null, req.shiftId ?? null, approver.id, req.createdByUserId, timestamp);
+    INSERT INTO refunds (bill_id, order_item_id, amount_cents, method, reason, shift_id, approved_by, created_by, created_at, cash_session_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(req.billId, req.orderItemId ?? null, amountCents, req.method, req.reason ?? null, req.shiftId ?? null, approver.id, req.createdByUserId, timestamp, cashSessionId);
 
   const newRefundedCents = refundedCents + amountCents;
   const paymentStatus = newRefundedCents >= paidCents ? 'refunded' : 'partially_refunded';

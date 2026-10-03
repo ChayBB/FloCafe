@@ -13,6 +13,7 @@ import { SHUTDOWN_TIMEOUT_MS } from './shutdown';
 import { resolveContainedPath } from './lib/path-containment';
 import { serializeMerchantTemplatePayload, validateMerchantTemplateText } from '../shared/print';
 import { ROLE_KEYS } from '../shared/role-permissions';
+import { businessDateForInstant, dayBoundsInTimezone, normalizeBusinessDayStartTime, utcDayBounds } from '../shared/business-date';
 import { getCurrencyFractionDigits, resolveRegionalSnapshot } from './countries';
 
 const USER_ROLE_SQL_CHECK = `CHECK (role IN (${ROLE_KEYS.map((role) => `'${role}'`).join(', ')}))`;
@@ -210,15 +211,18 @@ const DATABASE_MAINTENANCE_ROUTES = new Set([
   'POST /api/db/backup',
   'GET /api/db/download',
   'POST /api/db-tools/initialize',
+  'POST /api/db-tools/currency-reset',
 ]);
 
 function isDatabaseMaintenanceRoute(req: Request): boolean {
-  const fullPath = (req.baseUrl || '') + req.path;
+  // Lowercased for the same reason as requireAuth: the mount is case-insensitive,
+  // so an exact-match lookup on the raw spelling misses case variants.
+  const fullPath = ((req.baseUrl || '') + req.path).toLowerCase();
   return DATABASE_MAINTENANCE_ROUTES.has(`${req.method} ${fullPath}`);
 }
 
 export function databaseMaintenanceMiddleware(req: Request, res: Response, next: NextFunction): void {
-  const fullPath = (req.baseUrl || '') + req.path;
+  const fullPath = ((req.baseUrl || '') + req.path).toLowerCase();
   if (!fullPath.startsWith('/api')) {
     next();
     return;
@@ -336,15 +340,13 @@ export function getSettingValue(key: string): string | null {
   return row?.value ?? null;
 }
 
-/** Resolves the tenant's configured business day start time ('HH:mm', 00:00 to 11:59). */
+/** Resolves the tenant's configured business day start time, holding it to the
+ *  `00:00`-`11:59` contract the settings endpoint enforces. */
 export function tenantBusinessDayStartTime(customDb?: ReturnType<typeof getDatabase>): string {
   const raw = customDb
     ? (customDb.prepare("SELECT value FROM settings WHERE key = 'business_day_start_time'").get() as { value?: unknown } | undefined)?.value
     : getSettingValue('business_day_start_time');
-  if (typeof raw === 'string' && /^(?:0\d|1[01]):[0-5]\d$/.test(raw.trim())) {
-    return raw.trim();
-  }
-  return '00:00';
+  return normalizeBusinessDayStartTime(typeof raw === 'string' ? raw : null);
 }
 
 export function upsertSettings(entries: Record<string, string | undefined | null>): void {
@@ -801,6 +803,73 @@ function isHealthyDatabaseFile(
   }
 }
 
+export const MAX_RETAINED_RESTORE_SAFETY_COPIES = 3;
+
+/** True for the retained copies a successful restore leaves behind as an undo. */
+export function isRestoreSafetyCopyName(fileName: string): boolean {
+  return fileName.startsWith('flo-backup-') && fileName.includes('-pre-restore-') && fileName.endsWith('.db');
+}
+
+/**
+ * A successful restore replaces the live database, so the pre-restore snapshot is
+ * the only copy of what it replaced. It is copied into the managed backup naming
+ * scheme rather than deleted, which makes it appear in listBackups() and makes it
+ * restorable through the same preset-path route as any other managed backup.
+ * Retention is bounded so a long-lived install cannot accumulate copies forever.
+ *
+ * The snapshot is copied rather than renamed so the replacement journal keeps
+ * pointing at a real file: a crash between the committed journal and cleanup must
+ * still be able to roll the live database back from it.
+ */
+export function retainRestoreSafetyCopy(recoveryPath: string, schemaVersion: number): string | null {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const retainedPath = path.join(
+    getBackupDir(),
+    `flo-backup-${timestamp}-pre-restore-v${schemaVersion}.db`,
+  );
+  try {
+    if (!pathEntryExists(recoveryPath)) return null;
+    // The replacement journal snapshots the live file with a raw copy, so the
+    // snapshot carries no _flo_meta stamp and every restore route would refuse
+    // it. Stamp it before copying, so a failure here leaves the recovery copy
+    // exactly where the journal expects it and changes nothing.
+    const snapshotDb = new Database(recoveryPath);
+    try {
+      snapshotDb.pragma('journal_mode = DELETE');
+      snapshotDb.exec('CREATE TABLE IF NOT EXISTS _flo_meta (key TEXT PRIMARY KEY, value TEXT)');
+      snapshotDb.prepare('INSERT OR REPLACE INTO _flo_meta (key, value) VALUES (?, ?)')
+        .run('schema_version', String(schemaVersion));
+      snapshotDb.prepare('INSERT OR REPLACE INTO _flo_meta (key, value) VALUES (?, ?)')
+        .run('backup_created_at', new Date().toISOString());
+      snapshotDb.prepare('INSERT OR REPLACE INTO _flo_meta (key, value) VALUES (?, ?)')
+        .run('app_version', app.getVersion());
+    } finally {
+      snapshotDb.close();
+    }
+    syncFile(recoveryPath);
+    fs.copyFileSync(recoveryPath, retainedPath);
+    syncFile(retainedPath);
+    syncDirectory(getBackupDir());
+  } catch (error) {
+    // Retention is a safety net, never a reason to fail a committed restore.
+    console.warn('[DB] Could not retain the pre-restore safety copy:', error);
+    return null;
+  }
+  try {
+    const existing = fs.readdirSync(getBackupDir())
+      .filter(isRestoreSafetyCopyName)
+      .map((name) => ({ name, mtimeMs: fs.lstatSync(path.join(getBackupDir(), name)).mtimeMs }))
+      .sort((a, b) => b.mtimeMs - a.mtimeMs);
+    for (const stale of existing.slice(MAX_RETAINED_RESTORE_SAFETY_COPIES)) {
+      fs.unlinkSync(path.join(getBackupDir(), stale.name));
+    }
+    syncDirectory(getBackupDir());
+  } catch (error) {
+    console.warn('[DB] Could not apply pre-restore safety copy retention:', error);
+  }
+  return retainedPath;
+}
+
 function removeOlderReplacementJournals(journals: string[], dbPath: string, backupDir: string): void {
   const backupRoot = path.resolve(backupDir);
   for (const journalPath of journals) {
@@ -1019,6 +1088,11 @@ export function isTelemetryEnabled(): boolean {
 /** Tier 2 diagnostics consent toggle; separate from anonymous telemetry. */
 export function isDiagnosticsConsentEnabled(): boolean {
   return getSettingValue('diagnostics_consent') !== 'false';
+}
+
+/** Automatic transmission of captured diagnostics; off until an operator turns it on. */
+export function isDiagnosticsTransmissionEnabled(): boolean {
+  return getSettingValue('diagnostics_transmission_enabled') === 'true';
 }
 
 /** Kitchen Display System on/off switch. Defaults to enabled. */
@@ -1426,9 +1500,13 @@ function removeDatabaseFiles(dbPath: string): string[] {
   return failures;
 }
 
-/** Resets database while holding maintenance lock; recovers safety backup if reset fails. */
-export async function resetDatabaseWithBackup(signal?: AbortSignal): Promise<{ backupPath: string; committed?: boolean; cleanupPending?: boolean }> {
-  return withDatabaseMaintenanceLock(async (maintenanceSignal) => {
+type ResetAfterInit = (freshDb: Database.Database) => void;
+
+/** Resets database under an existing maintenance lock; recovers its safety backup if reset fails. */
+async function resetDatabaseWithBackupUnlocked(
+  maintenanceSignal: AbortSignal,
+  afterInit?: ResetAfterInit,
+): Promise<{ backupPath: string; committed?: boolean; cleanupPending?: boolean }> {
     const { path: backupPath } = await createBackupUnlocked(undefined, maintenanceSignal);
     throwIfDatabaseMaintenanceAborted(maintenanceSignal);
     const dbPath = getDbPath();
@@ -1460,6 +1538,8 @@ export async function resetDatabaseWithBackup(signal?: AbortSignal): Promise<{ b
       throwIfDatabaseMaintenanceAborted(maintenanceSignal);
       initDatabase(false, true);
       await new Promise<void>((resolve) => setImmediate(resolve));
+      throwIfDatabaseMaintenanceAborted(maintenanceSignal);
+      afterInit?.(getDatabase());
       throwIfDatabaseMaintenanceAborted(maintenanceSignal);
       (db ?? getDatabase()).pragma('wal_checkpoint(TRUNCATE)');
       syncFile(dbPath);
@@ -1507,6 +1587,153 @@ export async function resetDatabaseWithBackup(signal?: AbortSignal): Promise<{ b
     } finally {
       if (recoveryCompleted) removeReplacementArtifactsDurably(journalPath, recoveryPath);
     }
+}
+
+/** Resets database while holding maintenance lock; recovers safety backup if reset fails. */
+export async function resetDatabaseWithBackup(signal?: AbortSignal): Promise<{ backupPath: string; committed?: boolean; cleanupPending?: boolean }> {
+  return withDatabaseMaintenanceLock(
+    (maintenanceSignal) => resetDatabaseWithBackupUnlocked(maintenanceSignal),
+    signal,
+  );
+}
+
+type CurrencyResetMenuSnapshot = {
+  categories: Record<string, unknown>[];
+  products: Record<string, unknown>[];
+  addonGroups: Record<string, unknown>[];
+  addons: Record<string, unknown>[];
+  addonGroupProducts: Record<string, unknown>[];
+  categoryAddonGroups: Record<string, unknown>[];
+};
+
+export interface CurrencyResetImpact {
+  currentCurrency: string;
+  invoices: number;
+  orders: number;
+  refunds: number;
+  customers: number;
+  products: number;
+  addons: number;
+}
+
+function countTableRows(dbInstance: Database.Database, table: string): number {
+  return (dbInstance.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number }).count;
+}
+
+export function getCurrencyResetImpact(dbInstance: Database.Database = getDatabase()): CurrencyResetImpact {
+  const currentCurrency = (dbInstance.prepare("SELECT value FROM settings WHERE key = 'currency'").get() as { value?: string } | undefined)?.value || '';
+  return {
+    currentCurrency,
+    invoices: countTableRows(dbInstance, 'bills'),
+    orders: countTableRows(dbInstance, 'orders'),
+    refunds: countTableRows(dbInstance, 'refunds'),
+    customers: countTableRows(dbInstance, 'customers'),
+    products: countTableRows(dbInstance, 'products'),
+    addons: countTableRows(dbInstance, 'addons'),
+  };
+}
+
+function captureCurrencyResetMenu(dbInstance: Database.Database): CurrencyResetMenuSnapshot {
+  const rows = (table: string) => dbInstance.prepare(`SELECT * FROM ${table}`).all() as Record<string, unknown>[];
+  return {
+    categories: rows('categories'),
+    products: rows('products'),
+    addonGroups: rows('addon_groups'),
+    addons: rows('addons'),
+    addonGroupProducts: rows('addon_group_product'),
+    categoryAddonGroups: rows('category_addon_groups'),
+  };
+}
+
+function insertSnapshotRows(dbInstance: Database.Database, table: string, rows: Record<string, unknown>[]): void {
+  if (rows.length === 0) return;
+  const targetColumns = new Set(
+    (dbInstance.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((column) => column.name),
+  );
+  const columns = Object.keys(rows[0]).filter((column) => targetColumns.has(column));
+  const sql = `INSERT INTO ${table} (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`;
+  const insert = dbInstance.prepare(sql);
+  for (const row of rows) insert.run(...columns.map((column) => row[column]));
+}
+
+function restoreCurrencyResetMenu(dbInstance: Database.Database, snapshot: CurrencyResetMenuSnapshot): void {
+  const categoryIds = new Set(snapshot.categories.map((category) => category.id));
+  const productIds = new Set(snapshot.products.map((product) => product.id));
+  const addonGroupIds = new Set(snapshot.addonGroups.map((group) => group.id));
+  const inventoryLinks = snapshot.products.map((product) => ({ id: product.id, inventoryProductId: product.inventory_product_id }));
+  const products = snapshot.products.map((product) => ({
+    ...product,
+    category_id: categoryIds.has(product.category_id) ? product.category_id : null,
+    price: 0,
+    cost: 0,
+    stock_quantity: 0,
+    tax_type: 'none',
+    tax_rate: 0,
+    tax_category_id: null,
+    tax_behavior: 'country_default',
+    cb_percent: 0,
+    inventory_product_id: null,
+  }));
+  const addons = snapshot.addons
+    .filter((addon) => addonGroupIds.has(addon.addon_group_id))
+    .map((addon) => ({
+      ...addon,
+      price: 0,
+      tax_category_id: null,
+      tax_behavior: 'country_default',
+      inherit_parent_tax_category: 1,
+    }));
+  const addonGroupProducts = snapshot.addonGroupProducts.filter(
+    (link) => productIds.has(link.product_id) && addonGroupIds.has(link.addon_group_id),
+  );
+  const categoryAddonGroups = snapshot.categoryAddonGroups.filter(
+    (link) => categoryIds.has(link.category_id) && addonGroupIds.has(link.addon_group_id),
+  );
+
+  insertSnapshotRows(dbInstance, 'categories', snapshot.categories);
+  insertSnapshotRows(dbInstance, 'addon_groups', snapshot.addonGroups);
+  insertSnapshotRows(dbInstance, 'products', products);
+  const restoreInventoryLink = dbInstance.prepare('UPDATE products SET inventory_product_id = ? WHERE id = ?');
+  for (const link of inventoryLinks) {
+    if (link.inventoryProductId && productIds.has(link.inventoryProductId)) {
+      restoreInventoryLink.run(link.inventoryProductId, link.id);
+    }
+  }
+  insertSnapshotRows(dbInstance, 'addons', addons);
+  insertSnapshotRows(dbInstance, 'addon_group_product', addonGroupProducts);
+  insertSnapshotRows(dbInstance, 'category_addon_groups', categoryAddonGroups);
+}
+
+export async function resetDatabaseForCurrencyChange(
+  targetCurrency: string,
+  expectedCurrentCurrency: string,
+  signal?: AbortSignal,
+): Promise<{ backupPath: string; committed?: boolean; cleanupPending?: boolean }> {
+  return withDatabaseMaintenanceLock(async (maintenanceSignal) => {
+    const currentDb = getDatabase();
+    const settingsRows = currentDb.prepare("SELECT key, value FROM settings WHERE key IN ('country', 'currency', 'timezone')").all() as { key: string; value: string }[];
+    const settings = Object.fromEntries(settingsRows.map((row) => [row.key, row.value]));
+    if (settings.currency !== expectedCurrentCurrency || settings.currency === targetCurrency) {
+      throw Object.assign(new Error('Active currency changed'), { code: 'ERR_CURRENCY_CHANGED' });
+    }
+    const snapshot = captureCurrencyResetMenu(currentDb);
+    const regional = resolveRegionalSnapshot({ country: settings.country, currency: targetCurrency, timezone: settings.timezone });
+
+    return resetDatabaseWithBackupUnlocked(maintenanceSignal, (freshDb) => {
+      freshDb.transaction(() => {
+        freshDb.exec('CREATE TABLE IF NOT EXISTS _flo_meta (key TEXT PRIMARY KEY, value TEXT)');
+        restoreCurrencyResetMenu(freshDb, snapshot);
+        const writeSetting = freshDb.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)');
+        writeSetting.run('country', regional.country, now());
+        writeSetting.run('currency', regional.currency, now());
+        writeSetting.run('currency_symbol', regional.currencySymbol, now());
+        writeSetting.run('timezone', regional.timezone, now());
+        freshDb.prepare('INSERT OR REPLACE INTO _flo_meta (key, value) VALUES (?, ?)').run(
+          'currency_reset_pending',
+          JSON.stringify({ country: regional.country, currency: regional.currency, timezone: regional.timezone }),
+        );
+      })();
+    });
   }, signal);
 }
 
@@ -1580,7 +1807,7 @@ export function listBackups(): { fileName: string; path: string; sizeBytes: numb
         path: fullPath,
         sizeBytes: stat.size,
         createdAt: stat.mtime.toISOString(),
-        kind: (fileName.includes('-pre-v') ? 'auto' : 'manual') as 'manual' | 'auto',
+        kind: (fileName.includes('-pre-v') || isRestoreSafetyCopyName(fileName) ? 'auto' : 'manual') as 'manual' | 'auto',
         schemaVersion: readBackupSchemaVersion(fullPath),
       };
     })
@@ -1947,10 +2174,12 @@ export type RestoreOutboxState = {
   cloud: Record<string, unknown>[];
   support: Record<string, unknown>[];
   diagnostics: Record<string, unknown>[];
+  /** Device-local failure log; present on restores that predate it. */
+  local?: Record<string, unknown>[];
 };
 const RESTORE_PROTECTED_SETTING_KEYS = [
   'jwt_secret', 'cloud_api_key', 'cloud_device_secret', 'cloud_pos_hash',
-  'telemetry_enabled', 'diagnostics_consent',
+  'telemetry_enabled', 'diagnostics_consent', 'diagnostics_transmission_enabled',
   'mobile_pairing_code', 'mobile_pairing_code_expires_at',
 ];
 
@@ -1990,11 +2219,15 @@ export function mergeRestoreProtectedSettings(dbInstance: Database.Database, sta
 
 export function captureRestoreOutboxState(dbInstance: Database.Database): RestoreOutboxState {
   const pending = (table: string) => dbInstance.prepare(`SELECT * FROM ${table} WHERE status IN ('pending', 'failed', 'sending')`).all() as Record<string, unknown>[];
-  return { cloud: pending('cloud_sync_outbox'), support: pending('support_ticket_outbox'), diagnostics: pending('store_diagnostics_outbox') };
+  // A SQLite backup copies the whole file, so local_diagnostics travels with it.
+  // Those rows describe the till that produced them, so the receiving device
+  // keeps its own and drops the incoming one.
+  const local = dbInstance.prepare('SELECT * FROM local_diagnostics ORDER BY id ASC').all() as Record<string, unknown>[];
+  return { cloud: pending('cloud_sync_outbox'), support: pending('support_ticket_outbox'), diagnostics: pending('store_diagnostics_outbox'), local };
 }
 
 export function mergeRestoreOutboxState(dbInstance: Database.Database, state: RestoreOutboxState): void {
-  dbInstance.exec('DELETE FROM cloud_sync_outbox; DELETE FROM support_ticket_outbox; DELETE FROM store_diagnostics_outbox');
+  dbInstance.exec('DELETE FROM cloud_sync_outbox; DELETE FROM support_ticket_outbox; DELETE FROM store_diagnostics_outbox; DELETE FROM local_diagnostics');
   const cloud = dbInstance.prepare(`INSERT OR REPLACE INTO cloud_sync_outbox
     (id, event_type, entity_type, entity_id, payload, status, attempt_count, next_attempt_at, last_error, delivered_at, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
@@ -2007,6 +2240,12 @@ export function mergeRestoreOutboxState(dbInstance: Database.Database, state: Re
     (event_id, payload, status, attempt_count, next_attempt_at, last_error, created_at, updated_at, delivered_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
   for (const row of state.diagnostics) diagnostics.run(row.event_id, row.payload, row.status === 'sending' ? 'failed' : row.status, row.attempt_count || 0, row.next_attempt_at || now(), row.last_error || null, row.created_at || now(), row.updated_at || now(), row.delivered_at || null);
+  const local = dbInstance.prepare(`INSERT INTO local_diagnostics
+    (event_code, severity, error_class, signature, summary, metadata_json, occurred_at, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
+  for (const row of state.local || []) local.run(row.event_code, row.severity, row.error_class, row.signature, row.summary, row.metadata_json || null, row.occurred_at, row.created_at);
+  // Re-cap in case this device was already at the limit before the restore.
+  dbInstance.prepare('DELETE FROM local_diagnostics WHERE id NOT IN (SELECT id FROM local_diagnostics ORDER BY id DESC LIMIT ?)').run(200);
 }
 
 export function captureKdsEnabledSetting(dbInstance: Database.Database): KdsEnabledSettingState {
@@ -2344,14 +2583,30 @@ export function restoreBackup(backupPath: string, forceDirect: boolean = false, 
   let metadataStampPresent = false;
   let pragmaVersion = 0;
   let backupDb: Database.Database | undefined;
+  let unreadableSource = false;
   try {
     backupDb = new Database(backupPath, { readonly: true, fileMustExist: true });
     const metaRow = backupDb.prepare(`SELECT value FROM _flo_meta WHERE key = 'schema_version'`).get() as { value: string } | undefined;
     metadataStampPresent = Boolean(metaRow);
     metadataVersion = metaRow ? parseCanonicalSchemaVersion(metaRow.value) ?? 0 : 0;
     pragmaVersion = Number(backupDb.pragma('user_version', { simple: true }));
+  } catch {
+    // A file that is not a readable SQLite database (truncated, corrupt, or
+    // simply not a database at all) must be refused, never applied.
+    unreadableSource = true;
   } finally {
     backupDb?.close();
+  }
+
+  if (unreadableSource) {
+    return {
+      success: false,
+      mode: forceDirect ? 'direct' : 'data_only',
+      backupSchemaVersion: 0,
+      currentSchemaVersion: getCurrentSchemaVersion(),
+      tablesRestored: 0,
+      error: 'Restore source is not a readable Flo database file',
+    };
   }
 
   // Determine schema version from metadata stamp or SQLite user_version pragma.
@@ -2468,6 +2723,9 @@ export function restoreBackup(backupPath: string, forceDirect: boolean = false, 
         baselineForeignKeyViolations: [...baselineForeignKeyViolations],
         driveInvalidationRequired: true,
       });
+      // The replacement is durable; keep the snapshot of what it replaced so a
+      // customer who restores the wrong file can undo it.
+      retainRestoreSafetyCopy(recoveryPath, currentVersion);
       return {
         success: true,
         mode: 'direct',
@@ -2817,6 +3075,7 @@ function dataOnlyRestore(
       throw journalError;
     }
     replacementCommitted = true;
+    retainRestoreSafetyCopy(replacementJournal.recoveryPath, currentVersion);
     try {
       currentDb.exec('DETACH DATABASE _restore_src');
       attached = false;
@@ -3224,7 +3483,7 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       }
 
       const tenantCountryRow = db.prepare("SELECT value FROM settings WHERE key = 'country'").get() as any;
-      // Deliberate exception to "no India default" (docs/business-decisions.md):
+      // Deliberate exception to "no India default" (docs/reference/product-invariants.md):
       // this is a one-time best-effort cleanup of pre-existing customer phone
       // records on an upgrading install, most of which predate multi-country
       // support and were Indian. Not a live store's regional identity.
@@ -4775,7 +5034,7 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
     version: 82,
     name: 'add_order_audit_log',
     up: () => {
-      // Append-only actor log for order/item mutations (docs/business-decisions.md).
+      // Append-only actor log for order/item mutations (docs/reference/product-invariants.md).
       db.exec(`
         CREATE TABLE IF NOT EXISTS order_audit_log (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -4935,6 +5194,388 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
   },
   {
     version: 87,
+    name: 'add_volume_units_and_inventory_links',
+    up: () => {
+      const productColumns = getColumns(db, 'products');
+      const needsRebuild = !productColumns.includes('inventory_product_id')
+        || !productColumns.includes('inventory_deduction_quantity');
+      const saleUnitSql = db.prepare(`
+        SELECT sql FROM sqlite_master
+        WHERE type = 'table' AND name = 'products'
+      `).get() as { sql: string } | undefined;
+      const needsWideSaleUnit = !!saleUnitSql
+        && !/sale_unit[^)]*'ml'/.test(saleUnitSql.sql);
+
+      if (needsRebuild || needsWideSaleUnit) {
+        // SQLite cannot ALTER a column CHECK constraint; rebuild products with
+        // volume units and the 1-to-1 inventory-link columns in one pass.
+        const productIndexes = (db.prepare(`
+          SELECT name, sql FROM sqlite_master
+          WHERE type = 'index' AND tbl_name = 'products' AND sql IS NOT NULL
+        `).all() as { name: string; sql: string }[])
+          .filter((index) => index.name.startsWith('idx_products_'));
+        db.exec(`
+          PRAGMA foreign_keys = OFF;
+          CREATE TABLE products_volume_migration (
+            id TEXT PRIMARY KEY,
+            category_id TEXT,
+            name TEXT NOT NULL,
+            description TEXT,
+            price REAL NOT NULL DEFAULT 0,
+            cost REAL DEFAULT 0,
+            sku TEXT,
+            barcode TEXT,
+            sale_unit TEXT NOT NULL DEFAULT 'each' CHECK (sale_unit IN ('each', 'kg', 'g', 'lb', 'ml', 'cl', 'l', 'fl oz', 'oz')),
+            allow_fractional_quantity INTEGER NOT NULL DEFAULT 0,
+            weight_precision INTEGER NOT NULL DEFAULT 3 CHECK (weight_precision BETWEEN 0 AND 4),
+            image_url TEXT,
+            is_active INTEGER DEFAULT 1,
+            sort_order INTEGER DEFAULT 0,
+            track_inventory INTEGER DEFAULT 0,
+            stock_quantity REAL DEFAULT 0,
+            low_stock_threshold REAL DEFAULT 5,
+            tax_type TEXT DEFAULT 'none',
+            tax_rate REAL DEFAULT 0,
+            tax_category_id TEXT DEFAULT NULL,
+            tax_behavior TEXT DEFAULT 'country_default',
+            cb_percent REAL DEFAULT 0,
+            tags TEXT,
+            inventory_product_id TEXT DEFAULT NULL REFERENCES products(id),
+            inventory_deduction_quantity REAL DEFAULT 1,
+            deleted_at TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (category_id) REFERENCES categories(id)
+          );
+          INSERT INTO products_volume_migration (
+            id, category_id, name, description, price, cost, sku, barcode,
+            sale_unit, allow_fractional_quantity, weight_precision, image_url,
+            is_active, sort_order, track_inventory, stock_quantity, low_stock_threshold,
+            tax_type, tax_rate, tax_category_id, tax_behavior, cb_percent, tags,
+            inventory_product_id, inventory_deduction_quantity, deleted_at, created_at, updated_at
+          )
+          SELECT
+            id, category_id, name, description, price, cost, sku, barcode,
+            sale_unit, allow_fractional_quantity, weight_precision, image_url,
+            is_active, sort_order, track_inventory, stock_quantity, low_stock_threshold,
+            tax_type, tax_rate, tax_category_id, tax_behavior, cb_percent, tags,
+            ${productColumns.includes('inventory_product_id') ? 'inventory_product_id' : 'NULL'},
+            ${productColumns.includes('inventory_deduction_quantity') ? 'inventory_deduction_quantity' : '1'},
+            deleted_at, created_at, updated_at
+          FROM products;
+          DROP TABLE products;
+          ALTER TABLE products_volume_migration RENAME TO products;
+          PRAGMA foreign_keys = ON;
+        `);
+        for (const index of productIndexes) {
+          db.exec(index.sql);
+        }
+      }
+
+      if (!getColumns(db, 'order_items').includes('inventory_product_id')) {
+        db.exec(`ALTER TABLE order_items ADD COLUMN inventory_product_id TEXT DEFAULT NULL`);
+      }
+    },
+  },
+  {
+    version: 88,
+    name: 'add_supplies_and_recipes',
+    up: () => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS supplies (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          base_unit TEXT NOT NULL CHECK (base_unit IN ('each', 'g', 'kg', 'ml', 'l')),
+          stock_quantity REAL NOT NULL DEFAULT 0,
+          low_stock_threshold REAL,
+          is_active INTEGER NOT NULL DEFAULT 1,
+          deleted_at TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_supplies_name ON supplies(name COLLATE NOCASE);
+        CREATE INDEX IF NOT EXISTS idx_supplies_deleted ON supplies(deleted_at);
+
+        CREATE TABLE IF NOT EXISTS supply_movements (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          supply_id TEXT NOT NULL REFERENCES supplies(id),
+          quantity_delta REAL NOT NULL,
+          movement_type TEXT NOT NULL CHECK (movement_type IN ('receive', 'count', 'adjustment', 'waste', 'recipe_depletion', 'recipe_restore')),
+          unit TEXT NOT NULL CHECK (unit IN ('each', 'g', 'kg', 'ml', 'l')),
+          stock_after REAL NOT NULL,
+          reason TEXT,
+          actor_user_id TEXT NOT NULL REFERENCES users(id),
+          reference_type TEXT,
+          reference_id TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_supply_movements_supply_created
+          ON supply_movements(supply_id, created_at, id);
+        CREATE INDEX IF NOT EXISTS idx_supply_movements_reference
+          ON supply_movements(reference_type, reference_id);
+        CREATE INDEX IF NOT EXISTS idx_supply_movements_created
+          ON supply_movements(created_at, id);
+
+        CREATE TABLE IF NOT EXISTS recipes (
+          id TEXT PRIMARY KEY,
+          product_id TEXT NOT NULL REFERENCES products(id),
+          yield_quantity REAL NOT NULL DEFAULT 1 CHECK (yield_quantity > 0),
+          is_active INTEGER NOT NULL DEFAULT 1,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_recipes_product
+          ON recipes(product_id);
+
+        CREATE TABLE IF NOT EXISTS recipe_items (
+          id TEXT PRIMARY KEY,
+          recipe_id TEXT NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
+          supply_id TEXT NOT NULL REFERENCES supplies(id),
+          quantity REAL NOT NULL CHECK (quantity > 0),
+          unit TEXT NOT NULL CHECK (unit IN ('each', 'g', 'kg', 'ml', 'l')),
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_recipe_items_recipe ON recipe_items(recipe_id);
+      `);
+    },
+  },
+  {
+    version: 89,
+    name: 'add_order_item_recipe_snapshot',
+    up: () => {
+      if (!getColumns(db, 'order_items').includes('recipe_snapshot')) {
+        db.exec(`ALTER TABLE order_items ADD COLUMN recipe_snapshot TEXT DEFAULT NULL`);
+      }
+    },
+  },
+  {
+    version: 90,
+    name: 'add_cash_sessions',
+    up: () => {
+      // Shift lifecycle, open state (#279, approach A). Close rows stay
+      // final in `cash_closures` (scope='session'); an open session has no
+      // count and no Z number yet, so it lives here until close writes the
+      // closure row and points back via `closure_id`.
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS cash_sessions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          opened_by TEXT NOT NULL REFERENCES users(id),
+          opened_by_name TEXT NOT NULL DEFAULT '',
+          opened_at TEXT NOT NULL,
+          opening_float_cents INTEGER NOT NULL DEFAULT 0 CHECK (opening_float_cents >= 0),
+          status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'closed')),
+          closed_at TEXT,
+          closed_by TEXT REFERENCES users(id),
+          closure_id INTEGER REFERENCES cash_closures(id)
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS cash_sessions_one_open
+          ON cash_sessions(status) WHERE status = 'open';
+      `);
+      // Seeded here (not only in seedInstallDefaults) so pre-v90 upgrades
+      // get the rows too — same pattern as v83's opt-in toggle.
+      insertSettingIfMissing('require_open_shift', 'false');
+      insertSettingIfMissing('stale_session_days', '7');
+    },
+  },
+  {
+    version: 91,
+    name: 'add_cash_session_ownership',
+    up: () => {
+      if (!getColumns(db, 'cash_drawer_movements').includes('cash_session_id')) {
+        db.exec(`ALTER TABLE cash_drawer_movements ADD COLUMN cash_session_id INTEGER`);
+      }
+      if (!getColumns(db, 'refunds').includes('cash_session_id')) {
+        db.exec(`ALTER TABLE refunds ADD COLUMN cash_session_id INTEGER`);
+      }
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_cash_drawer_movements_session ON cash_drawer_movements(cash_session_id)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_refunds_session ON refunds(cash_session_id)`);
+    },
+  },
+  {
+    version: 92,
+    name: 'add_table_reservation_customer',
+    up: () => {
+      if (!getColumns(db, 'tables').includes('reservation_customer_id')) {
+        db.exec('ALTER TABLE tables ADD COLUMN reservation_customer_id TEXT REFERENCES customers(id) ON DELETE SET NULL');
+      }
+      db.exec(`
+        CREATE TRIGGER IF NOT EXISTS clear_table_reservation_customer_on_status_change
+        AFTER UPDATE OF status ON tables
+        WHEN NEW.status != 'reserved' AND NEW.reservation_customer_id IS NOT NULL
+        BEGIN
+          UPDATE tables SET reservation_customer_id = NULL WHERE id = NEW.id;
+        END;
+      `);
+    },
+  },
+  {
+    version: 93,
+    name: 'add_configurable_permissions',
+    up: () => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS role_permission_overrides (
+          role TEXT NOT NULL ${USER_ROLE_SQL_CHECK},
+          permission_id TEXT NOT NULL,
+          effect TEXT NOT NULL CHECK (effect IN ('allow', 'deny')),
+          updated_by TEXT NOT NULL REFERENCES users(id),
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (role, permission_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_role_permission_overrides_role
+          ON role_permission_overrides(role);
+
+        CREATE TABLE IF NOT EXISTS user_permission_overrides (
+          user_id TEXT NOT NULL REFERENCES users(id),
+          permission_id TEXT NOT NULL,
+          effect TEXT NOT NULL CHECK (effect IN ('allow', 'deny')),
+          updated_by TEXT NOT NULL REFERENCES users(id),
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (user_id, permission_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_user_permission_overrides_user
+          ON user_permission_overrides(user_id);
+
+        CREATE TABLE IF NOT EXISTS authorization_audit_log (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          batch_id TEXT NOT NULL,
+          actor_user_id TEXT NOT NULL REFERENCES users(id),
+          target_type TEXT NOT NULL CHECK (target_type IN ('role', 'user')),
+          target_id TEXT NOT NULL,
+          permission_id TEXT NOT NULL,
+          previous_effect TEXT CHECK (previous_effect IS NULL OR previous_effect IN ('allow', 'deny')),
+          next_effect TEXT CHECK (next_effect IS NULL OR next_effect IN ('allow', 'deny')),
+          details_json TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_authorization_audit_created
+          ON authorization_audit_log(created_at, id);
+        CREATE INDEX IF NOT EXISTS idx_authorization_audit_target
+          ON authorization_audit_log(target_type, target_id, id);
+      `);
+    },
+  },
+  {
+    version: 94,
+    name: 'add_order_delivery_address',
+    up: () => {
+      // A fresh install gets this column from the CREATE TABLE, so the ALTER is
+      // guarded the way the online_platform migration guards its own columns.
+      const orderColumns = getColumns(db, 'orders');
+      if (!orderColumns.includes('delivery_address')) {
+        db.exec(`ALTER TABLE orders ADD COLUMN delivery_address TEXT DEFAULT NULL`);
+      }
+      // On by default: delivery documents show the number unless the merchant
+      // turns it off. See docs/reference/product-invariants.md.
+      db.prepare('INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, ?)').run(
+        'bill_delivery_show_customer_phone_always',
+        'true',
+        now(),
+      );
+    },
+  },
+  {
+    version: 95,
+    name: 'add_local_diagnostics_log',
+    up: () => {
+      // Local, operator-readable failure log. Nothing here is transmitted; the
+      // diagnostics screen reads it and the copy-for-support bundle quotes it.
+      insertSettingIfMissing('diagnostics_transmission_enabled', 'false');
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS local_diagnostics (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          event_code TEXT NOT NULL,
+          severity TEXT NOT NULL,
+          error_class TEXT NOT NULL,
+          signature TEXT NOT NULL,
+          summary TEXT NOT NULL,
+          metadata_json TEXT,
+          occurred_at TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_local_diagnostics_created
+          ON local_diagnostics(created_at, id);
+      `);
+    },
+  },
+  {
+    version: 96,
+    name: 'add_whatsapp_z_report_kind',
+    up: () => {
+      db.exec(`
+        ALTER TABLE whatsapp_messages RENAME TO whatsapp_messages_v95;
+        CREATE TABLE whatsapp_messages (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          bill_id INTEGER REFERENCES bills(id),
+          customer_id TEXT REFERENCES customers(id),
+          phone_e164 TEXT NOT NULL,
+          direction TEXT NOT NULL CHECK (direction IN ('outbound','inbound')),
+          kind TEXT NOT NULL DEFAULT 'manual_reply'
+            CHECK (kind IN ('bill_receipt','manual_reply','auto_followup','z_report')),
+          status TEXT NOT NULL DEFAULT 'queued'
+            CHECK (status IN ('queued','seen','typing','sent','delivered','read','failed')),
+          body TEXT NOT NULL,
+          external_message_id TEXT,
+          error TEXT,
+          queued_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          seen_at TEXT,
+          typing_at TEXT,
+          sent_at TEXT,
+          delivered_at TEXT,
+          read_at TEXT,
+          failed_at TEXT,
+          created_by_user_id TEXT
+        );
+        INSERT INTO whatsapp_messages (
+          id, bill_id, customer_id, phone_e164, direction, kind, status, body,
+          external_message_id, error, queued_at, seen_at, typing_at, sent_at,
+          delivered_at, read_at, failed_at, created_by_user_id
+        )
+        SELECT
+          id, bill_id, customer_id, phone_e164, direction, kind, status, body,
+          external_message_id, error, queued_at, seen_at, typing_at, sent_at,
+          delivered_at, read_at, failed_at, created_by_user_id
+        FROM whatsapp_messages_v95;
+        DROP TABLE whatsapp_messages_v95;
+        CREATE INDEX idx_whatsapp_messages_phone
+          ON whatsapp_messages(phone_e164, queued_at DESC);
+        CREATE INDEX idx_whatsapp_messages_status
+          ON whatsapp_messages(status, queued_at DESC);
+        CREATE INDEX idx_whatsapp_messages_bill
+          ON whatsapp_messages(bill_id);
+        CREATE INDEX idx_whatsapp_messages_inbound_unread
+          ON whatsapp_messages(direction, status, queued_at DESC)
+          WHERE direction = 'inbound' AND status NOT IN ('read','failed');
+      `);
+    },
+  },
+  {
+    version: 97,
+    name: 'add_kitchen_delivery_settlement_setting',
+    up: () => {
+      insertSettingIfMissing('require_kitchen_delivered_before_settlement', 'false');
+    },
+  },
+  {
+    version: 98,
+    name: 'add_category_addon_groups',
+    up: () => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS category_addon_groups (
+          category_id TEXT NOT NULL,
+          addon_group_id TEXT NOT NULL,
+          PRIMARY KEY (category_id, addon_group_id),
+          FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE,
+          FOREIGN KEY (addon_group_id) REFERENCES addon_groups(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_category_addon_groups_category ON category_addon_groups(category_id);
+        CREATE INDEX IF NOT EXISTS idx_category_addon_groups_group ON category_addon_groups(addon_group_id);
+      `);
+    },
+  },
+  {
+    version: 99,
     name: 'add_table_users',
     up: () => {
       // Restricts which tables a server may take orders on from the Server App.
@@ -4951,7 +5592,7 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
     },
   },
   {
-    version: 88,
+    version: 100,
     name: 'add_order_item_unit_cost',
     up: () => {
       // Cost of goods snapshot taken when the line is sold, so editing a product's
@@ -4963,7 +5604,7 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
     },
   },
   {
-    version: 89,
+    version: 101,
     name: 'add_table_guest_token',
     up: () => {
       // Secret printed into the table's QR code. Guests never log in: holding a
@@ -4975,7 +5616,7 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
     },
   },
   {
-    version: 90,
+    version: 102,
     name: 'add_guest_ordering_system_user',
     up: () => {
       // Every order write records an actor, and those columns are NOT NULL with a
@@ -4988,7 +5629,7 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
     },
   },
   {
-    version: 91,
+    version: 103,
     name: 'backfill_table_guest_tokens',
     up: () => {
       // Every table carries a printable code from here on, so the QR sheet can be
@@ -4999,7 +5640,7 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
     },
   },
   {
-    version: 92,
+    version: 104,
     name: 'add_staff_work_logs',
     up: () => {
       // Hours are derived from a stream of login/logout events rather than
@@ -5022,7 +5663,7 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
     },
   },
   {
-    version: 93,
+    version: 105,
     name: 'add_tables_guest_round',
     up: () => {
       // Which sitting a table is on. Settling the bill bumps it, which retires
@@ -5036,7 +5677,7 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
     },
   },
   {
-    version: 94,
+    version: 106,
     name: 'add_users_username',
     up: () => {
       // Staff who have no email address still have to be able to sign in —
@@ -5054,6 +5695,40 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
         CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_nocase
           ON users (LOWER(username)) WHERE username IS NOT NULL
       `);
+    },
+  },
+  {
+    version: 107,
+    name: 'repair_upstream_v87_to_v94_skipped_by_fork_numbering',
+    up: () => {
+      // This fork once numbered its own eight migrations v87-v94, the same
+      // numbers upstream used for entirely different schema changes. A store
+      // that upgraded through this fork therefore reached user_version 94 with
+      // *this branch's* changes applied and upstream's v87-v94 never run — and
+      // runMigrations() skips anything at or below the current version, so they
+      // would never run again. The eight have since moved to v99-v106; this
+      // puts back what was skipped.
+      //
+      // Re-runs upstream's own migration bodies rather than restating their SQL.
+      // A copy here would be one more thing to keep in step with upstream, and
+      // the copy that drifts is the one that stops creating something.
+      const skipped = !db
+        .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'supplies'")
+        .get();
+
+      // `supplies` is upstream v88. Its absence at this point means the whole
+      // v87-v94 block was skipped — they were skipped together, as a block,
+      // because one version number covered all of them. Any store that has it
+      // (every upstream install, and every fresh one, which runs v88 normally)
+      // needs nothing and is left alone.
+      if (!skipped) return;
+
+      console.log('[DB] v107: replaying upstream v87-v94, skipped by this fork\'s old numbering');
+      for (const version of [87, 88, 89, 90, 91, 92, 93, 94]) {
+        const migration = MIGRATIONS.find((entry) => entry.version === version);
+        if (!migration) throw new Error(`v107 repair: migration v${version} is missing`);
+        migration.up();
+      }
     },
   },
 ];
@@ -5195,7 +5870,7 @@ function createSchema(): void {
       cost REAL DEFAULT 0,
       sku TEXT,
       barcode TEXT,
-      sale_unit TEXT NOT NULL DEFAULT 'each' CHECK (sale_unit IN ('each', 'kg', 'g', 'lb')),
+      sale_unit TEXT NOT NULL DEFAULT 'each' CHECK (sale_unit IN ('each', 'kg', 'g', 'lb', 'ml', 'cl', 'l', 'fl oz', 'oz')),
       allow_fractional_quantity INTEGER NOT NULL DEFAULT 0,
       weight_precision INTEGER NOT NULL DEFAULT 3 CHECK (weight_precision BETWEEN 0 AND 4),
       image_url TEXT,
@@ -5211,6 +5886,8 @@ function createSchema(): void {
       -- Defaults to 0 so fresh and upgraded installs have identical schema.
       cb_percent REAL DEFAULT 0,
       tags TEXT,
+      inventory_product_id TEXT DEFAULT NULL REFERENCES products(id),
+      inventory_deduction_quantity REAL DEFAULT 1,
       deleted_at TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -5252,6 +5929,16 @@ function createSchema(): void {
       PRIMARY KEY (product_id, addon_group_id)
     );
 
+    CREATE TABLE IF NOT EXISTS category_addon_groups (
+      category_id TEXT NOT NULL,
+      addon_group_id TEXT NOT NULL,
+      PRIMARY KEY (category_id, addon_group_id),
+      FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE,
+      FOREIGN KEY (addon_group_id) REFERENCES addon_groups(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_category_addon_groups_category ON category_addon_groups(category_id);
+    CREATE INDEX IF NOT EXISTS idx_category_addon_groups_group ON category_addon_groups(addon_group_id);
+
     CREATE TABLE IF NOT EXISTS kitchen_stations (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -5291,7 +5978,8 @@ function createSchema(): void {
       guest_token TEXT,
       guest_round INTEGER NOT NULL DEFAULT 1,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      reservation_customer_id TEXT REFERENCES customers(id) ON DELETE SET NULL
     );
 
     CREATE TABLE IF NOT EXISTS staff_work_logs (
@@ -5359,6 +6047,7 @@ function createSchema(): void {
       customer_id TEXT,
       user_id TEXT,
       type TEXT DEFAULT 'takeaway',
+      delivery_address TEXT DEFAULT NULL,
       guest_count INTEGER,
       special_instructions TEXT,
       packaging_charge REAL DEFAULT 0,
@@ -5399,6 +6088,7 @@ function createSchema(): void {
       unit_cost REAL,
       quantity INTEGER NOT NULL DEFAULT 1,
       inventory_deducted_quantity REAL NOT NULL DEFAULT 0,
+      inventory_product_id TEXT DEFAULT NULL,
       subtotal REAL NOT NULL,
       tax_amount REAL DEFAULT 0,
       tax_breakdown TEXT,
@@ -5735,7 +6425,7 @@ function createWhatsAppSchema(): void {
       phone_e164 TEXT NOT NULL,
       direction TEXT NOT NULL CHECK (direction IN ('outbound','inbound')),
       kind TEXT NOT NULL DEFAULT 'manual_reply'
-        CHECK (kind IN ('bill_receipt','manual_reply','auto_followup')),
+        CHECK (kind IN ('bill_receipt','manual_reply','auto_followup','z_report')),
       status TEXT NOT NULL DEFAULT 'queued'
         CHECK (status IN ('queued','seen','typing','sent','delivered','read','failed')),
       body TEXT NOT NULL,
@@ -5805,11 +6495,15 @@ function seedInstallDefaults(): void {
   insert('business_name', '');
   insert('business_type', 'restaurant');
   // country/currency/currency_symbol/timezone are deliberately not seeded here:
-  // they come only from the signup wizard (docs/business-decisions.md,
+  // they come only from the signup wizard (docs/reference/product-invariants.md,
   // "Regional settings come from signup, never from a fallback"). Until setup
   // completes, resolveRegionalSnapshot() throws RegionalNotConfiguredError
   // rather than a caller substituting a default country.
   insert('business_day_start_time', '00:00');
+  // Shift enforcement ships default-off (#279, approach A): sales work with
+  // no open session unless the owner opts in. Stale auto-close threshold in days.
+  insert('require_open_shift', 'false');
+  insert('stale_session_days', '7');
   insert('address', '');
   insert('phone', '');
   insert('email', '');
@@ -5837,6 +6531,7 @@ function seedInstallDefaults(): void {
   insert('telemetry_scope', 'usage_stats,country,app_version,platform,session_duration,feature_usage,error_diagnostics');
   insert('diagnostics_consent', 'true');
   insert('kds_enabled', 'true');
+  insert('require_kitchen_delivered_before_settlement', 'false');
   insert('server_app_enabled', 'true');
   insert('kot_printing_enabled', 'true');
   insert('server_app_bill_printing_enabled', 'false');
@@ -5850,6 +6545,7 @@ function seedInstallDefaults(): void {
   insert('bill_show_tax_breakdown', 'true');
   insert('bill_show_customer_name', 'true');
   insert('bill_show_customer_phone', 'true');
+  insert('bill_delivery_show_customer_phone_always', 'true');
   insert('bill_show_table_number', 'true');
   insert('order_number_prefix', 'ORD');
   insert('order_number_include_date', 'true');
@@ -6040,7 +6736,7 @@ export function now(): string {
   return new Date().toISOString().replace('T', ' ').replace(/\..*$/, '');
 }
 
-/** Records who performed an order/item mutation (docs/business-decisions.md). */
+/** Records who performed an order/item mutation (docs/reference/product-invariants.md). */
 export function recordOrderAudit(
   db: ReturnType<typeof getDatabase>,
   params: { orderId: number | string; orderItemId?: number | string | null; actorUserId: string; action: string; details?: Record<string, unknown> },
@@ -6070,88 +6766,19 @@ export function utcTodayDate(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function parseStartTimeOffsetMs(startTime: string = '00:00'): number {
-  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(startTime.trim());
-  if (!match) return 0;
-  const hours = Number(match[1]);
-  const minutes = Number(match[2]);
-  return (hours * 60 + minutes) * 60 * 1000;
-}
+// The business-day rule lives in shared/business-date.ts so the renderer cannot
+// restate it. These re-exports keep the existing importer surface for one
+// release: every remaining import of a business-date symbol from this module is
+// visible in review instead of hidden behind a silent copy. Delete them and
+// repoint the importers in a follow-on, or the move is cosmetic.
+export { dayBoundsInTimezone, utcDayBounds };
 
-function calendarDateInTimezone(instant: Date, timezone: string): string {
-  try {
-    const parts = new Intl.DateTimeFormat('en-US', {
-      timeZone: timezone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).formatToParts(instant);
-    const get = (type: string) => parts.find((part) => part.type === type)?.value ?? '';
-    return `${get('year')}-${get('month')}-${get('day')}`;
-  } catch {
-    return instant.toISOString().slice(0, 10);
-  }
-}
-
-/** Return the business date represented by an instant in an IANA timezone with an optional day start offset. */
+/** Deprecated positional alias of `businessDateForInstant`, kept so the existing
+ *  `localDateInTimezone(instant, timezone, startTime)` importers keep their exact
+ *  signature for one release. A bare rename would have changed the argument order
+ *  of a live export without any of those callers changing. */
 export function localDateInTimezone(instant: Date, timezone: string, startTime: string = '00:00'): string {
-  if (parseStartTimeOffsetMs(startTime) === 0) return calendarDateInTimezone(instant, timezone);
-
-  const calendarDate = calendarDateInTimezone(instant, timezone);
-  const [start] = dayBoundsInTimezone(calendarDate, timezone, startTime);
-  if (instant >= parseDbTimestamp(start)) return calendarDate;
-
-  const [year, month, day] = calendarDate.split('-').map(Number);
-  return new Date(Date.UTC(year, month - 1, day - 1)).toISOString().slice(0, 10);
-}
-
-function timezoneOffsetMilliseconds(instant: Date, timezone: string): number {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: timezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hourCycle: 'h23',
-  }).formatToParts(instant);
-  const get = (type: string) => Number(parts.find((part) => part.type === type)?.value);
-  return Date.UTC(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'), get('second')) - instant.getTime();
-}
-
-/** Half-open UTC ranges `[start, end)` for one date in the tenant timezone with an optional day start offset. */
-export function dayBoundsInTimezone(date: string, timezone: string, startTime: string = '00:00'): [string, string] {
-  const [y, m, d] = date.split('-').map(Number);
-  const format = (instant: Date) => instant.toISOString().replace('T', ' ').replace(/\..*$/, '');
-  const offsetMinutes = parseStartTimeOffsetMs(startTime) / 60000;
-  const startHour = Math.floor(offsetMinutes / 60);
-  const startMinute = offsetMinutes % 60;
-  try {
-    const toUtc = (localWallTime: number): Date => {
-      let instant = new Date(localWallTime);
-      for (let attempt = 0; attempt < 3; attempt++) {
-        instant = new Date(localWallTime - timezoneOffsetMilliseconds(instant, timezone));
-      }
-      return instant;
-    };
-    return [
-      format(toUtc(Date.UTC(y, m - 1, d, startHour, startMinute))),
-      format(toUtc(Date.UTC(y, m - 1, d + 1, startHour, startMinute))),
-    ];
-  } catch {
-    return utcDayBounds(date, startTime);
-  }
-}
-
-/** Half-open UTC range strings `[start, end)` for a UTC calendar date with an optional day start offset. */
-export function utcDayBounds(date: string, startTime: string = '00:00'): [string, string] {
-  const [y, m, d] = date.split('-').map(Number);
-  const offsetMs = parseStartTimeOffsetMs(startTime);
-  const start = new Date(Date.UTC(y, m - 1, d, 0, 0, 0) + offsetMs);
-  const end = new Date(start.getTime() + 24 * 3600 * 1000);
-  const fmt = (dt: Date) => dt.toISOString().replace('T', ' ').replace(/\..*$/, '');
-  return [fmt(start), fmt(end)];
+  return businessDateForInstant({ instant, timezone, startTime });
 }
 
 /** Verify a user PIN against the stored pin_hash. */
@@ -6251,6 +6878,7 @@ export function parseItemJson(item: any): any {
     modifier_selection: tryParse(item.modifier_selection),
     tax_breakdown: tryParse(item.tax_breakdown),
     tax_snapshot: tryParse(item.tax_snapshot),
+    recipe_snapshot: tryParse(item.recipe_snapshot),
   };
 }
 

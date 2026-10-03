@@ -2,18 +2,21 @@
 import ReceiptPrinterEncoder from '@point-of-sale/receipt-printer-encoder';
 import type { Bill, Tenant } from '@/lib/types';
 import { normalizeCurrencyToAscii, normalizeThermalText, padCurrencyPrefix } from './unicode';
-import { columnsForReceiptPaperSize, displayCellWidth, fitThermalLine } from '@print/width';
+import { columnsForReceiptPaperSize, displayCellWidth, fitThermalLine, graphemeSegments, truncateToDisplayCells, truncateToDisplayCellsFromEnd } from '@print/width';
 import { getCountryByCode, getCurrencyFractionDigits, getCurrencySymbol, resolveTenantCurrency } from '@/lib/countries';
 import { formatDate } from './format-date';
+import { shouldShowCustomerNumber } from '@print/document';
 import { formatTaxComponentLabel, resolveTaxComponents } from './tax-components';
-import { hasUnsupportedPrinterChars, isArabicShapingSafeLine, safePrinterText as writeSafePrinterText, type PrintWarning } from './warnings';
+import { hasUnsupportedPrinterChars, isArabicShapingSafeLine, safePrinterText as writeSafePrinterText, wrapPrinterText, type PrintWarning } from './warnings';
 import { RECEIPT_BRANDING_NAME } from './branding';
 import { printLabelResolver } from './print-document';
 import { GENERIC_THERMAL_CAPABILITIES, isThermalTextRepresentable, selectThermalCodePage, type ThermalPrinterCapabilities } from '@print/thermal-capabilities';
 
 export interface TaxBillOptions {
-  /** 58 mm (2.5", 32 chars) or 80 mm (3.5", 48 chars). Default: 58 */
+  /** 58 mm (2.5", 32 cols) or 80 mm (3.5", 42 cols). Default: 58 */
   paperWidth?: 58 | 80;
+  /** Exact column count the configured printer declares; overrides `paperWidth`. */
+  columns?: number;
   /** Show "Thank you" footer. Default: true */
   showFooter?: boolean;
   /** Business tax registration number */
@@ -30,6 +33,7 @@ export interface TaxBillOptions {
   showCustomerName?: boolean;
   /** Show the customer phone when available. Default: true */
   showCustomerPhone?: boolean;
+  deliveryShowCustomerPhoneAlways?: boolean;
   /** Show the table number when available. Default: true */
   showTableNumber?: boolean;
   /** State code for tax calculation */
@@ -48,7 +52,8 @@ export interface TaxBillOptions {
   capabilities?: ThermalPrinterCapabilities;
 }
 
-// Must match main/printers/profiles.ts generic-escpos-58/80 fontAColumns.
+// Paper-size fallback only. Callers that know the configured printer pass
+// `columns`; the number itself lives in `columnsForReceiptPaperSize`.
 const CHARS: Record<58 | 80, number> = { 58: columnsForReceiptPaperSize(58), 80: columnsForReceiptPaperSize(80) };
 
 function printPoweredByFooter(enc: ReceiptPrinterEncoder, columns: number): void {
@@ -142,6 +147,7 @@ export function buildTaxBillBytes(
     showTaxBreakdown = true,
     showCustomerName = true,
     showCustomerPhone = true,
+    deliveryShowCustomerPhoneAlways,
     showTableNumber = true,
     useUnicode = false,
     trimDecimals = false,
@@ -150,7 +156,7 @@ export function buildTaxBillBytes(
     language = 'en',
   } = opts;
   const labelFor = (key: string): string => printLabelResolver(key, language);
-  const cols = CHARS[paperWidth];
+  const cols = opts.columns ?? CHARS[paperWidth];
   const safePrinterText = safePrinterTextForLanguage(language, useUnicode, opts.capabilities);
   const padRow = (left: string, right: string, _columns?: number): string => {
     void _columns;
@@ -220,11 +226,31 @@ export function buildTaxBillBytes(
   if (showTableNumber && order?.table?.name) {
     safePrinterText(enc, labelFor('pos.tableLabel').replace('{name}', String(order.table.name)), warnings, false, arabicShaping, undefined, cols, language).newline();
   }
+  // The heading marks the block as the customer's details, so a bill that also
+  // prints the store address cannot read as carrying a second business address.
+  const deliveryAddress = String(order?.delivery_address ?? '').trim();
+  if (deliveryAddress.length > 0) {
+    safePrinterText(enc, labelFor('print.customerDetails'), warnings, false, arabicShaping, undefined, cols, language).newline();
+  }
   if (showCustomerName && order?.customer?.name) {
     safePrinterText(enc, `${labelFor('pos.customer')}: ${order.customer.name}`, warnings, false, arabicShaping, undefined, cols, language).newline();
   }
-  if (showCustomerPhone && order?.customer?.phone) {
+  // Visibility and the last-four mask are separate decisions: the delivery
+  // exception governs visibility, the mask is unchanged.
+  const phoneVisible = shouldShowCustomerNumber({
+    showOnReceipts: showCustomerPhone,
+    alwaysForDeliveryOrders: deliveryShowCustomerPhoneAlways !== false,
+    orderType: String(order?.type ?? ''),
+  });
+  if (phoneVisible && order?.customer?.phone) {
     safePrinterText(enc, `${labelFor('print.numberShort')}: ${maskPhoneOnReceipt(order.customer.phone)}`, warnings, false, arabicShaping, undefined, cols, language).newline();
+  }
+  if (deliveryAddress.length > 0) {
+    // Wrapped, not truncated: a shaped printer writes raw bytes and would
+    // otherwise cut a long address to one row and drop the destination.
+    for (const row of wrapPrinterText(`${labelFor('print.deliverySlip.address')}: ${deliveryAddress}`, cols)) {
+      safePrinterText(enc, row, warnings, false, arabicShaping, undefined, cols, language).newline();
+    }
   }
 
   enc.rule({ style: 'single' });
@@ -335,21 +361,24 @@ export function buildTaxBillBytes(
 function padRowForLanguage(left: string, right: string, cols: number, language?: string, capabilities?: ThermalPrinterCapabilities): string {
   const normalizedLeft = normalizeThermalText(left, capabilities);
   const normalizedRight = normalizeThermalText(right, capabilities);
-  const safeRight = normalizedRight.length > cols ? normalizedRight.slice(-cols) : normalizedRight;
-  const leftWidth = Math.max(0, cols - safeRight.length - 1);
-  return normalizedLeft.slice(0, leftWidth) + (leftWidth > 0 ? ' ' : '') + safeRight;
+  const safeRight = displayCellWidth(normalizedRight) > cols
+    ? truncateToDisplayCellsFromEnd(normalizedRight, cols)
+    : normalizedRight;
+  const rightWidth = displayCellWidth(safeRight);
+  const leftWidth = Math.max(0, cols - rightWidth - 1);
+  return truncateToDisplayCells(normalizedLeft, leftWidth) + (leftWidth > 0 ? ' ' : '') + safeRight;
 }
 
 function wrapFinancialTextToDisplayCells(text: string, columns: number): string[] {
   const width = Math.max(1, Math.floor(columns));
   const lines: string[] = [];
   let current = '';
-  for (const character of Array.from(text)) {
-    if (current && displayCellWidth(current + character) > width) {
+  for (const grapheme of graphemeSegments(text)) {
+    if (current && displayCellWidth(current + grapheme) > width) {
       lines.push(current);
       current = '';
     }
-    current += character;
+    current += grapheme;
   }
   if (current || lines.length === 0) lines.push(current);
   return lines;
@@ -371,7 +400,7 @@ function padRowsForLanguage(left: string, right: string, cols: number, capabilit
 
 function truncateForLanguage(str: string, max: number, language?: string, capabilities?: ThermalPrinterCapabilities): string {
   const normalized = normalizeThermalText(str, capabilities);
-  return normalized.length > max ? normalized.slice(0, max - 1) + '…' : normalized;
+  return displayCellWidth(normalized) > max ? truncateToDisplayCells(normalized, Math.max(1, max - 1)) + '…' : normalized;
 }
 
 function formatAmount(value: number | string, currency: string, locale: string, trimDecimals: boolean = false, rawEscPos: boolean = true): string {

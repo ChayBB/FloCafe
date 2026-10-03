@@ -3,8 +3,7 @@ import expressRateLimit from 'express-rate-limit';
 import { getDatabase, now } from '../db';
 import { cloudSync, DEFAULT_CLOUD_SERVER_URL, normalizeCloudServerUrl } from '../services/cloud-sync';
 import { DRIVE_RESTORE_CONFIRMATION, getGoogleDriveErrorCode, googleDrive } from '../services/google-drive';
-import { requireRole } from '../middleware/security';
-import { ROLE_ACCESS } from '../../shared/role-permissions';
+import { requirePermission } from '../services/authorization';
 import { requireMasterPin } from '../middleware/master-pin';
 import { resolveTaxIdFormat, validateTaxRegistrationNumber } from '../services/tax';
 import { sendEvent } from '../services/telemetry';
@@ -31,7 +30,15 @@ import {
 import { isThemeMode } from '../title-bar-theme';
 
 const router = Router();
-const settingsReadRateLimit = expressRateLimit({ windowMs: 60 * 1000, limit: 120, standardHeaders: true, legacyHeaders: false });
+const configuredSettingsReadLimit = Number.parseInt(process.env.FLO_SETTINGS_READ_RATE_LIMIT_MAX || '', 10);
+const settingsReadRateLimit = expressRateLimit({
+  windowMs: 60 * 1000,
+  limit: Number.isFinite(configuredSettingsReadLimit) && configuredSettingsReadLimit > 0
+    ? configuredSettingsReadLimit
+    : 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 const configuredSettingsWriteLimit = Number.parseInt(process.env.FLO_SETTINGS_WRITE_RATE_LIMIT_MAX || '', 10);
 const settingsWriteRateLimit = expressRateLimit({
   windowMs: 60 * 1000,
@@ -141,7 +148,7 @@ function businessShape(s: Record<string, string>) {
     business_name: s.business_name || '',
     // Regional fields degrade to empty rather than throw — Settings must
     // never fail to load for an authenticated user (should be unreachable
-    // post-setup; see docs/business-decisions.md).
+    // post-setup; see docs/reference/product-invariants.md).
     timezone: s.timezone || '',
     business_day_start_time: s.business_day_start_time || '00:00',
     currency: s.currency || '',
@@ -162,6 +169,7 @@ function businessShape(s: Record<string, string>) {
     bill_show_tax_breakdown: s.bill_show_tax_breakdown !== 'false',
     bill_show_customer_name: s.bill_show_customer_name !== 'false',
     bill_show_customer_phone: s.bill_show_customer_phone !== 'false',
+    bill_delivery_show_customer_phone_always: s.bill_delivery_show_customer_phone_always !== 'false',
     bill_show_table_number: s.bill_show_table_number !== 'false',
     currency_display: resolveStoredLocalePreference('currency_display', s.currency_display, s.country || ''),
     number_digits: resolveStoredLocalePreference('number_digits', s.number_digits, s.country || ''),
@@ -184,7 +192,7 @@ function taxShape(s: Record<string, string>) {
 
 // ── Specific routes (must come BEFORE /:key wildcard) ─────────────────────
 
-router.get('/business', requireRole(...ROLE_ACCESS.allStaff), (req: Request, res: Response) => {
+router.get('/business', requirePermission('settings.view'), (req: Request, res: Response) => {
   try {
     const s = getAllSettings(getDatabase());
     res.json(businessShape(s));
@@ -194,15 +202,19 @@ router.get('/business', requireRole(...ROLE_ACCESS.allStaff), (req: Request, res
   }
 });
 
-router.put('/business', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, res: Response) => {
+router.put('/business', requirePermission('settings.manage'), (req: Request, res: Response) => {
   try {
     const { business_name, timezone, business_day_start_time, currency, country, language,
       tax_registration_number, state_code, business_address, business_phone, instagram_handle,
       billing_type, tables_required, tax_registered,
       bill_show_name, bill_show_address, bill_show_phone, bill_show_tax_id,
       bill_show_tax_breakdown, bill_show_customer_name, bill_show_customer_phone, bill_show_table_number,
+      bill_delivery_show_customer_phone_always,
       currency_display, number_digits, calendar } = req.body;
     const normalizedCurrency = typeof currency === 'string' ? currency.trim().toUpperCase() : currency;
+    const normalizedInstagramHandle = instagram_handle !== undefined
+      ? String(instagram_handle || '').trim().slice(0, 100)
+      : undefined;
 
     if (!validBusinessLocation(timezone, normalizedCurrency, country)) {
       return res.status(400).json({ error: 'Invalid timezone, currency, or country' });
@@ -216,6 +228,13 @@ router.put('/business', requireRole(...ROLE_ACCESS.ownerManager), (req: Request,
 
     const db = getDatabase();
     const currentSettings = getAllSettings(db);
+    if (normalizedCurrency !== undefined && normalizedCurrency !== currentSettings.currency) {
+      return res.status(409).json({
+        error: 'currency_change_requires_reset',
+        current_currency: currentSettings.currency || '',
+        requested_currency: normalizedCurrency,
+      });
+    }
     const effectiveCountry = country || currentSettings.country || '';
     const effectiveCurrency = normalizedCurrency || currentSettings.currency || '';
 
@@ -264,10 +283,11 @@ router.put('/business', requireRole(...ROLE_ACCESS.ownerManager), (req: Request,
         : undefined,
       tax_registration_number, state_code, business_address,
       business_phone: normalizedPhone !== undefined ? normalizedPhone : undefined,
-      instagram_handle,
+      instagram_handle: normalizedInstagramHandle,
       billing_type, tables_required, tax_registered,
       bill_show_name, bill_show_address, bill_show_phone, bill_show_tax_id,
       bill_show_tax_breakdown, bill_show_customer_name, bill_show_customer_phone, bill_show_table_number,
+      bill_delivery_show_customer_phone_always,
       ...localeUpdates,
       // Only mark country as user-confirmed if it actually changed in this submission.
       ...countryConfirmationPatch(country, currentSettings.country, req.body.country_selected),
@@ -281,7 +301,7 @@ router.put('/business', requireRole(...ROLE_ACCESS.ownerManager), (req: Request,
   }
 });
 
-router.get('/tax', requireRole(...ROLE_ACCESS.allStaff), (req: Request, res: Response) => {
+router.get('/tax', requirePermission('settings.view'), (req: Request, res: Response) => {
   try {
     const s = getAllSettings(getDatabase());
     res.json(taxShape(s));
@@ -291,7 +311,7 @@ router.get('/tax', requireRole(...ROLE_ACCESS.allStaff), (req: Request, res: Res
   }
 });
 
-router.put('/tax', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, res: Response) => {
+router.put('/tax', requirePermission('tax-configuration.manage'), (req: Request, res: Response) => {
   try {
     const { tax_registered, tax_registration_number, state_code, tax_scheme, country } = req.body;
 
@@ -329,7 +349,7 @@ router.put('/tax', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, res:
   }
 });
 
-router.get('/loyalty', requireRole(...ROLE_ACCESS.allStaff), (req: Request, res: Response) => {
+router.get('/loyalty', requirePermission('settings.view'), (req: Request, res: Response) => {
   try {
     const s = getAllSettings(getDatabase());
     res.json({
@@ -342,7 +362,7 @@ router.get('/loyalty', requireRole(...ROLE_ACCESS.allStaff), (req: Request, res:
   }
 });
 
-router.put('/loyalty', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, res: Response) => {
+router.put('/loyalty', requirePermission('settings.manage'), (req: Request, res: Response) => {
   try {
     const { loyalty_enabled, global_cashback_percent } = req.body;
 
@@ -372,7 +392,7 @@ router.put('/loyalty', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, 
 
 // ─── Discount settings ──────────────────────────────────────────────────────
 
-router.get('/discount', requireRole(...ROLE_ACCESS.allStaff), (req: Request, res: Response) => {
+router.get('/discount', requirePermission('settings.view'), (req: Request, res: Response) => {
   try {
     const s = getAllSettings(getDatabase());
     res.json({
@@ -387,7 +407,7 @@ router.get('/discount', requireRole(...ROLE_ACCESS.allStaff), (req: Request, res
   }
 });
 
-router.put('/discount', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, res: Response) => {
+router.put('/discount', requirePermission('settings.manage'), (req: Request, res: Response) => {
   try {
     const {
       discount_max_percentage,
@@ -436,7 +456,7 @@ router.put('/discount', requireRole(...ROLE_ACCESS.ownerManager), (req: Request,
 // ─── KDS settings (must come BEFORE /:key wildcard) ─────────────────────────
 
 // Mirrors KDS default view for the dashboard settings page.
-router.get('/kds', (_req: Request, res: Response) => {
+router.get('/kds', requirePermission('settings.view'), (_req: Request, res: Response) => {
   try {
     const s = getAllSettings(getDatabase());
     res.json({
@@ -448,7 +468,7 @@ router.get('/kds', (_req: Request, res: Response) => {
   }
 });
 
-router.put('/kds', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, res: Response) => {
+router.put('/kds', requirePermission('settings.manage'), (req: Request, res: Response) => {
   try {
     const { kds_default_view } = req.body;
     if (kds_default_view !== undefined && !['tabs', 'kanban'].includes(kds_default_view)) {
@@ -493,7 +513,7 @@ function parseBoundedInt(value: unknown, min: number, max: number, fallback: num
   return Number.isInteger(parsed) && parsed >= min && parsed <= max ? parsed : fallback;
 }
 
-router.get('/order-numbering', requireRole(...ROLE_ACCESS.allStaff), (req: Request, res: Response) => {
+router.get('/order-numbering', requirePermission('settings.view'), (req: Request, res: Response) => {
   try {
     const s = getAllSettings(getDatabase());
     res.json(orderNumberingShape(s));
@@ -503,7 +523,7 @@ router.get('/order-numbering', requireRole(...ROLE_ACCESS.allStaff), (req: Reque
   }
 });
 
-router.put('/order-numbering', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, res: Response) => {
+router.put('/order-numbering', requirePermission('settings.manage'), (req: Request, res: Response) => {
   try {
     const {
       order_number_prefix,
@@ -577,7 +597,7 @@ const CLOUD_ACCOUNT_UNAVAILABLE_ERROR = 'Cloud account services are unavailable 
 
 // ─── Cloud Sync settings (must come BEFORE /:key wildcard) ──────────────────
 
-router.get('/cloud', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, res: Response) => {
+router.get('/cloud', requirePermission('cloud.manage'), (req: Request, res: Response) => {
   try {
     res.json(cloudSync.getStatus());
   } catch (error: any) {
@@ -586,7 +606,7 @@ router.get('/cloud', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, re
   }
 });
 
-router.put('/cloud', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, res: Response) => {
+router.put('/cloud', requirePermission('cloud.manage'), (req: Request, res: Response) => {
   try {
     const {
       cloud_server_url,
@@ -638,7 +658,7 @@ router.put('/cloud', requireRole(...ROLE_ACCESS.ownerManager), (req: Request, re
   }
 });
 
-router.post('/cloud/register', requireRole(...ROLE_ACCESS.ownerManager), asyncHandler(async (req: Request, res: Response) => {
+router.post('/cloud/register', requirePermission('cloud.manage'), asyncHandler(async (req: Request, res: Response) => {
   try {
     const deletionRequest = await cloudSync.getDeletionRequestStatus({
       allowRemote: cloudSync.isCloudAccountAvailable(),
@@ -673,7 +693,7 @@ router.post('/cloud/register', requireRole(...ROLE_ACCESS.ownerManager), asyncHa
   }
 }));
 
-router.post('/cloud/test', requireRole(...ROLE_ACCESS.ownerManager), asyncHandler(async (req: Request, res: Response) => {
+router.post('/cloud/test', requirePermission('cloud.manage'), asyncHandler(async (req: Request, res: Response) => {
   try {
     const result = await cloudSync.testConnection(getHttpRequestSignal(req));
     res.json(result);
@@ -683,7 +703,7 @@ router.post('/cloud/test', requireRole(...ROLE_ACCESS.ownerManager), asyncHandle
   }
 }));
 
-router.get('/cloud/account', requireRole(...ROLE_ACCESS.owner), asyncHandler(async (req: Request, res: Response) => {
+router.get('/cloud/account', requirePermission('cloud.account.manage'), asyncHandler(async (req: Request, res: Response) => {
   try {
     const cloudAccountAvailable = cloudSync.isCloudAccountAvailable();
     const signal = getHttpRequestSignal(req);
@@ -711,7 +731,7 @@ router.get('/cloud/account', requireRole(...ROLE_ACCESS.owner), asyncHandler(asy
   }
 }));
 
-router.put('/cloud/account/preferences', requireRole(...ROLE_ACCESS.owner), asyncHandler(async (req: Request, res: Response) => {
+router.put('/cloud/account/preferences', requirePermission('cloud.account.manage'), asyncHandler(async (req: Request, res: Response) => {
   if (!cloudSync.isCloudAccountAvailable()) {
     return res.status(409).json({ error: CLOUD_ACCOUNT_UNAVAILABLE_ERROR });
   }
@@ -725,7 +745,7 @@ router.put('/cloud/account/preferences', requireRole(...ROLE_ACCESS.owner), asyn
   }
 }));
 
-router.post('/cloud/account/verification', requireRole(...ROLE_ACCESS.owner), asyncHandler(async (req: Request, res: Response) => {
+router.post('/cloud/account/verification', requirePermission('cloud.account.manage'), asyncHandler(async (req: Request, res: Response) => {
   if (!cloudSync.isCloudAccountAvailable()) {
     return res.status(409).json({ error: CLOUD_ACCOUNT_UNAVAILABLE_ERROR });
   }
@@ -736,7 +756,7 @@ router.post('/cloud/account/verification', requireRole(...ROLE_ACCESS.owner), as
   }
 }));
 
-router.get('/cloud/delete-data/status', requireRole(...ROLE_ACCESS.owner), asyncHandler(async (req: Request, res: Response) => {
+router.get('/cloud/delete-data/status', requirePermission('cloud.account.manage'), asyncHandler(async (req: Request, res: Response) => {
   try {
     const deletionRequest = await cloudSync.getDeletionRequestStatus({ allowRemote: true, signal: getHttpRequestSignal(req) });
     res.json({
@@ -748,11 +768,11 @@ router.get('/cloud/delete-data/status', requireRole(...ROLE_ACCESS.owner), async
   }
 }));
 
-router.post('/cloud/stop-all', requireRole(...ROLE_ACCESS.owner), asyncHandler(async (req: Request, res: Response) => {
+router.post('/cloud/stop-all', requirePermission('cloud.account.manage'), asyncHandler(async (req: Request, res: Response) => {
   res.json(await cloudSync.stopAllCloudServices(getHttpRequestSignal(req)));
 }));
 
-router.post('/cloud/delete-data', requireRole(...ROLE_ACCESS.owner), requireMasterPin, asyncHandler(async (req: Request, res: Response) => {
+router.post('/cloud/delete-data', requirePermission('cloud.account.manage'), requireMasterPin, asyncHandler(async (req: Request, res: Response) => {
   if (req.body?.confirmation !== 'DELETE CLOUD DATA') {
     return res.status(400).json({ error: 'Type DELETE CLOUD DATA to confirm' });
   }
@@ -763,7 +783,7 @@ router.post('/cloud/delete-data', requireRole(...ROLE_ACCESS.owner), requireMast
   }
 }));
 
-router.post('/cloud/delete-data/cancel', requireRole(...ROLE_ACCESS.owner), requireMasterPin, asyncHandler(async (req: Request, res: Response) => {
+router.post('/cloud/delete-data/cancel', requirePermission('cloud.account.manage'), requireMasterPin, asyncHandler(async (req: Request, res: Response) => {
   try {
     res.json(await cloudSync.cancelDeletionRequest(getHttpRequestSignal(req)));
   } catch {
@@ -784,11 +804,11 @@ function googleDriveErrorResponse(res: Response, error: unknown): Response {
   return res.status(status).json({ error: code });
 }
 
-router.get('/google-drive', requireRole(...ROLE_ACCESS.owner), (_req: Request, res: Response) => {
+router.get('/google-drive', requirePermission('google-drive.manage'), (_req: Request, res: Response) => {
   try { return res.json(googleDrive.getStatus()); } catch (error) { return googleDriveErrorResponse(res, error); }
 });
 
-router.put('/google-drive', requireRole(...ROLE_ACCESS.owner), asyncHandler(async (req: Request, res: Response) => {
+router.put('/google-drive', requirePermission('google-drive.manage'), asyncHandler(async (req: Request, res: Response) => {
   try {
     const { frequency, retention_count, destination_folder_id, warning_acknowledged } = req.body || {};
     if (warning_acknowledged === true) googleDrive.acknowledgeWarning();
@@ -798,15 +818,15 @@ router.put('/google-drive', requireRole(...ROLE_ACCESS.owner), asyncHandler(asyn
   } catch (error) { return googleDriveErrorResponse(res, error); }
 }));
 
-router.get('/google-drive/destinations', requireRole(...ROLE_ACCESS.owner), asyncHandler(async (_req: Request, res: Response) => {
+router.get('/google-drive/destinations', requirePermission('google-drive.manage'), asyncHandler(async (_req: Request, res: Response) => {
   try { return res.json({ destinations: await googleDrive.listDestinations() }); } catch (error) { return googleDriveErrorResponse(res, error); }
 }));
 
-router.post('/google-drive/destinations', requireRole(...ROLE_ACCESS.owner), asyncHandler(async (_req: Request, res: Response) => {
+router.post('/google-drive/destinations', requirePermission('google-drive.manage'), asyncHandler(async (_req: Request, res: Response) => {
   try { return res.json(await googleDrive.createDestination()); } catch (error) { return googleDriveErrorResponse(res, error); }
 }));
 
-router.post('/google-drive/connect', requireRole(...ROLE_ACCESS.owner), asyncHandler(async (req: Request, res: Response) => {
+router.post('/google-drive/connect', requirePermission('google-drive.manage'), asyncHandler(async (req: Request, res: Response) => {
   try {
     const body = req.body || {};
     const status = await trackHttpRequestWork(req, googleDrive.connect(getHttpRequestSignal(req), body.allow_switch === true, body.warning_acknowledged === true));
@@ -821,32 +841,32 @@ router.post('/google-drive/connect', requireRole(...ROLE_ACCESS.owner), asyncHan
   }
 }));
 
-router.post('/google-drive/disconnect', requireRole(...ROLE_ACCESS.owner), asyncHandler(async (_req: Request, res: Response) => {
+router.post('/google-drive/disconnect', requirePermission('google-drive.manage'), asyncHandler(async (_req: Request, res: Response) => {
   try { return res.json(await googleDrive.disconnect()); } catch (error) { return googleDriveErrorResponse(res, error); }
 }));
 
-router.post('/google-drive/backup-now', requireRole(...ROLE_ACCESS.owner), asyncHandler(async (req: Request, res: Response) => {
+router.post('/google-drive/backup-now', requirePermission('google-drive.manage'), asyncHandler(async (req: Request, res: Response) => {
   try {
     if (req.body?.warning_acknowledged === true) googleDrive.acknowledgeWarning();
     return res.status(202).json(googleDrive.startBackupJob('manual', req.body?.warning_acknowledged === true));
   } catch (error) { return googleDriveErrorResponse(res, error); }
 }));
 
-router.get('/google-drive/jobs/:jobId', requireRole(...ROLE_ACCESS.owner), (_req: Request, res: Response) => {
+router.get('/google-drive/jobs/:jobId', requirePermission('google-drive.manage'), (_req: Request, res: Response) => {
   const job = googleDrive.getJob(_req.params.jobId as string);
   if (!job) return res.status(404).json({ error: 'not_found' });
   return res.json({ job });
 });
 
-router.post('/google-drive/jobs/:jobId/cancel', requireRole(...ROLE_ACCESS.owner), (_req: Request, res: Response) => {
+router.post('/google-drive/jobs/:jobId/cancel', requirePermission('google-drive.manage'), (_req: Request, res: Response) => {
   try { return res.json(googleDrive.cancelJob(_req.params.jobId as string)); } catch (error) { return googleDriveErrorResponse(res, error); }
 });
 
-router.get('/google-drive/backups', requireRole(...ROLE_ACCESS.owner), asyncHandler(async (_req: Request, res: Response) => {
+router.get('/google-drive/backups', requirePermission('google-drive.manage'), asyncHandler(async (_req: Request, res: Response) => {
   try { return res.json({ backups: await googleDrive.listRemoteBackups() }); } catch (error) { return googleDriveErrorResponse(res, error); }
 }));
 
-router.post('/google-drive/restore', requireRole(...ROLE_ACCESS.owner), requireMasterPin, asyncHandler(async (req: Request, res: Response) => {
+router.post('/google-drive/restore', requirePermission('google-drive.manage'), requireMasterPin, asyncHandler(async (req: Request, res: Response) => {
   try {
     const body = req.body || {};
     if (body.confirmation !== DRIVE_RESTORE_CONFIRMATION) return res.status(400).json({ error: 'confirmation_required' });
@@ -873,7 +893,8 @@ const ALLOWED_WILDCARD_KEYS = new Set([
   'cash_drawer_pulse_enabled', 'cash_drawer_pulse_methods',
   'telemetry_enabled',
   'diagnostics_consent',
-  'kds_enabled', 'server_app_enabled', 'kot_printing_enabled', 'server_app_bill_printing_enabled',
+  'diagnostics_transmission_enabled',
+  'kds_enabled', 'require_kitchen_delivered_before_settlement', 'server_app_enabled', 'kot_printing_enabled', 'server_app_bill_printing_enabled',
   'split_checks_enabled',
   BILL_LANGUAGE_POLICY_KEY, KOT_LANGUAGE_POLICY_KEY, Z_REPORT_LANGUAGE_POLICY_KEY,
   'currency_display', 'number_digits', 'calendar',
@@ -884,7 +905,7 @@ function isAllowedWildcardKey(key: string): boolean {
   return ALLOWED_WILDCARD_KEYS.has(key) || /^tax_plugin_request:[A-Z]{2}$/.test(key);
 }
 
-router.get('/', requireRole(...ROLE_ACCESS.allStaff), (req: Request, res: Response) => {
+router.get('/', requirePermission('settings.view'), (req: Request, res: Response) => {
   try {
     const s = getAllSettings(getDatabase());
     res.json({ settings: publicSettingsShape(s) });
@@ -894,7 +915,7 @@ router.get('/', requireRole(...ROLE_ACCESS.allStaff), (req: Request, res: Respon
   }
 });
 
-router.get('/bill-templates', requireRole(...ROLE_ACCESS.ownerManager), (_req: Request, res: Response) => {
+router.get('/bill-templates', requirePermission('print-templates.view'), (_req: Request, res: Response) => {
   try {
     const plugins = listInstalledPrintTemplates().map((template) => {
       let storedWidths: string[] = [];
@@ -945,6 +966,7 @@ const PRINTING_BOOLEAN_KEYS = [
   'bill_show_customer_name',
   'bill_show_customer_phone',
   'bill_show_table_number',
+  'bill_delivery_show_customer_phone_always',
 ] as const;
 
 const PRINTING_BATCH_KEYS = new Set<string>([
@@ -956,7 +978,7 @@ const PRINTING_BATCH_KEYS = new Set<string>([
   'cash_drawer_pulse_methods',
 ]);
 
-router.put('/printing', settingsWriteRateLimit, requireRole(...ROLE_ACCESS.ownerManager), (req: Request, res: Response) => {
+router.put('/printing', settingsWriteRateLimit, requirePermission('printers.manage'), (req: Request, res: Response) => {
   try {
     const payload = req.body;
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
@@ -1031,7 +1053,7 @@ router.put('/printing', settingsWriteRateLimit, requireRole(...ROLE_ACCESS.owner
   }
 });
 
-router.get('/:key', settingsReadRateLimit, requireRole(...ROLE_ACCESS.allStaff), (req: Request, res: Response) => {
+router.get('/:key', settingsReadRateLimit, requirePermission('settings.view'), (req: Request, res: Response) => {
   try {
     if (SENSITIVE_SETTING_KEYS.has(req.params.key as string) || isGoogleDriveSettingKey(req.params.key as string)) {
       return res.status(403).json({ error: 'This setting is sensitive and cannot be read directly' });
@@ -1053,7 +1075,7 @@ router.get('/:key', settingsReadRateLimit, requireRole(...ROLE_ACCESS.allStaff),
   }
 });
 
-router.put('/:key', settingsWriteRateLimit, requireRole(...ROLE_ACCESS.ownerManager), (req: Request, res: Response) => {
+router.put('/:key', settingsWriteRateLimit, requirePermission('settings.manage'), (req: Request, res: Response) => {
   try {
     if (!isAllowedWildcardKey(req.params.key as string)) {
       return res.status(403).json({ error: 'This setting cannot be updated via wildcard route' });
@@ -1087,6 +1109,16 @@ router.put('/:key', settingsWriteRateLimit, requireRole(...ROLE_ACCESS.ownerMana
       valueToPersist = validation.stored;
     }
     const db = getDatabase();
+    if (req.params.key === 'currency') {
+      const currentCurrency = getAllSettings(db).currency || '';
+      if (valueToPersist !== currentCurrency) {
+        return res.status(409).json({
+          error: 'currency_change_requires_reset',
+          current_currency: currentCurrency,
+          requested_currency: valueToPersist,
+        });
+      }
+    }
     const wildcardKey = String(req.params.key);
     if (isLocalePreferenceKey(wildcardKey)) {
       const countryCode = getAllSettings(db).country || '';
