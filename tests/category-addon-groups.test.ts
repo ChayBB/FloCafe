@@ -66,8 +66,12 @@ async function main() {
   const { baseUrl, server } = await startServer(app);
 
   try {
-    assert.equal(MIGRATIONS[MIGRATIONS.length - 1].version, 98, 'migration 98 is registered');
-    assert.equal(getCurrentSchemaVersion(), 98, 'fresh database applies migration 98');
+    // What this suite is about is migration 98, not where the registry happens
+    // to end. Pinning the tail made every later migration — upstream's or this
+    // fork's — fail here for no reason connected to add-on groups.
+    assert.ok(MIGRATIONS.some((migration: any) => migration.version === 98), 'migration 98 is registered');
+    assert.equal(getCurrentSchemaVersion(), MIGRATIONS[MIGRATIONS.length - 1].version,
+      'a fresh database applies every registered migration');
     assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'category_addon_groups'").get());
     db.exec('DROP TABLE category_addon_groups');
     assert.equal(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'category_addon_groups'").get(), undefined);

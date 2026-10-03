@@ -20,8 +20,8 @@ export const LANGUAGES = {
     load: () => import('./messages/en.json'),
   },
   th: {
-    locale: 'th',
-    nativeName: 'ภาษาไทย',
+    locale: 'th-TH',
+    nativeName: 'ไทย',
     direction: 'ltr',
     selectable: true,
     load: () => import('./messages/th.json'),
