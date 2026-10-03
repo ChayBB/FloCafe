@@ -278,6 +278,56 @@ async function main() {
 
     const dismissed = await call(posUrl, '/api/guest-ordering/pairing-code', { method: 'DELETE', headers: asOwner });
     assert.equal(dismissed.status, 200, 'closing the dialog retires the code immediately');
+
+    // Relay configuration. Until this is reachable from the settings screen the
+    // whole hosted-ordering feature is unreachable, so the route is worth
+    // covering rather than trusting.
+    const noSecretYet = await call(posUrl, '/api/guest-ordering/relay-secret', { headers: asOwner });
+    assert.equal(noSecretYet.status, 404, 'there is no secret until one is generated');
+
+    const generated = await call(posUrl, '/api/guest-ordering/relay-secret', { method: 'POST', headers: asOwner });
+    assert.equal(generated.status, 200);
+    assert.ok(generated.body.secret && generated.body.secret.length >= 40, 'the secret is long enough to be worth signing with');
+
+    const revealed = await call(posUrl, '/api/guest-ordering/relay-secret', { headers: asOwner });
+    assert.equal(revealed.body.secret, generated.body.secret, 'and can be read back for pasting into the server');
+
+    const replaced = await call(posUrl, '/api/guest-ordering/relay-secret', { method: 'POST', headers: asOwner });
+    assert.notEqual(replaced.body.secret, generated.body.secret, 'generating again really replaces it');
+
+    // Orders carry what a table is eating and what it will be charged, so a
+    // plaintext link to anywhere but this machine is refused outright.
+    for (const bad of ['http://orders.example.com', 'ws://orders.example.com/relay', 'not a url']) {
+      const rejected = await call(posUrl, '/api/guest-ordering', {
+        method: 'PUT', headers: asOwner, body: JSON.stringify({ relay_url: bad }),
+      });
+      assert.equal(rejected.status, 400, `refused: ${bad}`);
+    }
+
+    const accepted = await call(posUrl, '/api/guest-ordering', {
+      method: 'PUT', headers: asOwner, body: JSON.stringify({ relay_url: 'wss://orders.example.com/relay' }),
+    });
+    assert.equal(accepted.status, 200, 'a wss:// address is accepted');
+    assert.equal(accepted.body.relay.url, 'wss://orders.example.com/relay');
+    assert.equal(accepted.body.relay.secret_set, true);
+    assert.equal(accepted.body.relay.secret_tail, replaced.body.secret.slice(-4), 'the tail identifies which secret is live');
+    assert.ok(!JSON.stringify(accepted.body).includes(replaced.body.secret), 'the secret itself does not ride along in the config payload');
+
+    const status = await call(posUrl, '/api/guest-ordering/relay-status', { headers: asOwner });
+    assert.equal(status.status, 200);
+    assert.equal(typeof status.body.connected, 'boolean');
+
+    const serverTriesSecret = await call(posUrl, '/api/guest-ordering/relay-secret', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${serverIn.body.access_token}` },
+    });
+    assert.equal(serverTriesSecret.status, 403, 'only an owner or manager can rotate the secret');
+
+    // Leave the relay switched off: this install is not pointed at a real
+    // server, and a configured URL would have it dialling out after the test.
+    await call(posUrl, '/api/guest-ordering', {
+      method: 'PUT', headers: asOwner, body: JSON.stringify({ relay_url: '' }),
+    });
   } finally {
     stopListening();
     await stopGuestServer();

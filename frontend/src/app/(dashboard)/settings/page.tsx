@@ -298,6 +298,7 @@ export default function SettingsPage() {
     base_url: string;
     guest_port: number;
     tables: { id: string; number: string; url: string | null; qr_data: string | null }[];
+    relay?: { url: string; secret_set: boolean; secret_tail: string; connected: boolean };
   } | null>(null);
   const [guestLoading, setGuestLoading] = useState(false);
   const [guestPublicUrl, setGuestPublicUrl] = useState('');
@@ -311,6 +312,7 @@ export default function SettingsPage() {
       if (signal?.aborted) return false;
       setGuestConfig(res.data);
       setGuestPublicUrl(res.data.public_url || '');
+      setRelayUrl(res.data.relay?.url || '');
       return true;
     } catch (error) {
       if (isRequestCancelled(error)) throw error;
@@ -321,7 +323,47 @@ export default function SettingsPage() {
     }
   };
 
-  const saveGuestSettings = async (payload: { enabled?: boolean; public_url?: string }) => {
+  // ── The hosted relay (customers ordering over mobile data) ───────────────
+  const [relayUrl, setRelayUrl] = useState('');
+  const [relaySecret, setRelaySecret] = useState<string | null>(null);
+  const [relaySecretBusy, setRelaySecretBusy] = useState(false);
+  const [relayConnected, setRelayConnected] = useState<boolean | null>(null);
+
+  const revealRelaySecret = async () => {
+    setRelaySecretBusy(true);
+    try {
+      const { data } = await api.get('/guest-ordering/relay-secret');
+      setRelaySecret(data.secret);
+    } catch (error: unknown) {
+      toastApiError(error, t('guestSaveFailed'), apiErrorT);
+    } finally {
+      setRelaySecretBusy(false);
+    }
+  };
+
+  /**
+   * Replaces the secret.
+   *
+   * Disconnects the hosted server until its `.env` is updated, so the merchant
+   * is asked first — this is the right button for a leak and the wrong one for
+   * curiosity.
+   */
+  const regenerateRelaySecret = async () => {
+    if (!window.confirm(t('guestRelaySecretRegenerateConfirm'))) return;
+    setRelaySecretBusy(true);
+    try {
+      const { data } = await api.post('/guest-ordering/relay-secret');
+      setRelaySecret(data.secret);
+      await fetchGuestConfig();
+      toast.success(t('guestRelaySecretGenerated'));
+    } catch (error: unknown) {
+      toastApiError(error, t('guestSaveFailed'), apiErrorT);
+    } finally {
+      setRelaySecretBusy(false);
+    }
+  };
+
+  const saveGuestSettings = async (payload: { enabled?: boolean; public_url?: string; relay_url?: string }) => {
     setGuestSaving(true);
     try {
       const { data } = await api.put('/guest-ordering', payload);
@@ -1086,6 +1128,32 @@ export default function SettingsPage() {
     return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stations, activeTab]);
+
+  /**
+   * Polls the relay's connection state while the guest-ordering tab is open.
+   *
+   * Connecting takes a moment after a settings change, which is exactly when
+   * the merchant is watching. Only runs once a relay address is configured —
+   * there is nothing to report otherwise.
+   */
+  useEffect(() => {
+    if (activeTab !== 'guest-ordering' || !guestConfig?.relay?.url) {
+      setRelayConnected(null);
+      return;
+    }
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const { data } = await api.get('/guest-ordering/relay-status');
+        if (!cancelled) setRelayConnected(Boolean(data.connected));
+      } catch {
+        // A failed poll says nothing about the relay, only about this request.
+      }
+    };
+    void check();
+    const timer = setInterval(() => void check(), 5000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [activeTab, guestConfig?.relay?.url]);
 
   // Cash drawer pulse: active custom payment methods (beyond built-in cash/card)
   const [pulseCustomMethods, setPulseCustomMethods] = useState<string[]>([]);
@@ -3565,13 +3633,68 @@ export default function SettingsPage() {
                   )}
                 </div>
 
-                <div className="bg-card rounded-xl border border-border p-6 space-y-3">
+                <div className="bg-card rounded-xl border border-border p-6 space-y-4">
                   <div>
-                    <p className="font-medium text-foreground">{t('guestRelayPairing')}</p>
-                    <p className="text-sm text-muted-foreground">{t('guestRelayPairingHint')}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium text-foreground">{t('guestRelay')}</p>
+                      {guestConfig.relay?.url && relayConnected !== null && (
+                        <span className={`inline-flex items-center gap-1.5 text-xs ${relayConnected ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`}>
+                          <span className={`w-2 h-2 rounded-full ${relayConnected ? 'bg-emerald-500' : 'bg-muted-foreground'}`} />
+                          {relayConnected ? t('guestRelayConnected') : t('guestRelayDisconnected')}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm text-muted-foreground">{t('guestRelayHint')}</p>
                   </div>
 
-                  {relayCode ? (
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <input
+                      value={relayUrl}
+                      onChange={(event) => setRelayUrl(event.target.value)}
+                      placeholder="wss://orders.myshop.com/relay"
+                      dir="ltr"
+                      className="flex-1 min-h-11 px-3 py-2 text-sm border border-border bg-background rounded-lg focus:ring-2 focus:ring-brand focus:border-brand outline-none"
+                    />
+                    <Button
+                      onClick={() => void saveGuestSettings({ relay_url: relayUrl })}
+                      disabled={guestSaving || relayUrl === (guestConfig.relay?.url || '')}
+                    >
+                      {t('save')}
+                    </Button>
+                  </div>
+
+                  <div className="rounded-lg border border-border bg-muted p-4 space-y-2">
+                    <p className="text-sm font-medium text-foreground">{t('guestRelaySecret')}</p>
+                    <p className="text-xs text-muted-foreground">{t('guestRelaySecretHint')}</p>
+                    {relaySecret ? (
+                      <Ltr as="p" className="font-mono text-xs break-all text-foreground select-all">{relaySecret}</Ltr>
+                    ) : guestConfig.relay?.secret_set ? (
+                      <Ltr as="p" className="font-mono text-xs text-muted-foreground">
+                        {'•'.repeat(24)}{guestConfig.relay.secret_tail}
+                      </Ltr>
+                    ) : (
+                      <p className="text-xs text-muted-foreground italic">{t('guestRelaySecretNone')}</p>
+                    )}
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {guestConfig.relay?.secret_set && !relaySecret && (
+                        <Button variant="outline" size="sm" disabled={relaySecretBusy} onClick={() => void revealRelaySecret()}>
+                          {t('guestRelaySecretReveal')}
+                        </Button>
+                      )}
+                      <Button variant="outline" size="sm" disabled={relaySecretBusy} onClick={() => void regenerateRelaySecret()}>
+                        {guestConfig.relay?.secret_set ? t('guestRelaySecretRegenerate') : t('guestRelaySecretGenerate')}
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="border-t border-border pt-4">
+                    <p className="font-medium text-foreground">{t('guestRelayPairing')}</p>
+                    <p className="text-sm text-muted-foreground mb-3">{t('guestRelayPairingHint')}</p>
+                  </div>
+
+                  {!guestConfig.relay?.url ? (
+                    <p className="text-xs text-muted-foreground italic">{t('guestRelayPairingNeedsUrl')}</p>
+                  ) : relayCode ? (
                     <div className="rounded-lg border border-border bg-muted p-4 text-center">
                       <Ltr as="p" className="font-mono text-3xl font-semibold tracking-[0.25em] text-foreground">
                         {relayCode.code}

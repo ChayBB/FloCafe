@@ -8,7 +8,7 @@
 import { Router, Request, Response } from 'express';
 import QRCode from 'qrcode';
 import { newGuestToken, qualifyGuestToken } from '../services/guest-tokens';
-import { clearPairingCode, issuePairingCode } from '../services/guest-relay';
+import { clearPairingCode, isGuestRelayConnected, issuePairingCode, newRelaySecret, reloadGuestRelay } from '../services/guest-relay';
 import { getDatabase, getSettingValue, now, upsertSettings } from '../db';
 import { requireRole } from '../middleware/security';
 import { ROLE_ACCESS } from '../../shared/role-permissions';
@@ -56,18 +56,99 @@ router.get('/', asyncHandler(async (_req: Request, res: Response) => {
     }
   }));
 
+  const relaySecret = getSettingValue('guest_relay_secret') || '';
+
   res.json({
     enabled: getSettingValue('guest_ordering_enabled') === 'true',
     public_url: getSettingValue('guest_public_url') || '',
     base_url: guestBaseUrl(),
     guest_port: getGuestPort(),
     tables: withCodes,
+    relay: {
+      url: getSettingValue('guest_relay_url') || '',
+      // Whether a secret exists, and its last four characters so the merchant
+      // can tell at a glance whether the one in their server's .env is still
+      // the current one. The whole secret is fetched separately and on purpose.
+      secret_set: Boolean(relaySecret),
+      secret_tail: relaySecret ? relaySecret.slice(-4) : '',
+      connected: isGuestRelayConnected(),
+    },
   });
 }));
 
+/**
+ * Just the connection state, cheap enough to poll.
+ *
+ * `GET /` renders a QR image for every table, so the settings screen cannot ask
+ * it repeatedly merely to find out whether the socket came up. Connecting takes
+ * a moment after a settings change, which is exactly when a merchant is looking.
+ */
+router.get('/relay-status', (_req: Request, res: Response) => {
+  res.json({ connected: isGuestRelayConnected() });
+});
+
+/**
+ * The relay secret in full, for pasting into the hosted server's `.env`.
+ *
+ * A separate request rather than part of the configuration payload: the
+ * settings screen is read on every visit, and a secret that rides along is a
+ * secret in every response, every log of one, and every screenshot of the page.
+ * This endpoint is called only when the merchant asks to see it.
+ */
+router.get('/relay-secret', (_req: Request, res: Response) => {
+  const secret = getSettingValue('guest_relay_secret') || '';
+  if (!secret) return res.status(404).json({ error: 'No relay secret has been generated yet' });
+  res.set('Cache-Control', 'no-store');
+  res.json({ secret });
+});
+
+/**
+ * Generates a new relay secret, replacing any existing one.
+ *
+ * **This disconnects a hosted server immediately** and keeps it disconnected
+ * until the new secret is in its `.env` — the till's `hello` will no longer
+ * verify. That is the point of the operation when a secret has leaked, but it
+ * is not a harmless button, so the UI says so before calling it.
+ */
+router.post('/relay-secret', (_req: Request, res: Response) => {
+  try {
+    const secret = newRelaySecret();
+    upsertSettings({ guest_relay_secret: secret });
+    reloadGuestRelay();
+    res.set('Cache-Control', 'no-store');
+    res.json({ secret });
+  } catch (error: any) {
+    console.error('[API] Internal error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * The same rule the relay service enforces before it will open a socket.
+ *
+ * Checked here too so a merchant who types the wrong thing is told now, rather
+ * than saving a URL that silently never connects. The service still refuses on
+ * its own — this is a better error message, not the security boundary.
+ */
+function relayUrlError(url: string): string | null {
+  if (!/^wss?:\/\//i.test(url)) {
+    return 'The relay address must start with wss:// (or ws:// for a local test)';
+  }
+  if (/^ws:\/\//i.test(url) && !/^ws:\/\/(127\.0\.0\.1|localhost|\[::1\])(:|\/|$)/i.test(url)) {
+    // Orders carry what a table is eating and what it will be charged.
+    return 'Plaintext ws:// is only allowed to this machine. A hosted server must use wss://';
+  }
+  try {
+    new URL(url);
+  } catch {
+    return 'The relay address is not a valid URL';
+  }
+  return null;
+}
+
 router.put('/', (req: Request, res: Response) => {
   try {
-    const { enabled, public_url: publicUrl } = req.body || {};
+    const { enabled, public_url: publicUrl, relay_url: relayUrl } = req.body || {};
 
     if (enabled !== undefined) {
       if (typeof enabled !== 'boolean') return res.status(400).json({ error: 'enabled must be a boolean' });
@@ -91,10 +172,31 @@ router.put('/', (req: Request, res: Response) => {
       upsertSettings({ guest_public_url: trimmed });
     }
 
+    if (relayUrl !== undefined) {
+      if (typeof relayUrl !== 'string') return res.status(400).json({ error: 'relay_url must be a string' });
+      const trimmed = relayUrl.trim();
+      if (trimmed) {
+        const problem = relayUrlError(trimmed);
+        if (problem) return res.status(400).json({ error: problem });
+      }
+      upsertSettings({ guest_relay_url: trimmed });
+    }
+
+    // Any of the three can change whether the relay should be connected or
+    // where to, so the socket is re-read rather than left on stale settings.
+    if (enabled !== undefined || relayUrl !== undefined) reloadGuestRelay();
+
+    const relaySecret = getSettingValue('guest_relay_secret') || '';
     res.json({
       enabled: getSettingValue('guest_ordering_enabled') === 'true',
       public_url: getSettingValue('guest_public_url') || '',
       base_url: guestBaseUrl(),
+      relay: {
+        url: getSettingValue('guest_relay_url') || '',
+        secret_set: Boolean(relaySecret),
+        secret_tail: relaySecret ? relaySecret.slice(-4) : '',
+        connected: isGuestRelayConnected(),
+      },
     });
   } catch (error: any) {
     console.error('[API] Internal error:', error);
