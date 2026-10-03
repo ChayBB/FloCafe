@@ -514,6 +514,17 @@ export default function ServerStandalonePage() {
     onReady: ({ productName, tableName }) => {
       toast.success(t('itemReadyAlert', { item: productName, table: tableName }), { icon: '🔔', duration: 6000 });
     },
+    onGuestOrder: ({ tableName, itemCount, appended }) => {
+      toast.success(
+        t(appended ? 'guestOrderAddedAlert' : 'guestOrderAlert', { table: tableName, count: itemCount }),
+        { icon: '📱', duration: 8000 },
+      );
+      // If the waiter is looking at that very table, its ticket just changed
+      // underneath them. Refreshed by table name because that is what the push
+      // carries; a mismatch simply means no refresh, never a wrong one.
+      const affected = tables.find((row) => (row.name || row.number) === tableName);
+      if (affected && affected.id === selectedTableId) void loadOrder(affected.id);
+    },
   });
 
   if (loading) {

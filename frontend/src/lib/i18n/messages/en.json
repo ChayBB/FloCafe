@@ -1185,7 +1185,9 @@
     "itemReadyAlert": "{item} is ready — {table}",
     "noOpenOrder": "No open order on this table",
     "soundOff": "Ready alerts muted",
-    "soundOn": "Ready alerts on"
+    "soundOn": "Ready alerts on",
+    "guestOrderAlert": "{table} ordered by QR — {count} item(s)",
+    "guestOrderAddedAlert": "{table} added {count} more item(s) by QR"
   },
   "settings": {
     "aboutDescription": "FloPOS is a free forever, open-source restaurant POS for cafes, restaurants, bakeries, food trucks, cloud kitchens, and bars. It includes ordering, tables, menus, kitchen display, receipt printing, staff access, and local data storage. Download it, run service, keep your data, and own your POS.",

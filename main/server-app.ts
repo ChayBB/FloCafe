@@ -17,11 +17,12 @@ import { API_JSON_BODY_LIMIT } from './http-limits';
 import { buildCspHeader } from './csp';
 import { resolveContainedPath } from './lib/path-containment';
 import { ROLE_ACCESS } from '../shared/role-permissions';
-import { onOrderItemStatus, type OrderItemStatusEvent } from './services/server-app-events';
+import { onGuestOrder, onOrderItemStatus, type GuestOrderEvent, type OrderItemStatusEvent } from './services/server-app-events';
 import { RegionalNotConfiguredError, resolveRegionalSnapshot } from './countries';
 
 let serverApp: http.Server | null = null;
 let serverAppWss: WebSocketServer | null = null;
+let unsubscribeGuestOrder: (() => void) | null = null;
 let unsubscribeItemStatus: (() => void) | null = null;
 let stopPromise: Promise<void> | null = null;
 let startReject: ((error: Error) => void) | null = null;
@@ -275,6 +276,31 @@ function setupServerAppWebSocket(listeningServer: http.Server): void {
   }, SOCKET_HEARTBEAT_MS);
   heartbeat.unref?.();
   wss.on('close', () => clearInterval(heartbeat));
+
+  unsubscribeGuestOrder = onGuestOrder((event: GuestOrderEvent) => {
+    if (sockets.size === 0 || !event.tableId) return;
+    for (const [ws, user] of sockets) {
+      if (ws.readyState !== WebSocket.OPEN) continue;
+      // Scoped the same way ready alerts are: a waiter is told about their own
+      // tables, not the whole floor. Re-read per event so a reassignment takes
+      // effect without a reconnect.
+      const allowed = allowedTableIdsFor(user);
+      if (allowed && !allowed.has(String(event.tableId))) continue;
+      try {
+        ws.send(JSON.stringify({
+          type: 'guest_order',
+          order_id: event.orderId,
+          order_number: event.orderNumber,
+          table_id: event.tableId,
+          table_name: event.tableName,
+          item_count: event.itemCount,
+          appended: event.appended,
+        }));
+      } catch (error) {
+        console.error('[Server App] Guest order push failed:', error);
+      }
+    }
+  });
 
   unsubscribeItemStatus = onOrderItemStatus((event: OrderItemStatusEvent) => {
     if (sockets.size === 0 || !event.tableId) return;
@@ -626,6 +652,8 @@ export function stopServerApp(): Promise<void> {
   serverAppWss = null;
   unsubscribeItemStatus?.();
   unsubscribeItemStatus = null;
+  unsubscribeGuestOrder?.();
+  unsubscribeGuestOrder = null;
 
   stopPromise = closeServerResources(serverToClose, wssToClose, 'Server App')
     .then(() => {

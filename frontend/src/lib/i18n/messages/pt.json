@@ -1185,7 +1185,9 @@
     "itemReadyAlert": "{item} está pronto — {table}",
     "noOpenOrder": "Nenhum pedido aberto nesta mesa",
     "soundOff": "Alertas sonoros silenciados",
-    "soundOn": "Alertas sonoros ativados"
+    "soundOn": "Alertas sonoros ativados",
+    "guestOrderAlert": "{table} pediu por QR — {count} item(ns)",
+    "guestOrderAddedAlert": "{table} adicionou mais {count} item(ns) por QR"
   },
   "settings": {
     "aboutDescription": "O FloPOS é um PDV de restaurante gratuito para sempre e de código aberto para cafeterias, restaurantes, padarias, food trucks, dark kitchens e bares. Inclui pedidos, mesas, menus, display de cozinha, impressão de comprovantes, acesso da equipe e armazenamento local de dados. Baixe, execute o serviço, mantenha seus dados e seja dono do seu PDV.",

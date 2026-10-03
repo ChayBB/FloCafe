@@ -1185,7 +1185,9 @@
     "itemReadyAlert": "{item} hazır — {table}",
     "noOpenOrder": "Bu masada açık sipariş yok",
     "soundOff": "Sesli uyarılar kapalı",
-    "soundOn": "Sesli uyarılar açık"
+    "soundOn": "Sesli uyarılar açık",
+    "guestOrderAlert": "{table} QR ile sipariş verdi — {count} ürün",
+    "guestOrderAddedAlert": "{table} QR ile {count} ürün daha ekledi"
   },
   "settings": {
     "aboutDescription": "FloPOS; kafeler, restoranlar, pastaneler, yemek karavanları ve barlar için tamamen ücretsiz ve açık kaynaklı bir restoran satış noktasıdır. Sipariş, masa, menü, mutfak ekranı, fiş yazdırma, personel erişimi ve yerel veri depolama içerir.",

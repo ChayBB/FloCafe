@@ -57,12 +57,15 @@ export function useServerReadyAlerts({
   enabled,
   muted,
   onReady,
+  onGuestOrder,
 }: {
   api: AxiosInstance | null;
   tables: ReadyAlertTable[];
   enabled: boolean;
   muted: boolean;
   onReady: (item: { productName: string; tableName: string }) => void;
+  /** A customer ordered from their own phone on one of this user's tables. */
+  onGuestOrder?: (order: { tableName: string; itemCount: number; appended: boolean }) => void;
 }) {
   const statusesRef = useRef<Map<number, string>>(new Map());
   const seededRef = useRef(false);
@@ -71,23 +74,28 @@ export function useServerReadyAlerts({
   const mutedRef = useRef(muted);
   const tablesRef = useRef(tables);
   const onReadyRef = useRef(onReady);
+  const onGuestOrderRef = useRef(onGuestOrder);
   useEffect(() => {
     mutedRef.current = muted;
     tablesRef.current = tables;
     onReadyRef.current = onReady;
-  }, [muted, tables, onReady]);
+    onGuestOrderRef.current = onGuestOrder;
+  }, [muted, tables, onReady, onGuestOrder]);
+
+  function chime() {
+    if (mutedRef.current) return;
+    try {
+      if (!audioRef.current) audioRef.current = new AudioContext();
+      // Autoplay policies suspend the context until a gesture; resume is a no-op otherwise.
+      void audioRef.current.resume();
+      playChime(audioRef.current);
+    } catch {
+      // A device without Web Audio still gets the on-screen alert.
+    }
+  }
 
   function raiseAlert(alert: { productName: string; tableName: string }) {
-    if (!mutedRef.current) {
-      try {
-        if (!audioRef.current) audioRef.current = new AudioContext();
-        // Autoplay policies suspend the context until a gesture; resume is a no-op otherwise.
-        void audioRef.current.resume();
-        playChime(audioRef.current);
-      } catch {
-        // A device without Web Audio still gets the on-screen alert.
-      }
-    }
+    chime();
     onReadyRef.current(alert);
   }
 
@@ -146,10 +154,25 @@ export function useServerReadyAlerts({
         return;
       }
       socket.onmessage = (message) => {
-        let payload: { type?: string; item_id?: number; product_name?: string; table_id?: string; status?: string };
+        let payload: {
+          type?: string; item_id?: number; product_name?: string; table_id?: string; status?: string;
+          table_name?: string; item_count?: number; appended?: boolean;
+        };
         try {
           payload = JSON.parse(String(message.data));
         } catch {
+          return;
+        }
+        if (payload.type === 'guest_order') {
+          // Already scoped server-side to this user's tables; the local lookup
+          // is only for a nicer display name.
+          const table = tablesRef.current.find((row) => row.id === String(payload.table_id));
+          chime();
+          onGuestOrderRef.current?.({
+            tableName: table?.name || table?.number || String(payload.table_name ?? payload.table_id ?? ''),
+            itemCount: Number(payload.item_count ?? 0),
+            appended: payload.appended === true,
+          });
           return;
         }
         if (payload.type !== 'item_status' || typeof payload.item_id !== 'number') return;

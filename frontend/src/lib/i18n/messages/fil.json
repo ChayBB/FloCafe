@@ -1185,7 +1185,9 @@
     "itemReadyAlert": "Handa na ang {item} — {table}",
     "noOpenOrder": "Walang bukas na order sa mesang ito",
     "soundOff": "Naka-mute ang tunog",
-    "soundOn": "Naka-on ang tunog"
+    "soundOn": "Naka-on ang tunog",
+    "guestOrderAlert": "Nag-order ang {table} sa QR — {count} item",
+    "guestOrderAddedAlert": "Nagdagdag ang {table} ng {count} item sa QR"
   },
   "settings": {
     "aboutDescription": "Ang FloPOS ay isang libre at open-source na POS para sa mga cafe, restaurant, bakery, at bar. Mayroon itong pag-order, lamesa, menu, kitchen display, pag-print ng resibo, at lokal na storage.",

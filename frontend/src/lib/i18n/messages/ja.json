@@ -1185,7 +1185,9 @@
     "itemReadyAlert": "{item}ができあがりました — {table}",
     "noOpenOrder": "このテーブルに未会計の注文はありません",
     "soundOff": "呼び出し音オフ",
-    "soundOn": "呼び出し音オン"
+    "soundOn": "呼び出し音オン",
+    "guestOrderAlert": "{table} がQRで注文しました — {count}点",
+    "guestOrderAddedAlert": "{table} がQRで{count}点追加しました"
   },
   "settings": {
     "aboutDescription": "FloPOSは、カフェ、レストラン、ベーカリー、フードトラック、クラウドキッチン、バー向けの無料でオープンソースのレストランPOSです。注文、テーブル、メニュー、キッチンディスプレイ、レシート印刷、スタッフアクセス、ローカルデータ保存に対応しています。ダウンロードして営業を行い、データとPOSを自分で管理できます。",

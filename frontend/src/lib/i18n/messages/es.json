@@ -1185,7 +1185,9 @@
     "itemReadyAlert": "{item} está listo — {table}",
     "noOpenOrder": "No hay pedido abierto en esta mesa",
     "soundOff": "Avisos silenciados",
-    "soundOn": "Avisos con sonido"
+    "soundOn": "Avisos con sonido",
+    "guestOrderAlert": "{table} pidió por QR — {count} ítem(s)",
+    "guestOrderAddedAlert": "{table} agregó {count} ítem(s) más por QR"
   },
   "settings": {
     "aboutDescription": "FloPOS es un POS para restaurantes de código abierto y gratuito para siempre, para cafeterías, restaurantes, panaderías, camiones de comida, cocinas fantasma y bares. Incluye pedidos, mesas, menús, pantalla de cocina, impresión de recibos, acceso de personal y almacenamiento de datos local. Descárgalo, ejecuta el servicio, mantén tus datos y sé dueño de tu POS.",

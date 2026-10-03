@@ -38,6 +38,33 @@ reference in front of the secret (`<store_ref>.<secret>`) so a shared server can
 tell one shop's codes from another's. Codes printed before that keep working —
 see [public-ordering-multitenant.md](public-ordering-multitenant.md).
 
+## Staff are told the moment a customer orders
+
+A guest order already reached the kitchen — `notifyKdsUpdate()` fires for every
+order and the KDS and the Orders page both refetch on it. What that broadcast
+could not do is say *what* happened: it carries no table, so nothing could show
+a useful alert, and the Server App a waiter actually holds was never told at all.
+
+`emitGuestOrder()` now announces the table. The Server App pushes it over the
+same `/server-app` socket that carries ready alerts, scoped the same way — a
+waiter hears about their own section, not the whole floor, re-read per event so
+a reassignment takes effect without a reconnect:
+
+```json
+{ "type": "guest_order", "order_id": 12, "order_number": "ORD-20261003-0001",
+  "table_id": "tbl-ws", "table_name": "T9", "item_count": 2, "appended": false }
+```
+
+`appended` separates a second round on an open ticket from a new one: the first
+needs someone to notice, the second is routine. The page chimes and raises a
+toast, and refreshes the ticket if the waiter happens to be looking at that
+table.
+
+**Staff-placed orders stay silent.** The announcement is gated on the guest flag
+the loopback channel sets, because the point is to report that a customer acted
+without anyone noticing — an order a waiter just typed needs no alert. The test
+covers that case explicitly.
+
 ## A sitting ends when the bill is settled
 
 The printed code identifies the table forever; a **round token** identifies one

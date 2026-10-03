@@ -13,6 +13,7 @@ import { applyPayableRounding } from '../services/tax-engine';
 import { calculateOrderTotals } from '../services/orders';
 import { adjustProductStock } from '../services/inventory';
 import { notifyKdsUpdate, notifyOrderUpdated } from '../services/kds';
+import { emitGuestOrder } from '../services/server-app-events';
 import { cloudSync } from '../services/cloud-sync';
 import { validateOrderNotes, validateItemNotes, validateProductQuantity } from './orders-validation';
 import { requireRole } from '../middleware/security';
@@ -25,6 +26,34 @@ const router = Router();
 
 /** Locked system account that owns customer self-orders (migration v90). */
 const GUEST_ORDER_USER_ID = 'guest-ordering';
+
+/**
+ * Announces an order a customer placed from their own phone.
+ *
+ * The KDS broadcast already fires for every order and only says "something
+ * changed"; this says which table, so staff can be told rather than having to
+ * notice. Guarded by the guest flag the loopback channel sets, so a staff order
+ * on the same route stays silent.
+ */
+function announceIfGuestOrder(req: Request, order: any, itemCount: number, appended: boolean): void {
+  if ((req as any).user?.guestOrder !== true) return;
+  try {
+    const tableName = order?.table_id
+      ? ((getDatabase().prepare('SELECT number FROM tables WHERE id = ?').get(order.table_id) as { number?: string } | undefined)?.number ?? '')
+      : '';
+    emitGuestOrder({
+      orderId: order.id,
+      orderNumber: String(order.order_number ?? ''),
+      tableId: order.table_id ?? null,
+      tableName,
+      itemCount,
+      appended,
+    });
+  } catch (error) {
+    // Never let an announcement fail the order that triggered it.
+    console.error('[Orders] Guest order announcement failed:', error);
+  }
+}
 
 /**
  * Role gate that also admits a customer's own order arriving on the guest
@@ -703,6 +732,7 @@ router.post('/', orderWriteRateLimit, allowGuestOrStaff(...ROLE_ACCESS.sales), (
 
     if (!result.idempotentReplay) {
       notifyKdsUpdate();
+      announceIfGuestOrder(req, result.order, result.orderItems.length, false);
       cloudSync.recordOrderChanged(result.order.id, 'order.created');
 
       if (customer_id) {
@@ -957,6 +987,7 @@ router.post('/:id/items', orderWriteRateLimit, allowGuestOrStaff(...ROLE_ACCESS.
     if (result.replayResponse) return res.json(result.replayResponse);
     cloudSync.recordOrderChanged(req.params.id as string, 'order.updated');
     notifyKdsUpdate();
+    announceIfGuestOrder(req, result.updatedOrder, Array.isArray(items) ? items.length : 0, true);
 
     res.json({ order: Object.assign({}, result.updatedOrder, { items: result.updatedItems }) });
   } catch (error: any) {

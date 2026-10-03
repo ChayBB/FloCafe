@@ -1185,7 +1185,9 @@
     "itemReadyAlert": "{item} ist fertig — {table}",
     "noOpenOrder": "Keine offene Bestellung an diesem Tisch",
     "soundOff": "Signalton stumm",
-    "soundOn": "Signalton an"
+    "soundOn": "Signalton an",
+    "guestOrderAlert": "{table} hat per QR bestellt — {count} Artikel",
+    "guestOrderAddedAlert": "{table} hat per QR {count} weitere Artikel hinzugefügt"
   },
   "settings": {
     "aboutDescription": "FloPOS ist ein dauerhaft kostenloses Open-Source-Kassensystem für Cafés, Restaurants, Bäckereien, Imbisse, Cloud-Küchen und Bars. Es umfasst Bestellungen, Tische, Menüs, Küchenanzeige, Belegdruck, Personalzugänge und lokale Datenspeicherung. Laden Sie es herunter, nutzen Sie es und behalten Sie die Kontrolle über Ihre Daten und Ihr Kassensystem.",

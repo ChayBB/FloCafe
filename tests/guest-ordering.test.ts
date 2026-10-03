@@ -49,7 +49,7 @@ async function main() {
 
   const bcrypt = require('bcryptjs');
   const { initDatabase, getDatabase, closeDatabase, now } = await import('../main/db');
-  const { startServer, stopServer } = await import('../main/server');
+  const { startServer, stopServer, getServerPort } = await import('../main/server');
   const { startGuestServer, stopGuestServer, getGuestPort } = await import('../main/guest-server');
 
   initDatabase();
@@ -82,6 +82,14 @@ async function main() {
     INSERT INTO products (id, name, price, is_active, created_at, updated_at)
     VALUES ('hidden-product', 'Retired Item', 50, 0, ?, ?)
   `).run(now(), now());
+
+  // Captured before any order is placed: the point of the event is that staff
+  // are told which table ordered, not merely that something changed.
+  const { onGuestOrder } = await import('../main/services/server-app-events');
+  const announced: { tableName: string; itemCount: number; appended: boolean }[] = [];
+  const stopListening = onGuestOrder((event) => announced.push({
+    tableName: event.tableName, itemCount: event.itemCount, appended: event.appended,
+  }));
 
   await startServer();
   await startGuestServer();
@@ -131,6 +139,11 @@ async function main() {
     assert.equal(placed.body.ticket.items.length, 1, 'the ticket comes back with the line');
     assert.equal(placed.body.ticket.items[0].quantity, 2);
 
+    assert.equal(announced.length, 1, 'placing an order announces it once');
+    assert.equal(announced[0].tableName, 'G1', 'the announcement names the table');
+    assert.equal(announced[0].itemCount, 1);
+    assert.equal(announced[0].appended, false, 'the first order is not an append');
+
     const appended = await call(guestUrl, `/api/guest/${token}/order`, {
       method: 'POST',
       headers: round(roundToken),
@@ -138,6 +151,9 @@ async function main() {
     });
     assert.equal(appended.status, 201, 'a second order joins the open ticket');
     assert.equal(appended.body.ticket.items.length, 2, 'both lines sit on one ticket');
+
+    assert.equal(announced.length, 2, 'a second round announces again');
+    assert.equal(announced[1].appended, true, 'adding to an open ticket is marked as an append');
 
     const order = db.prepare("SELECT id, user_id, table_id, type FROM orders WHERE table_id = 'tbl-guest'").get() as any;
     assert.equal(order.user_id, 'guest-ordering', 'the order is attributed to the locked system account');
@@ -210,7 +226,24 @@ async function main() {
       assert.equal(refused.status, 409, `forged round token rejected: ${forged || '(empty)'}`);
     }
 
+    // A staff order on the same route must stay silent: the alert exists to
+    // tell someone a customer acted without them.
+    const posUrl = `http://127.0.0.1:${getServerPort()}`;
+    const signIn = await call(posUrl, '/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email: 'owner@guest.test', password: 'GuestPass123!' }),
+    });
+    assert.equal(signIn.status, 200, 'sanity: the owner can sign in');
+    const before = announced.length;
+    const staffOrder = await call(posUrl, '/api/orders', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${signIn.body.access_token}` },
+      body: JSON.stringify({ table_id: 'tbl-guest', type: 'dine_in', items: [{ product_id: 'guest-product', quantity: 1 }] }),
+    });
+    assert.equal(staffOrder.status, 201, 'sanity: the staff order was accepted');
+    assert.equal(announced.length, before, 'a staff-placed order raises no guest alert');
   } finally {
+    stopListening();
     await stopGuestServer();
     await stopServer();
     closeDatabase();

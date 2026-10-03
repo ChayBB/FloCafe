@@ -1185,7 +1185,9 @@
     "itemReadyAlert": "{item} est prêt — {table}",
     "noOpenOrder": "Aucune commande en cours sur cette table",
     "soundOff": "Alertes sonores coupées",
-    "soundOn": "Alertes sonores activées"
+    "soundOn": "Alertes sonores activées",
+    "guestOrderAlert": "{table} a commandé par QR — {count} article(s)",
+    "guestOrderAddedAlert": "{table} a ajouté {count} article(s) par QR"
   },
   "settings": {
     "aboutDescription": "FloPOS est une solution de caisse libre et gratuite à vie pour les cafés, restaurants, boulangeries, camions-restaurants, cuisines virtuelles et bars. Elle comprend la prise de commandes, la gestion des tables et des menus, l’affichage en cuisine, l’impression des reçus, l’accès du personnel et le stockage local des données. Téléchargez-la, lancez le service, conservez vos données et restez propriétaire de votre caisse.",
