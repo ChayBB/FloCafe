@@ -341,8 +341,12 @@ if (args[0] === 'ls') {
     fs.mkdirSync(path.join(fixtureDir, 'scripts/ci'), { recursive: true });
     fs.mkdirSync(path.join(fixtureDir, 'tests'), { recursive: true });
 
-    // Copy run-test-shard.cjs
+    // Copy run-test-shard.cjs and the suite-list helper it requires
     fs.copyFileSync(shardScript, path.join(fixtureDir, 'scripts/ci/run-test-shard.cjs'));
+    fs.copyFileSync(
+      path.join(rootDir, 'scripts/ci/test-suites.cjs'),
+      path.join(fixtureDir, 'scripts/ci/test-suites.cjs'),
+    );
 
     // Create mock tests/run-test.sh
     const runTestSh = `#!/usr/bin/env bash
@@ -447,12 +451,11 @@ exit 0
     );
   }
 
-  const suitePattern = /(?:bash\s+tests\/run-test\.sh\s+)?npm\s+run\s+(test:[\w-]+)/g;
-  const allSuites: string[] = [];
-  let match: RegExpExecArray | null;
-  while ((match = suitePattern.exec(testScript)) !== null) {
-    if (!allSuites.includes(match[1])) allSuites.push(match[1]);
-  }
+  // `test` delegates to test:batch-N scripts because cmd.exe caps a command
+  // line at 8191 characters. The same helper CI sharding uses resolves that
+  // indirection, so this still measures real suites.
+  const { listDefaultSuites } = require('../scripts/ci/test-suites.cjs');
+  const allSuites: string[] = listDefaultSuites(realPkg);
 
   assert.ok(allSuites.length >= 90, `Expected at least 90 test suites in "test" script, got ${allSuites.length}`);
 
