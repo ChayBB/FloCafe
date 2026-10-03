@@ -130,7 +130,7 @@ jobs:
           NEXT_TELEMETRY_DISABLED: 1
 
   # 4b. Linux Core Test Suite (sharded)
-  # `npm test` runs ~90 suites serially (~3.5 min) and dominated the PR critical
+  # `npm test` runs ~180 suites serially and dominated the PR critical
   # path. Run the same suites as two round-robin shards on separate runners —
   # they run in parallel with the build/lint job above, cutting merge-ready time
   # instead of just the job's own wall time. Shards MUST be separate runners:
