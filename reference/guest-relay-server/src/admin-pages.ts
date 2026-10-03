@@ -36,35 +36,43 @@ function page(title: string, inner: string): string {
 </head><body>${inner}</body></html>`;
 }
 
-export function loginPage(error?: string): string {
-  return page('FloCafe — shop sign in', `
+/**
+ * The pairing form.
+ *
+ * Asks for a code, never for a password. `autocomplete="off"` because there is
+ * nothing here worth a password manager remembering — the code is spent the
+ * moment it is used.
+ */
+export function pairPage(error?: string): string {
+  return page('FloCafe — pair with your till', `
 <h1>FloCafe guest ordering</h1>
 ${error ? `<p class="error">${escape(error)}</p>` : ''}
-<p>Sign in with the same email and password you use on the till.</p>
-<form method="post" action="/admin/login">
-  <label for="email">Email</label>
-  <input id="email" name="email" type="email" autocomplete="username" required autofocus>
-  <label for="password">Password</label>
-  <input id="password" name="password" type="password" autocomplete="current-password" required>
-  <button type="submit">Sign in</button>
+<p>On your till, open <strong>Settings → Customer QR ordering</strong> and tap
+  <strong>Pair a hosted server</strong>. Type the code it shows here.</p>
+<form method="post" action="/admin/pair">
+  <label for="code">Pairing code</label>
+  <input id="code" name="code" type="text" inputmode="latin" autocomplete="off"
+         spellcheck="false" maxlength="12" required autofocus
+         style="font-size:1.6rem;letter-spacing:.2em;text-transform:uppercase">
+  <button type="submit">Pair</button>
 </form>
-<p class="note">Your password is checked by your own till and is not stored on this
-server. Only an owner or a manager can sign in here.</p>`);
+<p class="note">The code lasts five minutes and works once. Your POS password is
+never typed here and never reaches this server.</p>`);
 }
 
 export function adminPage(name: string, posConnected: boolean): string {
   return page('FloCafe — guest ordering', `
 <h1>Guest ordering</h1>
-<p>Signed in as <strong>${escape(name)}</strong>.
+<p>Paired by <strong>${escape(name)}</strong>.
   <form method="post" action="/admin/logout" style="display:inline">
-    <button type="submit" style="margin:0;padding:.3rem .8rem">Sign out</button>
+    <button type="submit" style="margin:0;padding:.3rem .8rem">Unpair</button>
   </form>
 </p>
 ${posConnected
     ? '<p>Your till is connected. The menu shown to customers is the one it last sent.</p>'
     : '<p class="offline">Your till is not connected right now. Customers cannot order until it is back.</p>'}
 <p><a href="/admin/print">Table QR codes</a> — print these and put one on each table.</p>
-<p class="note">Signing in is what publishes your menu here. Prices, availability and
+<p class="note">Pairing is what publishes your menu here. Prices, availability and
 table codes all come from the till; nothing is edited on this server.</p>`);
 }
 

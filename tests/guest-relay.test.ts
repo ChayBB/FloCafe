@@ -70,7 +70,7 @@ async function main() {
 
   const { initDatabase, getDatabase, closeDatabase, now, upsertSettings } = await import('../main/db');
   const { startServer, stopServer } = await import('../main/server');
-  const { startGuestRelay, stopGuestRelay, signHello } = await import('../main/services/guest-relay');
+  const { startGuestRelay, stopGuestRelay, signHello, issuePairingCode } = await import('../main/services/guest-relay');
   const { newRoundToken } = await import('../main/services/guest-tokens');
 
   initDatabase();
@@ -192,34 +192,63 @@ async function main() {
     assert.equal(stale.reason, 'stale', 'an hour-old order is refused rather than sent to the kitchen');
     ok('a stale order is refused so the customer can be told instead of fed late');
 
-    console.log('\n8. the owner signs in through the hosted server');
-    const login = async (email: string, password: string) => {
-      const id = `login-${Math.random().toString(36).slice(2)}`;
-      socket.send(JSON.stringify({ type: 'admin_login', id, email, password }));
-      return nextMessage('admin_login_result');
+    console.log('\n8. the hosted server pairs with a code read off the till');
+    const pair = async (code: string) => {
+      const id = `pair-${Math.random().toString(36).slice(2)}`;
+      socket.send(JSON.stringify({ type: 'admin_pair', id, code }));
+      return nextMessage('admin_pair_result');
     };
 
-    const wrong = await login('owner@relay.test', 'not-the-password');
+    // Nothing is outstanding until the merchant asks for one.
+    const unissued = await pair('ABCD2345');
+    assert.equal(unissued.ok, false);
+    assert.equal(unissued.reason, 'no_pairing_code', 'a code cannot be guessed before one exists');
+
+    // Taking orders is one job; publishing the shop to the internet is another.
+    assert.throws(
+      () => issuePairingCode({ name: 'Nok', role: 'server' }),
+      /owner or a manager/,
+      'a server-role staff member cannot issue a pairing code even past the route',
+    );
+
+    const issued = issuePairingCode({ name: 'Chay', role: 'owner' });
+    assert.match(issued.code, /^[0-9A-HJKMNP-TV-Z]{8}$/, 'eight characters, no I L O or U to misread');
+
+    const wrong = await pair('23456789');
     assert.equal(wrong.ok, false);
-    assert.equal(wrong.reason, 'invalid_credentials');
+    assert.equal(wrong.reason, 'invalid_code');
 
-    const unknown = await login('nobody@relay.test', 'RelayAdmin1');
-    assert.equal(unknown.ok, false);
-    assert.equal(unknown.reason, 'invalid_credentials', 'a missing address is indistinguishable from a wrong password');
+    // Typed with the separator and the case a merchant actually uses, and with
+    // O for 0 — the alphabet has no O, so folding it is safe.
+    const typed = issued.code.toLowerCase().replace(/0/g, 'o').replace(/(.{4})/, '$1-');
+    const paired = await pair(typed);
+    assert.equal(paired.ok, true, 'case, separators and an O-for-0 slip all still pair');
+    assert.equal(paired.name, 'Chay');
+    assert.equal(paired.role, 'owner');
 
-    // A waiter may take orders; reconfiguring what the public internet sees is
-    // not the same job.
-    const waiter = await login('nok@relay.test', 'RelayAdmin1');
-    assert.equal(waiter.ok, false);
-    assert.equal(waiter.reason, 'not_permitted');
+    // Single use: the code is spent, so a copy left in a browser cannot pair
+    // somebody else's server afterwards.
+    const reused = await pair(issued.code);
+    assert.equal(reused.ok, false);
+    assert.equal(reused.reason, 'no_pairing_code', 'a used code is gone, not merely refused');
+    ok('a code off the till pairs once, and no password is ever sent');
 
-    const owner = await login('  Owner@Relay.Test  ', 'RelayAdmin1');
-    assert.equal(owner.ok, true, 'the owner signs in, address trimmed and case-folded');
-    assert.equal(owner.name, 'Chay');
-    assert.equal(owner.role, 'owner');
-    ok('only an owner or manager with the right password gets in');
+    console.log('\n9. a code dies after five wrong guesses rather than being guessed at');
+    const guessable = issuePairingCode({ name: 'Chay', role: 'owner' });
+    for (let attempt = 1; attempt <= 4; attempt += 1) {
+      const miss = await pair('22222222');
+      assert.equal(miss.reason, 'invalid_code', `attempt ${attempt} is refused but the code lives`);
+    }
+    const burned = await pair('22222222');
+    assert.equal(burned.reason, 'too_many_attempts', 'the fifth wrong guess destroys the code');
+    const afterBurn = await pair(guessable.code);
+    assert.equal(afterBurn.reason, 'no_pairing_code', 'and the real code no longer works either');
+    ok('brute force burns the code instead of eventually finding it');
 
-    console.log('\n9. signing in publishes the menu and releases the printable codes');
+    console.log('\n10. pairing publishes the menu and releases the printable codes');
+    const republish = issuePairingCode({ name: 'Chay', role: 'owner' });
+    const republished = await pair(republish.code);
+    assert.equal(republished.ok, true);
     await nextMessage('snapshot');
     const codesId = 'codes-1';
     socket.send(JSON.stringify({ type: 'admin_table_codes', id: codesId }));
@@ -228,9 +257,9 @@ async function main() {
     const printable = codes.tables.find((t: any) => t.id === 'tbl-relay');
     assert.equal(printable.code, tableCode, 'the real code is handed over for printing');
     assert.equal(printable.number, 'R1');
-    ok('signing in pushes the menu and hands over the codes a QR needs');
+    ok('pairing pushes the menu and hands over the codes a QR needs');
 
-    console.log('\n10. the codes are not available without signing in');
+    console.log('\n11. the codes are not available without pairing');
     await stopGuestRelay();
     const reconnected = new Promise<WebSocket>((resolve) => wss.once('connection', (ws) => resolve(ws)));
     startGuestRelay();
@@ -240,10 +269,10 @@ async function main() {
     fresh.send(JSON.stringify({ type: 'admin_table_codes', id: 'codes-2' }));
     const refused = await freshNext('admin_table_codes_result');
     assert.equal(refused.ok, false);
-    assert.equal(refused.reason, 'not_signed_in', 'a reconnect never inherits the previous session');
+    assert.equal(refused.reason, 'not_paired', 'a reconnect never inherits the previous pairing');
     ok('a new connection starts unprivileged');
 
-    console.log('\n11. plaintext to a remote host is refused');
+    console.log('\n12. plaintext to a remote host is refused');
     await stopGuestRelay();
     upsertSettings({ guest_relay_url: 'ws://198.51.100.7:9000' });
     startGuestRelay();
@@ -260,7 +289,7 @@ async function main() {
     try { fs.rmSync(testDir, { recursive: true, force: true }); } catch { /* SQLite may still hold it */ }
   }
 
-  console.log(`\nResults: ${passed}/11 passed, 0 failed`);
+  console.log(`\nResults: ${passed}/12 passed, 0 failed`);
 }
 
 main().catch((error) => {

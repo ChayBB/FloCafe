@@ -1944,6 +1944,11 @@
     "guestSaveFailed": "Could not save",
     "guestTableCodes": "Table codes",
     "guestTableCodesHint": "Each table gets a permanent code when it is created. Print it and stick it on the table. Issue a new one only if a code leaks — the old printout stops working immediately.",
+    "guestRelayPairing": "Pair a hosted server",
+    "guestRelayPairingHint": "If you use a hosted QR server so customers can order over mobile data, pair it here. Pairing is what sends your menu up and releases the table codes it needs to print QRs.",
+    "guestRelayShowCode": "Show pairing code",
+    "guestRelayCodeExpiresIn": "Type this into your hosted server. Expires in {time}, and works once.",
+    "guestRelayNoPasswordHint": "Never type your POS password into a hosted server. This code is all it needs, and it is useless the moment it has been used.",
     "noTablesYet": "No tables yet"
   },
   "setup": {

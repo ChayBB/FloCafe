@@ -8,6 +8,7 @@
 import { Router, Request, Response } from 'express';
 import QRCode from 'qrcode';
 import { newGuestToken, qualifyGuestToken } from '../services/guest-tokens';
+import { clearPairingCode, issuePairingCode } from '../services/guest-relay';
 import { getDatabase, getSettingValue, now, upsertSettings } from '../db';
 import { requireRole } from '../middleware/security';
 import { ROLE_ACCESS } from '../../shared/role-permissions';
@@ -120,6 +121,47 @@ router.post('/tables/:tableId/token', asyncHandler(async (req: Request, res: Res
   }
   res.json({ table: { id: table.id, number: table.number, url, qr_data: qrData } });
 }));
+
+/**
+ * Shows a pairing code for a hosted QR server.
+ *
+ * The merchant reads it off this screen and types it into their hosted server.
+ * **Their POS password is never involved**, so a compromised hosted server can
+ * capture nothing that unlocks this till — at worst one code, which is spent the
+ * moment it is used and dies in five minutes regardless.
+ *
+ * Returned in the response body and written nowhere: not to settings, not to the
+ * log. A code in a database backup months from now is a liability.
+ */
+router.post('/pairing-code', (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user as { userId?: string; role?: string } | undefined;
+    if (!user?.role) return res.status(401).json({ error: 'Not signed in' });
+
+    // Read the name from the database rather than the token: the hosted server
+    // displays it, and a renamed staff member should not keep an old label for
+    // as long as their token lives.
+    const row = getDatabase().prepare('SELECT name FROM users WHERE id = ?').get(user.userId) as
+      { name: string } | undefined;
+
+    const issued = issuePairingCode({ name: row?.name || '', role: user.role });
+    res.json(issued);
+  } catch (error: any) {
+    // The role check inside the service throws rather than returning, so that a
+    // caller that skipped the middleware cannot quietly get a code anyway.
+    if (/owner or a manager/.test(error?.message || '')) {
+      return res.status(403).json({ error: error.message });
+    }
+    console.error('[API] Internal error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/** Forgets the outstanding code, for a merchant who closed the dialog. */
+router.delete('/pairing-code', (_req: Request, res: Response) => {
+  clearPairingCode();
+  res.json({ ok: true });
+});
 
 /** Retires a table's code without deleting the table. */
 router.delete('/tables/:tableId/token', (req: Request, res: Response) => {

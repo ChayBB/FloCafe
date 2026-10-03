@@ -1944,6 +1944,11 @@
     "guestSaveFailed": "Hindi na-save",
     "guestTableCodes": "Mga code ng mesa",
     "guestTableCodesHint": "Bawat mesa ay may permanenteng code mula nang gawin ito. I-print at idikit sa mesa. Gumawa lang ng bago kung nag-leak — agad nang hindi gagana ang luma.",
+    "guestRelayPairing": "I-pair ang hosted server",
+    "guestRelayPairingHint": "Kung gumagamit ka ng hosted QR server para makaorder ang mga customer sa mobile data, i-pair ito dito. Ang pag-pair ang nagpapadala ng menu mo pataas at nagbibigay ng mga table code na kailangan niya para makapag-print ng QR.",
+    "guestRelayShowCode": "Ipakita ang pairing code",
+    "guestRelayCodeExpiresIn": "I-type ito sa hosted server mo. Mag-e-expire sa {time}, at isang beses lang gagana.",
+    "guestRelayNoPasswordHint": "Huwag na huwag i-type ang password ng POS sa isang hosted server. Ang code na ito ang tanging kailangan niya, at wala na itong kuwenta pagkagamit.",
     "noTablesYet": "Wala pang mesa"
   },
   "setup": {

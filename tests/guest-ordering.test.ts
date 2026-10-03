@@ -60,6 +60,13 @@ async function main() {
     VALUES ('guest-test-owner', 'Owner', 'owner@guest.test', ?, 'owner', 1, ?, ?)
   `).run(bcrypt.hashSync('GuestPass123!', 10), now(), now());
 
+  // A server-role staff member, to prove the pairing endpoint is not merely
+  // hidden from them but actually refuses.
+  db.prepare(`
+    INSERT INTO users (id, name, email, password, role, is_active, created_at, updated_at)
+    VALUES ('guest-test-server', 'Nok', 'nok@guest.test', ?, 'server', 1, ?, ?)
+  `).run(bcrypt.hashSync('GuestPass123!', 10), now(), now());
+
   db.prepare(`
     INSERT INTO tables (id, number, capacity, status, is_active, guest_token, created_at, updated_at)
     VALUES ('tbl-guest', 'G1', 4, 'available', 1, 'token-for-table-g1-0000', ?, ?)
@@ -242,6 +249,35 @@ async function main() {
     });
     assert.equal(staffOrder.status, 201, 'sanity: the staff order was accepted');
     assert.equal(announced.length, before, 'a staff-placed order raises no guest alert');
+
+    // The pairing code a merchant reads off this screen to publish their shop on
+    // a hosted QR server. Checked here rather than only in the relay test
+    // because the route is what the Settings screen actually calls.
+    const asOwner = { Authorization: `Bearer ${signIn.body.access_token}` };
+    const issued = await call(posUrl, '/api/guest-ordering/pairing-code', { method: 'POST', headers: asOwner });
+    assert.equal(issued.status, 200, 'the owner can ask for a pairing code');
+    assert.match(issued.body.code, /^[0-9A-HJKMNP-TV-Z]{8}$/, 'eight unambiguous characters');
+    assert.ok(Date.parse(issued.body.expires_at) > Date.now(), 'and it has not already expired');
+
+    const reissued = await call(posUrl, '/api/guest-ordering/pairing-code', { method: 'POST', headers: asOwner });
+    assert.notEqual(reissued.body.code, issued.body.code, 'asking again gives a fresh code, not the same one');
+
+    const serverIn = await call(posUrl, '/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email: 'nok@guest.test', password: 'GuestPass123!' }),
+    });
+    assert.equal(serverIn.status, 200, 'sanity: the server-role staff member can sign in');
+    const serverTry = await call(posUrl, '/api/guest-ordering/pairing-code', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${serverIn.body.access_token}` },
+    });
+    assert.equal(serverTry.status, 403, 'a server-role staff member cannot publish the shop to the internet');
+
+    const anonymous = await call(posUrl, '/api/guest-ordering/pairing-code', { method: 'POST' });
+    assert.equal(anonymous.status, 401, 'and nor can an unauthenticated caller');
+
+    const dismissed = await call(posUrl, '/api/guest-ordering/pairing-code', { method: 'DELETE', headers: asOwner });
+    assert.equal(dismissed.status, 200, 'closing the dialog retires the code immediately');
   } finally {
     stopListening();
     await stopGuestServer();

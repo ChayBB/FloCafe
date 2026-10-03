@@ -1944,6 +1944,11 @@
     "guestSaveFailed": "Speichern fehlgeschlagen",
     "guestTableCodes": "Tischcodes",
     "guestTableCodesHint": "Jeder Tisch erhält bei der Anlage einen dauerhaften Code. Ausdrucken und aufkleben. Neu ausgeben nur bei einem Leck — der alte Ausdruck wird sofort ungültig.",
+    "guestRelayPairing": "Gehosteten Server koppeln",
+    "guestRelayPairingHint": "Wenn Sie einen gehosteten QR-Server nutzen, damit Gäste über Mobilfunk bestellen können, koppeln Sie ihn hier. Erst die Kopplung schickt Ihre Speisekarte hoch und gibt die Tischcodes frei, die er zum Drucken der QR-Codes braucht.",
+    "guestRelayShowCode": "Kopplungscode anzeigen",
+    "guestRelayCodeExpiresIn": "Diesen Code auf dem gehosteten Server eingeben. Läuft in {time} ab und gilt nur einmal.",
+    "guestRelayNoPasswordHint": "Geben Sie Ihr Kassenpasswort nie auf einem gehosteten Server ein. Dieser Code genügt, und er ist nach der Nutzung sofort wertlos.",
     "noTablesYet": "Noch keine Tische"
   },
   "setup": {

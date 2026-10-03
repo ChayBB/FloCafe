@@ -4,7 +4,7 @@
  * Three surfaces on one port:
  *   /relay          the socket the POS dials out to and holds open
  *   /api/guest/*    what a customer's phone talks to over 4G
- *   /admin/*        where the shop owner signs in and gets the printable QRs
+ *   /admin/*        where the owner pairs the till and gets the printable QRs
  *
  * Caddy terminates TLS in front of both. See ../README.md.
  */
@@ -12,8 +12,8 @@ import { Elysia, t } from 'elysia';
 import { createHash, randomUUID } from 'node:crypto';
 import { loadMenu, shopProfile, sql, tableByHash } from './db';
 import { applySnapshot, attach, deliverReply, detach, dispatch, isPosConnected, settle, verifyHello } from './pos-link';
-import { sessionFor, signIn, signOut, tableCodes } from './admin';
-import { adminPage, loginPage, printPage } from './admin-pages';
+import { pair, sessionFor, signOut, tableCodes } from './admin';
+import { adminPage, pairPage, printPage } from './admin-pages';
 
 const RELAY_SECRET = process.env.RELAY_SECRET;
 if (!RELAY_SECRET) throw new Error('RELAY_SECRET is required');
@@ -31,10 +31,11 @@ const hashCode = (code: string) => createHash('sha256').update(code).digest('hex
 const RATE: Record<string, { windowMs: number; max: number }> = {
   read: { windowMs: 60_000, max: 120 },
   order: { windowMs: 60_000, max: 10 },
-  // Tight on purpose. This page accepts the shop's real POS password, so it is
-  // the one surface here worth guessing at, and the till cannot see how many
-  // attempts an IP has made — only this server can.
-  login: { windowMs: 15 * 60_000, max: 10 },
+  // The till burns a code after five wrong guesses, so brute force is already
+  // dealt with. This limit exists for the other attack: hammering the form to
+  // destroy every code a merchant issues, which the till cannot distinguish from
+  // a merchant who keeps mistyping.
+  pair: { windowMs: 15 * 60_000, max: 10 },
 };
 const hits = new Map<string, { count: number; resetAt: number }>();
 
@@ -79,10 +80,19 @@ function overLimit(kind: keyof typeof RATE, ip: string): boolean {
 /** The single shop this reference serves; set by the first accepted hello. */
 let shopId: string | null = null;
 
+/** The till's refusal reasons, in words a merchant can act on. */
+const PAIR_ERRORS: Record<string, string> = {
+  invalid_code: 'That code is not right. Check the till and try again.',
+  no_pairing_code: 'There is no code waiting. Ask the till for a new one.',
+  expired: 'That code has expired. Ask the till for a new one.',
+  too_many_attempts: 'Too many wrong tries, so the till cancelled that code. Ask it for a new one.',
+  pos_unreachable: 'Your till did not answer. Check that it is on and connected.',
+};
+
 const page503 = (reason: string) =>
   `<!doctype html><meta charset="utf-8"><p>${
     reason === 'session_expired'
-      ? 'Your session expired. <a href="/admin">Sign in again</a>.'
+      ? 'Your session expired. <a href="/admin">Pair again</a>.'
       : 'Your till did not answer. <a href="/admin/print">Try again</a>.'
   }</p>`;
 
@@ -126,7 +136,7 @@ const app = new Elysia()
 
       if (message.type === 'ack' || message.type === 'nack') { settle(message); return; }
 
-      // admin_login_result, admin_table_codes_result: answers to something the
+      // admin_pair_result, admin_table_codes_result: answers to something the
       // owner clicked. Unrecognised types are ignored, so a newer POS speaking
       // frames this build has never heard of does not break the connection.
       deliverReply(message);
@@ -218,28 +228,26 @@ const app = new Elysia()
   .get('/admin', ({ adminToken, set }) => {
     set.headers['content-type'] = 'text/html; charset=utf-8';
     const session = sessionFor(adminToken);
-    return session ? adminPage(session.name, isPosConnected()) : loginPage();
+    return session ? adminPage(session.name, isPosConnected()) : pairPage();
   })
 
-  .post('/admin/login', async ({ body, set, server, request }) => {
+  .post('/admin/pair', async ({ body, set, server, request }) => {
     const ip = clientIp(server, request);
     set.headers['content-type'] = 'text/html; charset=utf-8';
 
-    if (overLimit('login', ip)) {
+    if (overLimit('pair', ip)) {
       set.status = 429;
-      return loginPage('Too many attempts. Please wait a few minutes.');
+      return pairPage('Too many attempts. Please wait a few minutes.');
     }
     if (!isPosConnected()) {
       set.status = 503;
-      return loginPage('The till is offline, so your password cannot be checked right now.');
+      return pairPage('Your till is offline, so the code cannot be checked right now.');
     }
 
-    const result = await signIn(String((body as any).email ?? ''), String((body as any).password ?? ''));
+    const result = await pair(String((body as any).code ?? ''));
     if ('error' in result) {
-      set.status = 401;
-      return loginPage(result.error === 'not_permitted'
-        ? 'That account is not an owner or a manager.'
-        : 'Wrong email or password.');
+      set.status = result.error === 'pos_unreachable' ? 503 : 401;
+      return pairPage(PAIR_ERRORS[result.error] ?? 'That code was not accepted.');
     }
 
     // HttpOnly so page scripts cannot read it, SameSite=Lax so a form on another
@@ -251,7 +259,7 @@ const app = new Elysia()
     set.headers['location'] = '/admin';
     return '';
   }, {
-    body: t.Object({ email: t.String(), password: t.String() }),
+    body: t.Object({ code: t.String() }),
   })
 
   .post('/admin/logout', ({ adminToken, set }) => {
@@ -270,7 +278,7 @@ const app = new Elysia()
    * caching this response would hand over what the hashing was protecting.
    */
   .get('/admin/tables', async ({ adminToken, set }) => {
-    if (!sessionFor(adminToken)) { set.status = 401; return { error: 'not_signed_in' }; }
+    if (!sessionFor(adminToken)) { set.status = 401; return { error: 'not_paired' }; }
     if (!isPosConnected()) { set.status = 503; return { error: 'pos_offline' }; }
 
     const tables = await tableCodes(PUBLIC_URL);

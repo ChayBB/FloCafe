@@ -1944,6 +1944,11 @@
     "guestSaveFailed": "Não foi possível salvar",
     "guestTableCodes": "Códigos por mesa",
     "guestTableCodesHint": "Cada mesa recebe um código permanente ao ser criada. Imprima e cole na mesa. Gere um novo apenas se vazar — o impresso anterior para de funcionar na hora.",
+    "guestRelayPairing": "Emparelhar um servidor hospedado",
+    "guestRelayPairingHint": "Se usa um servidor QR hospedado para os clientes pedirem pelos dados do celular, emparelhe-o aqui. É o emparelhamento que envia o seu menu e libera os códigos de mesa de que ele precisa para imprimir os QR.",
+    "guestRelayShowCode": "Mostrar código de emparelhamento",
+    "guestRelayCodeExpiresIn": "Digite isto no seu servidor hospedado. Expira em {time} e vale uma única vez.",
+    "guestRelayNoPasswordHint": "Nunca digite a senha do PDV em um servidor hospedado. Este código basta, e ele perde o valor no instante em que é usado.",
     "noTablesYet": "Ainda não há mesas"
   },
   "setup": {

@@ -1944,6 +1944,11 @@
     "guestSaveFailed": "No se pudo guardar",
     "guestTableCodes": "Códigos por mesa",
     "guestTableCodesHint": "Cada mesa recibe un código permanente al crearse. Imprímelo y pégalo en la mesa. Genera uno nuevo solo si se filtra: el impreso anterior deja de funcionar al instante.",
+    "guestRelayPairing": "Vincular un servidor alojado",
+    "guestRelayPairingHint": "Si usas un servidor QR alojado para que los clientes pidan con datos móviles, vincúlalo aquí. La vinculación es lo que sube tu carta y libera los códigos de mesa que necesita para imprimir los QR.",
+    "guestRelayShowCode": "Mostrar código de vinculación",
+    "guestRelayCodeExpiresIn": "Escribe esto en tu servidor alojado. Caduca en {time} y solo sirve una vez.",
+    "guestRelayNoPasswordHint": "Nunca escribas la contraseña del TPV en un servidor alojado. Con este código le basta, y deja de servir en cuanto se usa.",
     "noTablesYet": "Aún no hay mesas"
   },
   "setup": {

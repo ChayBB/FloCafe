@@ -35,16 +35,17 @@ const MAX_ORDER_AGE_MS = 10 * 60_000;
 /** How often to check whether the menu changed while connected. */
 const SNAPSHOT_INTERVAL_MS = 60_000;
 /**
- * How long a verified admin sign-in keeps this socket privileged.
+ * How long a successful pairing keeps this socket privileged.
  *
  * Short, because the privilege it grants — reading the real table codes — is
  * the one thing the hosted server is otherwise never trusted with.
  */
 const ADMIN_SESSION_MS = 30 * 60_000;
 
+/** Who may pair a hosted server with this shop. */
 const ADMIN_ROLES = new Set<string>(ROLE_ACCESS.ownerManager);
 
-/** When the current socket's admin sign-in expires. Reset on every reconnect. */
+/** When the current socket's pairing expires. Reset on every reconnect. */
 let adminSessionUntil = 0;
 
 let socket: WebSocket | null = null;
@@ -127,40 +128,123 @@ function pushSnapshot(force = false): void {
 }
 
 /**
- * Verifies a shop owner's own credentials on behalf of the hosted server.
+ * Pairs the hosted server with this shop using a code shown on the till.
  *
- * The password is checked here and nowhere else. The hosted server forwards
- * what was typed and keeps none of it: staff password hashes never leave this
- * machine, so a compromise of the VPS cannot be turned into offline cracking of
- * the shop's logins.
+ * **No password ever leaves this machine.** The earlier design had the merchant
+ * type their POS password into the hosted server, which worked but meant a
+ * compromised VPS could capture a password that also unlocks the till. Here the
+ * till generates a short-lived code, the merchant reads it off this screen and
+ * types it there, and the worst a compromised VPS can steal is one code that is
+ * already spent.
  *
- * Only owner and manager. A server account that may take orders has no business
- * reconfiguring what the public internet can see.
+ * The code is held in memory only. A restart losing it is correct: an unused
+ * pairing code is not something worth persisting, and one found in a database
+ * backup months later would be a liability rather than a convenience.
+ *
+ * Not the same thing as `getCachedPairingCode()` in main/db.ts, which caches a
+ * code the *cloud* issued for RevFlo device pairing. Here the direction is
+ * reversed and has to be: the hosted server is the party being authorised, so it
+ * cannot be the party that mints the code.
  */
-function verifyAdmin(email: unknown, password: unknown): { ok: true; name: string; role: string } | { ok: false; reason: string } {
-  const normalized = String(email ?? '').trim().toLowerCase();
-  if (!normalized || typeof password !== 'string' || !password) {
-    return { ok: false, reason: 'invalid_credentials' };
+const PAIRING_TTL_MS = 5 * 60_000;
+/**
+ * Wrong guesses allowed before the code is destroyed rather than merely refused.
+ *
+ * The code is short enough to type, so it is short enough to guess at if the
+ * attempts are unlimited. Burning the code on the fifth wrong try means an
+ * attacker has to wait for a merchant to issue a new one, and gets five tries in
+ * 2^40 each time.
+ */
+const PAIRING_MAX_ATTEMPTS = 5;
+/**
+ * Crockford base32: no I, L, O or U. A merchant reading a code off one screen
+ * and typing it into another should not have to tell 0 from O, and the letter
+ * that would be misread as a vowel in an unfortunate word is gone too.
+ */
+const PAIRING_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+const PAIRING_LENGTH = 8;
+
+let pairing: { code: string; expiresAt: number; attempts: number; name: string; role: string } | null = null;
+
+/**
+ * Issues a pairing code for the merchant to read off this screen.
+ *
+ * Reached from the POS's own owner/manager-gated route, and the role is checked
+ * again here. Pairing grants whoever holds the code the real table codes, which
+ * is the one thing the hosted server is otherwise never trusted with; that is
+ * worth two locks rather than one.
+ *
+ * Issuing replaces any outstanding code. One live code at a time.
+ */
+export function issuePairingCode(user: { name: string; role: string }): { code: string; expires_at: string } {
+  if (!ADMIN_ROLES.has(user.role)) {
+    throw new Error('Only an owner or a manager can pair a hosted server');
   }
+  // 32 divides 256 exactly, so a byte modulo the alphabet length is unbiased.
+  const bytes = randomBytes(PAIRING_LENGTH);
+  let code = '';
+  for (const byte of bytes) code += PAIRING_ALPHABET[byte % PAIRING_ALPHABET.length];
 
-  const user = getDatabase()
-    .prepare('SELECT name, role, password FROM users WHERE LOWER(email) = ? AND is_active = 1')
-    .get(normalized) as { name: string; role: string; password: string } | undefined;
+  const expiresAt = Date.now() + PAIRING_TTL_MS;
+  pairing = { code, expiresAt, attempts: 0, name: user.name, role: user.role };
+  log.info('[GuestRelay] pairing code issued, valid', PAIRING_TTL_MS / 60_000, 'minutes');
+  return { code, expires_at: new Date(expiresAt).toISOString() };
+}
 
-  // bcrypt is run even when no user matched, so a missing address and a wrong
-  // password take the same time and cannot be told apart by timing.
-  const bcrypt = require('bcryptjs');
-  const hash = user?.password ?? '$2a$10$invalidinvalidinvalidinvalidinvalidinvalidinvalidinvalidinv';
-  let matches = false;
-  try { matches = bcrypt.compareSync(password, hash); } catch { matches = false; }
-
-  if (!user || !matches) return { ok: false, reason: 'invalid_credentials' };
-  if (!ADMIN_ROLES.has(user.role)) return { ok: false, reason: 'not_permitted' };
-  return { ok: true, name: user.name, role: user.role };
+/** Forgets the outstanding code. Used when the merchant closes the dialog. */
+export function clearPairingCode(): void {
+  pairing = null;
 }
 
 /**
- * The printable codes, handed over only to a signed-in owner or manager.
+ * Normalises what the merchant typed.
+ *
+ * Case and separators are theirs to get wrong. `O` folds to `0` and `I`/`L` to
+ * `1`, which is Crockford's own mapping and is safe precisely because the
+ * alphabet contains none of those three — a fold can never collide with a
+ * character a real code could hold. `U` is excluded too but is deliberately not
+ * folded: there is no digit it is mistaken for, and inventing one would turn a
+ * typo into a different valid code.
+ */
+function normalizePairingCode(input: unknown): string {
+  return String(input ?? '')
+    .toUpperCase()
+    .replace(/[^0-9A-Z]/g, '')
+    .replace(/O/g, '0')
+    .replace(/[IL]/g, '1');
+}
+
+function verifyPairing(input: unknown): { ok: true; name: string; role: string } | { ok: false; reason: string } {
+  if (!pairing) return { ok: false, reason: 'no_pairing_code' };
+  if (Date.now() > pairing.expiresAt) {
+    pairing = null;
+    return { ok: false, reason: 'expired' };
+  }
+
+  const presented = normalizePairingCode(input);
+  const expected = Buffer.from(pairing.code);
+  const got = Buffer.from(presented);
+  const matches = expected.length === got.length && timingSafeEqual(expected, got);
+
+  if (!matches) {
+    pairing.attempts += 1;
+    if (pairing.attempts >= PAIRING_MAX_ATTEMPTS) {
+      pairing = null;
+      log.warn('[GuestRelay] pairing code destroyed after', PAIRING_MAX_ATTEMPTS, 'wrong attempts');
+      return { ok: false, reason: 'too_many_attempts' };
+    }
+    return { ok: false, reason: 'invalid_code' };
+  }
+
+  // Single use. A code that still works after it has paired is a code sitting in
+  // the merchant's browser history waiting to pair somebody else's server.
+  const { name, role } = pairing;
+  pairing = null;
+  return { ok: true, name, role };
+}
+
+/**
+ * The printable codes, handed over only across a paired socket.
  *
  * Snapshots carry hashes precisely so a breach of the hosted database yields no
  * working QR. This is the deliberate exception: an admin asking to print the
@@ -339,20 +423,20 @@ function connect(): void {
     // A server that lost its cache asks rather than waiting for a change.
     if (message.type === 'need_snapshot') { pushSnapshot(true); return; }
 
-    if (message.type === 'admin_login') {
+    if (message.type === 'admin_pair') {
       const id = String((message as any).id || '');
-      const result = verifyAdmin((message as any).email, (message as any).password);
+      const result = verifyPairing((message as any).code);
       if (!result.ok) {
         adminSessionUntil = 0;
-        log.warn('[GuestRelay] admin sign-in refused:', result.reason);
-        reply({ type: 'admin_login_result', id, ok: false, reason: result.reason });
+        log.warn('[GuestRelay] pairing refused:', result.reason);
+        reply({ type: 'admin_pair_result', id, ok: false, reason: result.reason });
         return;
       }
       adminSessionUntil = Date.now() + ADMIN_SESSION_MS;
-      reply({ type: 'admin_login_result', id, ok: true, name: result.name, role: result.role,
+      reply({ type: 'admin_pair_result', id, ok: true, name: result.name, role: result.role,
               expires_in_ms: ADMIN_SESSION_MS });
-      log.info('[GuestRelay] admin signed in:', result.role);
-      // Signing in is what the merchant does to publish; send everything at once
+      log.info('[GuestRelay] hosted server paired by', result.role);
+      // Pairing is what the merchant does to publish; send everything at once
       // rather than waiting for the next digest check.
       pushSnapshot(true);
       return;
@@ -361,7 +445,7 @@ function connect(): void {
     if (message.type === 'admin_table_codes') {
       const id = String((message as any).id || '');
       if (Date.now() > adminSessionUntil) {
-        reply({ type: 'admin_table_codes_result', id, ok: false, reason: 'not_signed_in' });
+        reply({ type: 'admin_table_codes_result', id, ok: false, reason: 'not_paired' });
         return;
       }
       reply({ type: 'admin_table_codes_result', id, ok: true, ...tableCodesPayload() });

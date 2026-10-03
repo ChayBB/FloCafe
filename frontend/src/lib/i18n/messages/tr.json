@@ -1944,6 +1944,11 @@
     "guestSaveFailed": "Kaydedilemedi",
     "guestTableCodes": "Masa kodları",
     "guestTableCodesHint": "Her masa oluşturulurken kalıcı bir kod alır. Yazdırıp masaya yapıştırın. Yalnızca kod sızarsa yenisini üretin; eski çıktı anında geçersiz olur.",
+    "guestRelayPairing": "Barındırılan sunucuyu eşle",
+    "guestRelayPairingHint": "Müşteriler mobil veriyle sipariş verebilsin diye barındırılan bir QR sunucusu kullanıyorsanız burada eşleyin. Menünüzü yukarı gönderen ve QR basmak için gereken masa kodlarını veren şey eşlemedir.",
+    "guestRelayShowCode": "Eşleme kodunu göster",
+    "guestRelayCodeExpiresIn": "Bunu barındırılan sunucunuza yazın. {time} içinde sona erer ve bir kez geçerlidir.",
+    "guestRelayNoPasswordHint": "Kasa şifrenizi barındırılan bir sunucuya asla yazmayın. Ona bu kod yeter ve kod kullanıldığı anda değersizleşir.",
     "noTablesYet": "Henüz masa yok"
   },
   "setup": {

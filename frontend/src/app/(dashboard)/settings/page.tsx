@@ -351,6 +351,50 @@ export default function SettingsPage() {
     }
   };
 
+  /**
+   * A pairing code for a hosted QR server.
+   *
+   * Kept in component state and nowhere else — not persisted, not refetched. A
+   * reload losing it is correct: the code is spent once used and dies in five
+   * minutes regardless, so there is nothing worth restoring.
+   */
+  const [relayCode, setRelayCode] = useState<{ code: string; expiresAt: number } | null>(null);
+  const [relaySecondsLeft, setRelaySecondsLeft] = useState(0);
+  const [relayCodeBusy, setRelayCodeBusy] = useState(false);
+
+  const requestRelayPairingCode = async () => {
+    setRelayCodeBusy(true);
+    try {
+      const { data } = await api.post('/guest-ordering/pairing-code');
+      setRelayCode({ code: data.code, expiresAt: Date.parse(data.expires_at) });
+    } catch (error: unknown) {
+      toastApiError(error, t('guestSaveFailed'), apiErrorT);
+    } finally {
+      setRelayCodeBusy(false);
+    }
+  };
+
+  const dismissRelayPairingCode = async () => {
+    setRelayCode(null);
+    // Tell the till to forget it rather than leaving it live for the rest of its
+    // five minutes: the merchant closing this has decided not to pair.
+    try { await api.delete('/guest-ordering/pairing-code'); } catch { /* it expires on its own */ }
+  };
+
+  // Counts the code down, and clears it at zero so the screen cannot show one
+  // the till has already forgotten.
+  useEffect(() => {
+    if (!relayCode) return;
+    const tick = () => {
+      const left = Math.max(0, Math.ceil((relayCode.expiresAt - Date.now()) / 1000));
+      setRelaySecondsLeft(left);
+      if (left === 0) setRelayCode(null);
+    };
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [relayCode]);
+
   const revokeGuestToken = async (tableId: string) => {
     setGuestTokenBusy(tableId);
     try {
@@ -3519,6 +3563,35 @@ export default function SettingsPage() {
                       {t('guestLanOnlyWarning', { port: guestConfig.guest_port })}
                     </p>
                   )}
+                </div>
+
+                <div className="bg-card rounded-xl border border-border p-6 space-y-3">
+                  <div>
+                    <p className="font-medium text-foreground">{t('guestRelayPairing')}</p>
+                    <p className="text-sm text-muted-foreground">{t('guestRelayPairingHint')}</p>
+                  </div>
+
+                  {relayCode ? (
+                    <div className="rounded-lg border border-border bg-muted p-4 text-center">
+                      <Ltr as="p" className="font-mono text-3xl font-semibold tracking-[0.25em] text-foreground">
+                        {relayCode.code}
+                      </Ltr>
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        {t('guestRelayCodeExpiresIn', {
+                          time: `${Math.floor(relaySecondsLeft / 60)}:${String(relaySecondsLeft % 60).padStart(2, '0')}`,
+                        })}
+                      </p>
+                      <Button variant="ghost" size="sm" className="mt-3" onClick={() => void dismissRelayPairingCode()}>
+                        {tCommon('done')}
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button variant="outline" disabled={relayCodeBusy} onClick={() => void requestRelayPairingCode()}>
+                      {t('guestRelayShowCode')}
+                    </Button>
+                  )}
+
+                  <p className="text-xs text-muted-foreground">{t('guestRelayNoPasswordHint')}</p>
                 </div>
 
                 <div className="bg-card rounded-xl border border-border p-6">

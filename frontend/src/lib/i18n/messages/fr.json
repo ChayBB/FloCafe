@@ -1944,6 +1944,11 @@
     "guestSaveFailed": "Enregistrement impossible",
     "guestTableCodes": "Codes par table",
     "guestTableCodesHint": "Chaque table reçoit un code permanent à sa création. Imprimez-le et collez-le. N'en générez un nouveau qu'en cas de fuite : l'ancien tirage cesse aussitôt de fonctionner.",
+    "guestRelayPairing": "Associer un serveur hébergé",
+    "guestRelayPairingHint": "Si vous utilisez un serveur QR hébergé pour que les clients commandent en 4G, associez-le ici. C'est l'association qui envoie votre carte et libère les codes de table dont il a besoin pour imprimer les QR.",
+    "guestRelayShowCode": "Afficher le code d'association",
+    "guestRelayCodeExpiresIn": "Saisissez ceci sur votre serveur hébergé. Expire dans {time} et ne sert qu’une fois.",
+    "guestRelayNoPasswordHint": "Ne saisissez jamais le mot de passe de la caisse sur un serveur hébergé. Ce code lui suffit, et il ne vaut plus rien dès qu’il a servi.",
     "noTablesYet": "Aucune table"
   },
   "setup": {
