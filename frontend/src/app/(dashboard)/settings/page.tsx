@@ -1213,10 +1213,7 @@ export default function SettingsPage() {
    * there is nothing to report otherwise.
    */
   useEffect(() => {
-    if (activeTab !== 'guest-ordering' || !guestConfig?.relay?.url) {
-      setRelayConnected(null);
-      return;
-    }
+    if (activeTab !== 'guest-ordering' || !guestConfig?.relay?.url) return;
     let cancelled = false;
     const check = async () => {
       try {
@@ -1228,7 +1225,10 @@ export default function SettingsPage() {
     };
     void check();
     const timer = setInterval(() => void check(), 5000);
-    return () => { cancelled = true; clearInterval(timer); };
+    // Clearing on the way out rather than on the way in: a stale "connected"
+    // must not outlive the polling that earned it, and setting state in an
+    // effect body would re-render on every pass.
+    return () => { cancelled = true; clearInterval(timer); setRelayConnected(null); };
   }, [activeTab, guestConfig?.relay?.url]);
 
   // Cash drawer pulse: active custom payment methods (beyond built-in cash/card)

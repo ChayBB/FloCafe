@@ -4,7 +4,7 @@ Status: **CURRENT (POS side)** — the hosted server is not in this repository.
 
 How a customer ordering on mobile data reaches a till that sits behind NAT.
 
-```
+```text
 customer phone ──4G/HTTPS──> hosted QR server <──WSS, dialled by the POS── POS
 ```
 
@@ -67,7 +67,7 @@ Every frame is JSON. The POS speaks first.
 }
 ```
 
-```
+```text
 signature = HMAC-SHA256(guest_relay_secret, `${pos_hash}.${timestamp}.${nonce}`)
 ```
 

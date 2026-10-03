@@ -84,7 +84,7 @@ diner off mid-meal.
 The binding is cryptographic rather than stored, so a sitting needs no row of its
 own:
 
-```
+```text
 roundToken = <nonce>.<HMAC(secret, nonce | tableId | round)>
 ```
 
@@ -109,7 +109,7 @@ ssh -N -R 127.0.0.1:3004:127.0.0.1:3004 user@your-server
 On the server, terminate TLS and proxy to the tunnel — with Caddy that is the whole
 config:
 
-```
+```caddyfile
 order.example.com {
     reverse_proxy 127.0.0.1:3004
 }

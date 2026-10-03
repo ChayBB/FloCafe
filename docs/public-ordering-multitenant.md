@@ -69,7 +69,7 @@ Recommended: Google + Apple sign-in only, no local portal passwords.
 
 ## Shape
 
-```
+```text
   Customer phone ──── HTTPS ────> Flo Order          (public, multi-tenant, VPS)
   Owner browser  ──── HTTPS ────> Flo Order portal          │
                                                             │
@@ -102,7 +102,7 @@ machines (`pos_hash`); the relay connection identifies which.
 A `guest_token` today is 32 random base64url characters, unique within one shop's SQLite file. On a
 shared server that guarantee is gone. Token format becomes:
 
-```
+```text
 <store_ref>.<secret>
        │        └── the existing 32-char base64url secret, unchanged
        └── short opaque public store reference — not the shop name, not sequential
