@@ -121,11 +121,12 @@ export function deliverReply(message: { type: string; id?: string }): boolean {
 /** Replaces the cached menu with the snapshot the till just sent. */
 export async function applySnapshot(shopId: string, snapshot: any): Promise<void> {
   await sql.begin(async (tx) => {
-    await tx`INSERT INTO shops (id, currency, language, snapshot_digest, last_seen_at)
-             VALUES (${shopId}, ${snapshot.currency ?? 'THB'}, ${snapshot.language ?? 'en'}, ${snapshot.digest ?? null}, now())
+    await tx`INSERT INTO shops (id, currency, language, country, snapshot_digest, last_seen_at)
+             VALUES (${shopId}, ${snapshot.currency ?? 'THB'}, ${snapshot.language ?? 'en'}, ${snapshot.country ?? 'TH'}, ${snapshot.digest ?? null}, now())
              ON CONFLICT (id) DO UPDATE SET
                currency = excluded.currency,
                language = excluded.language,
+               country = excluded.country,
                snapshot_digest = excluded.snapshot_digest,
                last_seen_at = now()`;
 

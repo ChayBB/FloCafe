@@ -9,6 +9,8 @@ CREATE TABLE IF NOT EXISTS shops (
   name            TEXT NOT NULL DEFAULT '',
   currency        TEXT NOT NULL DEFAULT 'THB',
   language        TEXT NOT NULL DEFAULT 'en',
+  -- The guest page formats money and dates by country, not by currency alone.
+  country         TEXT NOT NULL DEFAULT 'TH',
   snapshot_digest TEXT,
   last_seen_at    TIMESTAMPTZ,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now()

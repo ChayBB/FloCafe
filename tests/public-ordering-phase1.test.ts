@@ -101,7 +101,7 @@ async function main() {
     upsertSettings({ cloud_store_ref: 'shop7' });
 
     // ---- What the cloud is allowed to hold -------------------------------
-    const snapshot = publicOrderingSnapshot('THB', 'th');
+    const snapshot = publicOrderingSnapshot('THB', 'th', 'TH');
     const product = snapshot.products.find((item) => item.id === 'prod-mt');
     assert.ok(product, 'the sellable product is in the snapshot');
     for (const forbidden of ['cost', 'cost_price', 'stock_quantity', 'sku', 'supplier_id']) {
@@ -120,9 +120,9 @@ async function main() {
     assert.equal(asText.includes('SKU-MT-1'), false, 'no stray SKU anywhere in the payload');
     assert.equal(asText.includes('Snapshot Coffee'), true, 'sanity: the snapshot does carry the menu');
 
-    assert.equal(snapshotDigest(snapshot), snapshotDigest(publicOrderingSnapshot('THB', 'th')), 'an unchanged menu digests identically');
+    assert.equal(snapshotDigest(snapshot), snapshotDigest(publicOrderingSnapshot('THB', 'th', 'TH')), 'an unchanged menu digests identically');
     db.prepare("UPDATE products SET price = 75 WHERE id = 'prod-mt'").run();
-    assert.notEqual(snapshotDigest(snapshot), snapshotDigest(publicOrderingSnapshot('THB', 'th')), 'a price change changes the digest');
+    assert.notEqual(snapshotDigest(snapshot), snapshotDigest(publicOrderingSnapshot('THB', 'th', 'TH')), 'a price change changes the digest');
 
     // ---- The portal stays read-only --------------------------------------
     // Phase 1 adds no way for the cloud to write into this POS. If a write

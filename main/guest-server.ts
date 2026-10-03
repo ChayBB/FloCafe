@@ -21,7 +21,7 @@ import { API_JSON_BODY_LIMIT } from './http-limits';
 import { resolveContainedPath } from './lib/path-containment';
 import { GUEST_CHANNEL_HEADER, getGuestChannelSecret } from './services/guest-channel';
 import { isRoundTokenCurrent, isTokenForThisStore, newRoundToken, parseGuestToken } from './services/guest-tokens';
-import { placeGuestOrder, validateGuestItems } from './services/guest-orders';
+import { placeGuestOrder, tableTicket, validateGuestItems } from './services/guest-orders';
 import { publicMenu } from './services/public-menu';
 
 let guestServer: http.Server | null = null;
@@ -92,24 +92,6 @@ function requireGuestTable(req: Request, res: Response, next: NextFunction) {
   if (!table) return res.status(404).json({ error: 'This QR code is no longer valid. Ask our staff for help.' });
   (req as any).guestTable = table;
   next();
-}
-
-/** The table's open ticket, reduced to what the guest ordered and how it is going. */
-function tableTicket(tableId: string) {
-  const db = getDatabase();
-  const order = db.prepare(`
-    SELECT id, order_number, status FROM orders
-    WHERE table_id = ? AND status NOT IN ('completed', 'cancelled')
-    ORDER BY created_at DESC LIMIT 1
-  `).get(tableId) as { id: number; order_number: string; status: string } | undefined;
-  if (!order) return null;
-  const items = db.prepare(`
-    SELECT id, product_name, quantity, status, special_instructions
-    FROM order_items
-    WHERE order_id = ? AND status NOT IN ('cancelled', 'voided', 'void_adjustment', 'refunded')
-    ORDER BY id
-  `).all(order.id) as any[];
-  return { order_number: order.order_number, items };
 }
 
 export function startGuestServer(): Promise<void> {

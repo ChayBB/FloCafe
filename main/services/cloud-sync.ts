@@ -1059,6 +1059,7 @@ export class CloudSyncService {
       const snapshot = publicOrderingSnapshot(
         getTenantCurrency(db),
         getSettingValue('language') || 'en',
+        getSettingValue('country') || 'TH',
       );
       const digest = snapshotDigest(snapshot);
       if (getSettingValue('cloud_public_ordering_digest') === digest) return;

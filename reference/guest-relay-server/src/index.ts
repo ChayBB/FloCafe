@@ -10,8 +10,14 @@
  */
 import { Elysia, t } from 'elysia';
 import { createHash, randomUUID } from 'node:crypto';
+import { resolve, sep } from 'node:path';
 import { loadMenu, shopProfile, sql, tableByHash } from './db';
-import { applySnapshot, attach, deliverReply, detach, dispatch, isPosConnected, settle, verifyHello } from './pos-link';
+// Aliased: `request` is also the name Elysia gives the incoming Request in a
+// handler's context, and shadowing it there would be a trap for the next reader.
+import {
+  applySnapshot, attach, deliverReply, detach, dispatch, isPosConnected,
+  request as request_, settle, verifyHello,
+} from './pos-link';
 import { pair, sessionFor, signOut, tableCodes } from './admin';
 import { adminPage, pairPage, printPage } from './admin-pages';
 
@@ -20,6 +26,30 @@ if (!RELAY_SECRET) throw new Error('RELAY_SECRET is required');
 const PORT = Number(process.env.PORT || 3000);
 /** The address the customer's phone will reach, baked into every QR. */
 const PUBLIC_URL = process.env.PUBLIC_URL || `http://localhost:${PORT}`;
+/** Where FloCafe's exported guest page was copied to. See ../README.md. */
+const GUEST_PAGE_ROOT = process.env.GUEST_PAGE_DIR || './public';
+const GUEST_PAGE_DIR = `${GUEST_PAGE_ROOT}/guest-order`;
+
+/**
+ * Maps a `/_next/...` request onto a file, refusing anything that tries to
+ * leave the directory.
+ *
+ * The check is on the *resolved* path, not on the request text. A blocklist of
+ * `..` is defeated by `%2e%2e` and by encodings nobody thought of; a resolved
+ * path that does not sit under the root is wrong however it was spelled.
+ */
+function resolveStatic(requestPath: string): string | null {
+  const root = resolve(GUEST_PAGE_ROOT) + sep;
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(requestPath);
+  } catch {
+    return null;   // a malformed escape is not a path worth guessing at
+  }
+  if (decoded.includes('\0')) return null;
+  const target = resolve(root, '.' + decoded);
+  return target.startsWith(root) ? target : null;
+}
 
 /** The POS sends `sha256(code)`; the phone sends the code itself. */
 const hashCode = (code: string) => createHash('sha256').update(code).digest('hex');
@@ -150,7 +180,19 @@ const app = new Elysia()
 
   // ── What the customer's phone talks to ────────────────────────────────────
 
-  /** Opens a session from a scanned code: the menu, and who they are ordering as. */
+  /**
+   * Opens a session from a scanned code.
+   *
+   * The response shape is **not this server's to choose**. It is the contract
+   * `frontend/src/app/guest-order/page.tsx` already expects, because the page a
+   * customer loads over 4G is the same page the shop's own WiFi serves. The
+   * local gateway (`main/guest-server.ts`) answers with exactly these fields;
+   * diverging here would be a bug visible to customers on one entrance only.
+   *
+   * The menu comes from the cached snapshot. The round token does not and
+   * cannot: it is signed with a secret that never leaves the till, so it is
+   * fetched per scan and stored nowhere.
+   */
   .get('/api/guest/:code/session', async ({ params, set, server, request }) => {
     const ip = clientIp(server, request);
     if (overLimit('read', ip)) { set.status = 429; return { error: 'Too many requests' }; }
@@ -159,13 +201,67 @@ const app = new Elysia()
     const table = await tableByHash(shopId, hashCode(params.code));
     if (!table) { set.status = 404; return { error: 'This QR code is no longer valid. Please ask our staff.' }; }
 
+    // Asked of the till, because only it can sign a round token. A shop that is
+    // offline cannot open a sitting at all, and saying so is better than serving
+    // a menu nothing can be ordered from.
+    const session = await request_('guest_session', { table_code: params.code }, 'guest_session_result');
+    if (!session || session.ok !== true) {
+      set.status = session?.reason === 'unknown_table' ? 404 : 503;
+      return { error: 'We cannot take orders right now. Please ask our staff.' };
+    }
+
     const [menu, shop] = await Promise.all([loadMenu(shopId), shopProfile(shopId)]);
+    set.headers['cache-control'] = 'no-store';   // the round token is a credential
     return {
-      table: { name: table.name },
-      shop: { name: shop?.name ?? '', currency: shop?.currency ?? 'THB', language: shop?.language ?? 'en' },
-      online: isPosConnected(),
+      table: session.table ?? { name: table.name },
+      round_token: session.round_token,
+      ticket: session.ticket ?? null,
+      currency: shop?.currency ?? 'THB',
+      country: shop?.country ?? 'TH',
+      language: shop?.language ?? 'en',
       ...menu,
     };
+  })
+
+  /**
+   * What the table has ordered so far, polled by the page while guests wait.
+   *
+   * Goes to the till every time rather than being cached here: the ticket is the
+   * one thing on the page that changes without the customer doing anything, and
+   * a stale copy tells them their food is still coming after it has arrived.
+   */
+  .get('/api/guest/:code/ticket', async ({ params, headers, set, server, request }) => {
+    const ip = clientIp(server, request);
+    if (overLimit('read', ip)) { set.status = 429; return { error: 'Too many requests' }; }
+    if (!shopId) { set.status = 503; return { error: 'The shop is not connected' }; }
+
+    const result = await request_('guest_ticket', {
+      table_code: params.code,
+      round_token: headers['x-guest-round'] ?? '',
+    }, 'guest_ticket_result');
+
+    if (!result || result.ok !== true) {
+      // 409 for a settled sitting, matching the local gateway, so the page takes
+      // the same branch and asks the guest to scan again.
+      set.status = result?.reason === 'round_closed' ? 409 : result?.reason === 'unknown_table' ? 404 : 503;
+      return { error: 'This QR code is no longer valid. Please ask our staff.' };
+    }
+    set.headers['cache-control'] = 'no-store';
+    return { ticket: result.ticket ?? null };
+  })
+
+  /**
+   * Product images are deliberately **not** served here.
+   *
+   * The snapshot carries `has_image` but no bytes, and pulling images over the
+   * relay would put the shop's upstream bandwidth in front of every customer's
+   * page load. The page handles a failed image by hiding it and showing its
+   * coloured initials instead, so a 404 degrades rather than breaks. If images
+   * matter for a shop, upload them to the hosted server separately.
+   */
+  .get('/api/guest/:code/products/:productId/image', ({ set }) => {
+    set.status = 404;
+    return { error: 'Images are not served by the hosted server' };
   })
 
   /**
@@ -306,6 +402,46 @@ const app = new Elysia()
   })
 
   .get('/api/health', () => ({ status: 'ok', pos_connected: isPosConnected(), shop: shopId }))
+
+  // ── The page the QR codes actually point at ───────────────────────────────
+  //
+  // The printed QR is `${PUBLIC_URL}/guest-order/?t=<code>`, so something has to
+  // serve that path. It is FloCafe's own exported page, copied here at deploy
+  // time: the same build the shop's WiFi serves, so the two entrances cannot
+  // drift apart visually or behaviourally. See ../README.md for the copy step.
+  //
+  // Served as static files with no templating. The page reads `?t=` itself and
+  // calls /api/guest/* — nothing about the shop is baked into the HTML, which is
+  // why one copy can serve every shop this server hosts.
+  .get('/guest-order', ({ redirect }) => redirect('/guest-order/', 301))
+  .get('/guest-order/*', async ({ path, set }) => {
+    // Only ever two files, named explicitly. A path from the URL must never
+    // reach the filesystem — `..` in a request should not be able to read
+    // /etc/passwd, and an allowlist cannot be talked out of that.
+    const file = path.replace(/^\/guest-order\/?/, '') || 'index.html';
+    const allowed = file === 'index.html' || file === '';
+    if (!allowed) { set.status = 404; return 'Not found'; }
+
+    const asset = Bun.file(`${GUEST_PAGE_DIR}/index.html`);
+    if (!(await asset.exists())) {
+      set.status = 503;
+      set.headers['content-type'] = 'text/html; charset=utf-8';
+      return '<!doctype html><meta charset="utf-8"><p>This server has no guest page installed yet.</p>';
+    }
+    set.headers['content-type'] = 'text/html; charset=utf-8';
+    return asset;
+  })
+
+  // The exported page loads its JavaScript and CSS from /_next/*.
+  .get('/_next/*', async ({ path, set }) => {
+    const resolved = resolveStatic(path);
+    if (!resolved) { set.status = 404; return 'Not found'; }
+    const asset = Bun.file(resolved);
+    if (!(await asset.exists())) { set.status = 404; return 'Not found'; }
+    // Next names these files by content hash, so they can be cached hard.
+    set.headers['cache-control'] = 'public, max-age=31536000, immutable';
+    return asset;
+  })
 
   .listen(PORT);
 

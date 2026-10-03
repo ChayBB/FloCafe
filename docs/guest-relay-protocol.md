@@ -87,6 +87,7 @@ shop, and a stale copy sells something that is off, or at last week's price.
   "digest": "9f12…",
   "currency": "THB",
   "language": "th",
+  "country": "TH",
   "categories": [{ "id": "c-1", "name": "Drinks" }],
   "products": [{ "id": "p-12", "category_id": "c-1", "name": "Iced tea",
                  "description": null, "price": 65, "has_image": true }],
@@ -111,6 +112,60 @@ diff that misses a deletion keeps selling it.
 
 Sent when the server has no cached menu — a fresh deploy, a restarted process.
 The POS answers with a `snapshot` regardless of whether anything changed.
+
+### Server → POS: `guest_session`
+
+A phone has scanned. Needs no pairing: a customer at a table is not an
+administrator, and the code in the QR is the only credential the request has.
+
+```json
+{ "type": "guest_session", "id": "s-1", "table_code": "shop7.AAAABBBB…" }
+```
+
+```json
+{ "type": "guest_session_result", "id": "s-1", "ok": true,
+  "table": { "name": "T9" },
+  "round_token": "nonce.hmac",
+  "ticket": { "order_number": "ORD-20261003-0007", "items": [] } }
+```
+
+`reason: "unknown_table"` when the code resolves to nothing here.
+
+**The hosted server cannot mint a round token and must not try.** It is an HMAC
+over the table and the sitting number, signed with a secret that never leaves
+the POS. So it is fetched per scan and stored nowhere — the same reasoning that
+keeps real table codes out of the snapshot. A stolen hosted database yields no
+working QR *and* no usable round token.
+
+The reply carries exactly the fields the local gateway returns, because the page
+served over 4G is the same page the shop's WiFi serves. The hosted server fills
+in the menu, currency, country and language from its cached snapshot and returns
+the lot under one response.
+
+### Server → POS: `guest_ticket`
+
+```json
+{ "type": "guest_ticket", "id": "t-1", "table_code": "shop7.AAAABBBB…",
+  "round_token": "nonce.hmac" }
+```
+
+```json
+{ "type": "guest_ticket_result", "id": "t-1", "ok": true,
+  "ticket": { "order_number": "ORD-20261003-0007", "items": [] } }
+```
+
+| `reason` | Meaning |
+|---|---|
+| `unknown_table` | the code resolves to nothing here |
+| `round_closed` | the sitting was settled; the token belongs to a party that has paid |
+
+Polled by the page while guests wait, so the round token is re-checked **every
+time** rather than trusted from the first scan. Otherwise a customer who has paid
+and left keeps watching the next party's ticket.
+
+A hosted server should not cache this. The ticket is the one thing on the page
+that changes without the customer doing anything, and a stale copy says their
+food is still coming after it has arrived.
 
 ### Server → POS: `order`
 
@@ -283,8 +338,13 @@ Dedupe survives a restart; it is stored, not held in memory.
 
 Not in this repository, and not optional:
 
-- serving the customer page and the menu (pushed up by the snapshot in
-  [public-ordering-multitenant.md](public-ordering-multitenant.md))
+- serving `/guest-order/`, which is where the printed QR points. It should serve
+  FloCafe's **own exported page** (`frontend/out/guest-order`), not a
+  reimplementation: the customer on 4G and the customer on the shop WiFi are
+  looking at the same table and should be looking at the same page
+- product images, or none. The snapshot carries `has_image` but no bytes, and
+  the page hides an image that fails to load, so serving none degrades rather
+  than breaks
 - queueing an order while the POS is offline, and giving up when the window
   passes rather than delivering it hours later
 - telling the customer the truth: *sent to the kitchen* only after an `ack`,
@@ -294,8 +354,8 @@ Not in this repository, and not optional:
 - rejecting replayed `hello` frames
 - holding pairings in memory only, and never writing a table code down
 
-The last one is the POS's security boundary and cannot be enforced from this
-side.
+Rejecting replayed hellos is the POS's security boundary and cannot be enforced
+from this side: only the hosted server sees both attempts.
 
 ---
 

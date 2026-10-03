@@ -25,6 +25,46 @@ export type ValidationResult =
   | { ok: true; items: GuestOrderLine[] }
   | { ok: false; error: string };
 
+export type GuestTicketLine = {
+  id: number;
+  product_name: string;
+  quantity: number;
+  status: string;
+  special_instructions: string | null;
+};
+
+export type GuestTicket = { order_number: string; items: GuestTicketLine[] } | null;
+
+/**
+ * What the table has ordered so far this sitting.
+ *
+ * Shared by both guest entrances for the same reason `validateGuestItems` is:
+ * a customer on 4G and a customer on the shop WiFi are looking at the same
+ * table, and showing them different tickets would be worse than showing neither.
+ *
+ * Cancelled, voided and refunded lines are excluded — a guest seeing a line they
+ * were never charged for will ask about it, and a line that was voided for a
+ * reason is not the guest's business.
+ */
+export function tableTicket(tableId: string): GuestTicket {
+  const db = getDatabase();
+  const order = db.prepare(`
+    SELECT id, order_number, status FROM orders
+    WHERE table_id = ? AND status NOT IN ('completed', 'cancelled')
+    ORDER BY created_at DESC LIMIT 1
+  `).get(tableId) as { id: number; order_number: string; status: string } | undefined;
+  if (!order) return null;
+
+  const items = db.prepare(`
+    SELECT id, product_name, quantity, status, special_instructions
+    FROM order_items
+    WHERE order_id = ? AND status NOT IN ('cancelled', 'voided', 'void_adjustment', 'refunded')
+    ORDER BY id
+  `).all(order.id) as GuestTicketLine[];
+
+  return { order_number: order.order_number, items };
+}
+
 /**
  * Checks a basket against the live menu.
  *

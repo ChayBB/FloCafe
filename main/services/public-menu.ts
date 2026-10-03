@@ -86,10 +86,20 @@ export type PublicOrderingSnapshot = PublicMenu & {
   tables: PublicTable[];
   currency: string;
   language: string;
+  /**
+   * Needed because the guest page formats money and dates by country, not by
+   * currency alone. The local gateway reads it from settings directly; a hosted
+   * server has no settings to read, so it travels in the snapshot.
+   */
+  country: string;
 };
 
-export function publicOrderingSnapshot(currency: string, language: string): PublicOrderingSnapshot {
-  return { ...publicMenu(), tables: publicTables(), currency, language };
+export function publicOrderingSnapshot(
+  currency: string,
+  language: string,
+  country: string,
+): PublicOrderingSnapshot {
+  return { ...publicMenu(), tables: publicTables(), currency, language, country };
 }
 
 /** Stable fingerprint of a snapshot, so an unchanged menu is never re-sent. */

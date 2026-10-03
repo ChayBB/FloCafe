@@ -21,9 +21,9 @@ import { WebSocket } from 'ws';
 import log from 'electron-log';
 import { ensureCloudIdentity, getSettingValue, isGuestOrderingEnabled } from '../db';
 import { getDatabase } from '../db';
-import { isRoundTokenCurrent, isTokenForThisStore, parseGuestToken, qualifyGuestToken } from './guest-tokens';
+import { isRoundTokenCurrent, isTokenForThisStore, newRoundToken, parseGuestToken, qualifyGuestToken } from './guest-tokens';
 import { ROLE_ACCESS } from '../../shared/role-permissions';
-import { placeGuestOrder, validateGuestItems } from './guest-orders';
+import { placeGuestOrder, tableTicket, validateGuestItems } from './guest-orders';
 import { publicOrderingSnapshot, snapshotDigest } from './public-menu';
 import { getTenantCurrency } from './refund';
 
@@ -103,6 +103,29 @@ function tableForCode(code: unknown): { id: string; number: string; guest_round:
 }
 
 /**
+ * Opens a sitting for a phone that has just scanned, and mints its round token.
+ *
+ * **The hosted server cannot do this itself**, and that is deliberate: a round
+ * token is an HMAC over the table and the sitting number, signed with a secret
+ * that never leaves this machine. So the hosted server asks, per scan, and holds
+ * nothing — the same reason snapshots carry only hashes. A stolen hosted
+ * database yields no working QR *and* no usable round token.
+ *
+ * Answers with exactly the fields the local gateway answers with, because the
+ * page served over 4G is the same page served on the shop WiFi. Any difference
+ * here shows up as a customer-visible bug on one entrance and not the other.
+ */
+function guestSessionPayload(code: unknown): Record<string, unknown> | null {
+  const table = tableForCode(code);
+  if (!table) return null;
+  return {
+    table: { name: table.number },
+    round_token: newRoundToken(table.id, table.guest_round),
+    ticket: tableTicket(table.id),
+  };
+}
+
+/**
  * Sends the hosted server the menu it serves to phones.
  *
  * The server has no database of its own worth trusting for this: prices and
@@ -117,7 +140,11 @@ function tableForCode(code: unknown): { id: string; number: string; guest_round:
 function pushSnapshot(force = false): void {
   if (socket?.readyState !== WebSocket.OPEN) return;
   try {
-    const snapshot = publicOrderingSnapshot(getTenantCurrency(getDatabase()), getSettingValue('language') || 'en');
+    const snapshot = publicOrderingSnapshot(
+      getTenantCurrency(getDatabase()),
+      getSettingValue('language') || 'en',
+      getSettingValue('country') || 'TH',
+    );
     const digest = snapshotDigest(snapshot);
     if (!force && digest === lastSnapshotDigest) return;
     lastSnapshotDigest = digest;
@@ -422,6 +449,37 @@ function connect(): void {
     if (message.type === 'order') { void handleOrder(message); return; }
     // A server that lost its cache asks rather than waiting for a change.
     if (message.type === 'need_snapshot') { pushSnapshot(true); return; }
+
+    // A phone has scanned. Needs no pairing: a customer at a table is not an
+    // administrator, and the code they present is the only credential required.
+    if (message.type === 'guest_session') {
+      const id = String((message as any).id || '');
+      const payload = guestSessionPayload((message as any).table_code);
+      if (!payload) {
+        reply({ type: 'guest_session_result', id, ok: false, reason: 'unknown_table' });
+        return;
+      }
+      reply({ type: 'guest_session_result', id, ok: true, ...payload });
+      return;
+    }
+
+    // Polled by the page while the guest waits for food, so it has to re-check
+    // the round token every time rather than trusting the first scan: the
+    // sitting may have been settled since.
+    if (message.type === 'guest_ticket') {
+      const id = String((message as any).id || '');
+      const table = tableForCode((message as any).table_code);
+      if (!table) {
+        reply({ type: 'guest_ticket_result', id, ok: false, reason: 'unknown_table' });
+        return;
+      }
+      if (!isRoundTokenCurrent((message as any).round_token, table.id, table.guest_round)) {
+        reply({ type: 'guest_ticket_result', id, ok: false, reason: 'round_closed' });
+        return;
+      }
+      reply({ type: 'guest_ticket_result', id, ok: true, ticket: tableTicket(table.id) });
+      return;
+    }
 
     if (message.type === 'admin_pair') {
       const id = String((message as any).id || '');

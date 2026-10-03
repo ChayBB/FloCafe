@@ -192,7 +192,46 @@ async function main() {
     assert.equal(stale.reason, 'stale', 'an hour-old order is refused rather than sent to the kitchen');
     ok('a stale order is refused so the customer can be told instead of fed late');
 
-    console.log('\n8. the hosted server pairs with a code read off the till');
+    console.log('\n8. a phone that scanned gets a sitting the hosted server could not mint');
+    socket.send(JSON.stringify({ type: 'guest_session', id: 's-1', table_code: tableCode }));
+    const session = await nextMessage('guest_session_result');
+    assert.equal(session.ok, true);
+    assert.equal(session.table.name, 'R1');
+    assert.ok(session.round_token, 'the round token comes from the till, which alone can sign one');
+    assert.ok(session.ticket?.order_number, 'and the sitting already shows what the table ordered');
+
+    // The token the till just minted is a real one. Fetching it per scan is only
+    // worth anything if what comes back actually opens a sitting.
+    socket.send(JSON.stringify({
+      type: 'order', id: 'o-session', table_code: tableCode, round_token: session.round_token,
+      items: [{ product_id: 'prod-relay', quantity: 1 }],
+    }));
+    const sessionAck = await nextMessage('ack');
+    assert.equal(sessionAck.id, 'o-session', 'the minted token really opens a sitting');
+
+    socket.send(JSON.stringify({ type: 'guest_session', id: 's-2', table_code: 'not-a-real-code-AAAABBBB' }));
+    const noSuchTable = await nextMessage('guest_session_result');
+    assert.equal(noSuchTable.ok, false);
+    assert.equal(noSuchTable.reason, 'unknown_table');
+    ok('a scan opens a sitting, and a dead code opens nothing');
+
+    console.log('\n9. the ticket is re-checked against the sitting every time');
+    socket.send(JSON.stringify({ type: 'guest_ticket', id: 't-1', table_code: tableCode, round_token: round }));
+    const ticket = await nextMessage('guest_ticket_result');
+    assert.equal(ticket.ok, true);
+    assert.ok(ticket.ticket?.order_number, 'the guest sees what their table has ordered');
+
+    // A token from a settled sitting must stop working, or a customer who has
+    // paid and left can still watch the next party's ticket.
+    socket.send(JSON.stringify({
+      type: 'guest_ticket', id: 't-2', table_code: tableCode, round_token: newRoundToken('tbl-relay', 99),
+    }));
+    const settled = await nextMessage('guest_ticket_result');
+    assert.equal(settled.ok, false);
+    assert.equal(settled.reason, 'round_closed');
+    ok('a ticket needs a live round token, not just a valid table code');
+
+    console.log('\n10. the hosted server pairs with a code read off the till');
     const pair = async (code: string) => {
       const id = `pair-${Math.random().toString(36).slice(2)}`;
       socket.send(JSON.stringify({ type: 'admin_pair', id, code }));
@@ -233,7 +272,7 @@ async function main() {
     assert.equal(reused.reason, 'no_pairing_code', 'a used code is gone, not merely refused');
     ok('a code off the till pairs once, and no password is ever sent');
 
-    console.log('\n9. a code dies after five wrong guesses rather than being guessed at');
+    console.log('\n11. a code dies after five wrong guesses rather than being guessed at');
     const guessable = issuePairingCode({ name: 'Chay', role: 'owner' });
     for (let attempt = 1; attempt <= 4; attempt += 1) {
       const miss = await pair('22222222');
@@ -245,7 +284,7 @@ async function main() {
     assert.equal(afterBurn.reason, 'no_pairing_code', 'and the real code no longer works either');
     ok('brute force burns the code instead of eventually finding it');
 
-    console.log('\n10. pairing publishes the menu and releases the printable codes');
+    console.log('\n12. pairing publishes the menu and releases the printable codes');
     const republish = issuePairingCode({ name: 'Chay', role: 'owner' });
     const republished = await pair(republish.code);
     assert.equal(republished.ok, true);
@@ -259,7 +298,7 @@ async function main() {
     assert.equal(printable.number, 'R1');
     ok('pairing pushes the menu and hands over the codes a QR needs');
 
-    console.log('\n11. the codes are not available without pairing');
+    console.log('\n13. the codes are not available without pairing');
     await stopGuestRelay();
     const reconnected = new Promise<WebSocket>((resolve) => wss.once('connection', (ws) => resolve(ws)));
     startGuestRelay();
@@ -272,7 +311,7 @@ async function main() {
     assert.equal(refused.reason, 'not_paired', 'a reconnect never inherits the previous pairing');
     ok('a new connection starts unprivileged');
 
-    console.log('\n12. plaintext to a remote host is refused');
+    console.log('\n14. plaintext to a remote host is refused');
     await stopGuestRelay();
     upsertSettings({ guest_relay_url: 'ws://198.51.100.7:9000' });
     startGuestRelay();
@@ -289,7 +328,7 @@ async function main() {
     try { fs.rmSync(testDir, { recursive: true, force: true }); } catch { /* SQLite may still hold it */ }
   }
 
-  console.log(`\nResults: ${passed}/12 passed, 0 failed`);
+  console.log(`\nResults: ${passed}/14 passed, 0 failed`);
 }
 
 main().catch((error) => {

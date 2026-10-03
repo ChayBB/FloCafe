@@ -47,8 +47,8 @@ export async function tableByHash(shopId: string, tokenHash: string) {
 }
 
 export async function shopProfile(shopId: string) {
-  const rows = await sql<{ name: string; currency: string; language: string }[]>`
-    SELECT name, currency, language FROM shops WHERE id = ${shopId} LIMIT 1
+  const rows = await sql<{ name: string; currency: string; language: string; country: string }[]>`
+    SELECT name, currency, language, country FROM shops WHERE id = ${shopId} LIMIT 1
   `;
   return rows[0] ?? null;
 }

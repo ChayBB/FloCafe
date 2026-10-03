@@ -9,7 +9,7 @@ out to, and carries orders between the two.
 
 **None of this has been executed.** Bun is not installed on the machine where it
 was written, so it has not been started, and no order has ever gone through it.
-The POS end is the tested half (`npm run test:guest-relay`, 12 cases including
+The POS end is the tested half (`npm run test:guest-relay`, 14 cases including
 the ones this server's correctness depends on). Treat this as a worked example
 of the contract, not as something proven.
 
@@ -89,6 +89,32 @@ cp .env.example .env     # then edit it
 bun install
 bun run src/index.ts
 ```
+
+### The guest page
+
+The printed QR points at `PUBLIC_URL/guest-order/?t=<code>`, so this server has
+to serve that path. It serves **FloCafe's own exported page**, not a reimplemented
+one — the same build the shop's WiFi serves, so a customer on 4G and a customer
+on the shop network see the same thing and hit the same bugs.
+
+On a machine with the FloCafe repository:
+
+```bash
+npm run build:frontend
+```
+
+then copy the export across:
+
+```bash
+rsync -a frontend/out/guest-order frontend/out/_next user@your-server:/opt/flo-relay/public/
+```
+
+Nothing about the shop is baked into that HTML — the page reads `?t=` itself and
+calls `/api/guest/*` — so one copy serves every shop this server hosts. Re-copy
+it after a FloCafe upgrade; a page older than the API it is calling is how a
+field quietly goes missing.
+
+Set `GUEST_PAGE_DIR` if you put it somewhere other than `./public`.
 
 ### .env
 
@@ -172,3 +198,4 @@ In the order they will bite:
 | `src/admin.ts` | pairing against the till, in-memory sessions, table codes |
 | `src/admin-pages.ts` | the three server-rendered pages, including the QR sheet |
 | `src/db.ts` | queries |
+| `public/guest-order/` | FloCafe's exported guest page, copied in at deploy time |
