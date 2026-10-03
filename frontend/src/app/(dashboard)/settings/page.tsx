@@ -377,7 +377,11 @@ export default function SettingsPage() {
    * curiosity.
    */
   const regenerateRelaySecret = async () => {
-    if (!window.confirm(t('guestRelaySecretRegenerateConfirm'))) return;
+    // Only a *replacement* disconnects anything. Asking "this will disconnect
+    // your server, continue?" before the first secret exists warns about a
+    // consequence that cannot happen, and a warning that is not true once is a
+    // warning nobody reads the second time.
+    if (guestConfig?.relay?.secret_set && !window.confirm(t('guestRelaySecretRegenerateConfirm'))) return;
     setRelaySecretBusy(true);
     try {
       const { data } = await api.post('/guest-ordering/relay-secret');
@@ -3173,7 +3177,10 @@ export default function SettingsPage() {
       <Tabs orientation="vertical" value={activeTab} onValueChange={handleSettingsTabChange} className="flex flex-col md:flex-row gap-6 items-start md:h-full md:min-h-0">
 
         {/* Settings sidebar nav */}
-        <div className="w-full md:w-40 md:min-w-[10rem] shrink-0 md:h-full md:min-h-0 md:flex md:flex-col">
+        {/* 13rem rather than 10rem: the tab labels are nouns in whatever
+            language the shop runs in, and Thai and German ones were being
+            truncated to the point of being unreadable. */}
+        <div className="w-full md:w-52 md:min-w-[13rem] shrink-0 md:h-full md:min-h-0 md:flex md:flex-col">
           <div className="flex items-center gap-3 mb-6 shrink-0">
             <Settings size={28} className="text-brand" />
             <h1 className="text-2xl font-bold text-foreground">{t('title')}</h1>
