@@ -5,6 +5,12 @@ mas-build-output/
 *.db
 *.db-shm
 *.db-wal
+# Hand-made and pre-migration copies: flo.db.bak-20260921,
+# flo.db.pre-v107-<timestamp> and their -shm/-wal siblings. A suffix after
+# ".db" escapes all three patterns above, so these carry real order and
+# customer data and would otherwise show up as untracked, one `git add -A`
+# away from a public push.
+flo.db.*
 # Intentional exception: a real committed DB fixture for the upgrade-path
 # regression test (tests/upgrade-path.test.ts, specs/DatabaseMigrations.md).
 !tests/fixtures/upgrade-snapshots/*.db
