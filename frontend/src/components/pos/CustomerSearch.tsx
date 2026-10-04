@@ -304,7 +304,7 @@ export default function CustomerSearch({ onSelected, variant = 'default' }: Prop
             className={`h-10 w-48 min-w-0 px-3 text-sm border rounded-lg focus:ring-2 outline-none transition-colors duration-150 ${
               matched
                 ? 'border-border bg-muted cursor-pointer focus:ring-brand/20 focus:border-brand'
-                : 'border-indigo-200 bg-indigo-50 placeholder:text-indigo-400/80 dark:border-indigo-600 dark:bg-indigo-950/40 dark:placeholder:text-indigo-400/60 focus:ring-indigo-200 focus:border-indigo-400 dark:focus:ring-indigo-800 dark:focus:border-indigo-600'
+                : 'border-orange-200 bg-orange-50 placeholder:text-orange-400/80 dark:border-orange-600 dark:bg-orange-950/40 dark:placeholder:text-orange-400/60 focus:ring-orange-200 focus:border-orange-400 dark:focus:ring-orange-800 dark:focus:border-orange-600'
             }`}
             onClick={matched ? handleSelectMatched : undefined}
           />
