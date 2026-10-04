@@ -36,7 +36,7 @@ export default function GlobalError({ error, reset }: { error: Error & { digest?
             <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
               <button
                 onClick={() => reset()}
-                style={{ padding: '8px 16px', borderRadius: 6, border: 'none', background: '#3248FF', color: '#fff', cursor: 'pointer' }}
+                style={{ padding: '8px 16px', borderRadius: 6, border: 'none', background: '#D93D00', color: '#fff', cursor: 'pointer' }}
               >
                 Try Again
               </button>

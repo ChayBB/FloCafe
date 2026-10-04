@@ -196,13 +196,13 @@ export default function AddonModal({
                           key={addon.id}
                           className={`w-full min-h-14 flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg border text-sm transition-colors ${
                             isSel
-                              ? 'border-brand bg-[var(--color-brand-light)] text-brand dark:text-indigo-300'
+                              ? 'border-brand bg-[var(--color-brand-light)] text-brand dark:text-orange-300'
                               : 'border-border hover:border-gray-300 dark:hover:border-border dark:border-border'
                           }`}
                         >
                           <div className="flex items-center gap-2">
                             <span className="font-medium text-foreground">{addon.name}</span>
-                            <span className={`text-xs ${isSel ? 'text-brand dark:text-indigo-300 font-semibold' : 'text-muted-foreground'}`}>
+                            <span className={`text-xs ${isSel ? 'text-brand dark:text-orange-300 font-semibold' : 'text-muted-foreground'}`}>
                               {Number(addon.price) === 0 ? t('freeAddon') : `+${fmt(Number(addon.price))}`}
                             </span>
                           </div>
@@ -212,15 +212,15 @@ export default function AddonModal({
                                 <button
                                   type="button"
                                   onClick={() => updateAddonQuantity(group, addon, -1)}
-                                  className="touch-target rounded flex items-center justify-center text-brand dark:text-indigo-300 hover:bg-brand-light dark:hover:bg-[var(--color-brand-light)] active:bg-brand-light dark:active:bg-[var(--color-brand-light)]"
+                                  className="touch-target rounded flex items-center justify-center text-brand dark:text-orange-300 hover:bg-brand-light dark:hover:bg-[var(--color-brand-light)] active:bg-brand-light dark:active:bg-[var(--color-brand-light)]"
                                 >
                                   <Minus size={14} />
                                 </button>
-                                <span className="text-sm font-bold w-5 text-center text-brand dark:text-indigo-300 tabular-nums">{addonQty}</span>
+                                <span className="text-sm font-bold w-5 text-center text-brand dark:text-orange-300 tabular-nums">{addonQty}</span>
                                 <button
                                   type="button"
                                   onClick={() => updateAddonQuantity(group, addon, 1)}
-                                  className="touch-target rounded flex items-center justify-center text-brand dark:text-indigo-300 hover:bg-brand-light dark:hover:bg-[var(--color-brand-light)] active:bg-brand-light dark:active:bg-[var(--color-brand-light)]"
+                                  className="touch-target rounded flex items-center justify-center text-brand dark:text-orange-300 hover:bg-brand-light dark:hover:bg-[var(--color-brand-light)] active:bg-brand-light dark:active:bg-[var(--color-brand-light)]"
                                 >
                                   <Plus size={14} />
                                 </button>
@@ -244,13 +244,13 @@ export default function AddonModal({
                         key={addon.id}
                         className={`w-full min-h-14 flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg border text-sm transition-colors ${
                           isSel
-                            ? 'border-brand bg-[var(--color-brand-light)] text-brand dark:text-indigo-300'
+                            ? 'border-brand bg-[var(--color-brand-light)] text-brand dark:text-orange-300'
                             : 'border-border hover:border-gray-300 dark:hover:border-border dark:border-border'
                         }`}
                       >
                         <div className="flex items-center gap-2">
                           <span className="font-medium text-foreground">{addon.name}</span>
-                          <span className={`text-xs ${isSel ? 'text-brand dark:text-indigo-300 font-semibold' : 'text-muted-foreground'}`}>
+                          <span className={`text-xs ${isSel ? 'text-brand dark:text-orange-300 font-semibold' : 'text-muted-foreground'}`}>
                             {Number(addon.price) === 0 ? t('freeAddon') : `+${fmt(Number(addon.price))}`}
                           </span>
                         </div>
@@ -260,11 +260,11 @@ export default function AddonModal({
                               <button
                                 type="button"
                                 onClick={() => toggleAddonCheckbox(group, addon)}
-                                className="touch-target rounded flex items-center justify-center text-brand dark:text-indigo-300 hover:bg-brand-light dark:hover:bg-[var(--color-brand-light)] active:bg-brand-light dark:active:bg-[var(--color-brand-light)]"
+                                className="touch-target rounded flex items-center justify-center text-brand dark:text-orange-300 hover:bg-brand-light dark:hover:bg-[var(--color-brand-light)] active:bg-brand-light dark:active:bg-[var(--color-brand-light)]"
                               >
                                 <Minus size={14} />
                               </button>
-                              <span className="text-sm font-bold w-5 text-center text-brand dark:text-indigo-300 tabular-nums">1</span>
+                              <span className="text-sm font-bold w-5 text-center text-brand dark:text-orange-300 tabular-nums">1</span>
                               <button
                                 type="button"
                                 disabled
@@ -315,7 +315,12 @@ export default function AddonModal({
         </div>
 
         <div className="p-5 border-t border-border">
-          <div className="flex items-center justify-center gap-4 mb-4">
+          {/* Stepper first, on its own line: the quick-pick chips used to sit
+              between the minus button and the value, so the row read as
+              "- 1 2 3 1 +" and the live quantity was indistinguishable from a
+              preset. Value now always sits between the two buttons that change
+              it, with the presets a clearly separate control below. */}
+          <div className="flex items-center justify-center gap-4 mb-3">
             <button
               onClick={() =>
                 step == null
@@ -327,22 +332,8 @@ export default function AddonModal({
             >
               <Minus size={18} />
             </button>
-            <div className="grid grid-cols-3 gap-2">
-              {[1, 2, 3].map((quickQty) => (
-                <button
-                  key={quickQty}
-                  type="button"
-                  onClick={() => setQty(quickQty)}
-                  className={`touch-target rounded-lg border px-3 text-sm font-bold tabular-nums ${
-                    quantity === quickQty ? 'border-brand bg-brand text-white' : 'border-border bg-card text-foreground'
-                  }`}
-                >
-                  {quickQty}
-                </button>
-              ))}
-            </div>
             {step == null ? (
-              <span className="text-lg font-bold w-10 text-center tabular-nums">{quantity}</span>
+              <span className="text-2xl font-bold w-16 text-center tabular-nums">{quantity}</span>
             ) : (
               <input
                 type="number"
@@ -371,6 +362,27 @@ export default function AddonModal({
               <Plus size={18} />
             </button>
           </div>
+          {/* Quick picks. Only shown for whole-unit products: a weighed item
+              stepping by 0.25 has no meaningful "2". */}
+          {step == null && (
+            <div className="flex items-center justify-center gap-2 mb-4">
+              {[1, 2, 3].map((quickQty) => (
+                <button
+                  key={quickQty}
+                  type="button"
+                  onClick={() => setQty(quickQty)}
+                  aria-pressed={quantity === quickQty}
+                  className={`h-9 w-12 rounded-lg border text-sm font-bold tabular-nums transition-colors ${
+                    quantity === quickQty
+                      ? 'border-brand bg-brand text-white'
+                      : 'border-border bg-card text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {quickQty}
+                </button>
+              ))}
+            </div>
+          )}
           <Button onClick={handleAdd} disabled={!isValid} className="w-full" size="lg">
             {mode === 'edit'
               ? t('saveItemChanges', { total: fmt(itemTotal) })
