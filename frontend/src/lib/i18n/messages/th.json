@@ -439,7 +439,7 @@
     "statusPreparing": "กำลังดำเนินการ",
     "statusReady": "พร้อมเสิร์ฟ",
     "statusVoided": "ยกเลิกแล้ว",
-    "statusWaiting": "กำลังรอ",
+    "statusWaiting": "กำลังเตรียม",
     "tableLabel": "โต๊ะ {name}",
     "title": "จอแสดงผลในครัว",
     "updating": "กำลังอัปเดต…",
