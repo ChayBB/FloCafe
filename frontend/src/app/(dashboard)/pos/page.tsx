@@ -330,7 +330,11 @@ export default function POSPage() {
       payload: {
         event_code: entry.code,
         message: entry.detail,
-        category: 'bug',
+        // classifyOrderRequestFailure already separated these; filing them all
+        // as 'bug' threw that away. An unreachable local server is the app not
+        // running, a taken port, a sleeping machine — an environment report,
+        // not a defect, and triaging it as one buries the real bugs.
+        category: entry.code === 'order.place.unreachable' ? 'general' : 'bug',
         diagnostics: { stage: 'order_place', http_status: entry.status, message: entry.detail },
       },
     });
