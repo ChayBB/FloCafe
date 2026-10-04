@@ -154,7 +154,13 @@ export default function CartPanel({ tables, submitting, onPlaceOrder, onEditItem
       await heldOrders.holdOrder(cart.tableId, cart.items, cart.customerId, cart.guestCount, cart.orderNotes);
       cart.clearCart();
       toast.success(t('orderHeldFor', { table: tableName }));
-    } catch {
+    } catch (error) {
+      // The toast stays generic — apiErrorText deliberately never shows a raw
+      // English server string to a cashier. But swallowing it entirely left no
+      // way to find out why a hold failed, from the UI or the logs, so the
+      // reason goes to the console where it can be read.
+      console.error('[POS] Hold order failed:', (error as { response?: { status?: number; data?: unknown } })?.response?.status,
+        (error as { response?: { data?: unknown } })?.response?.data ?? error);
       toast.error(t('holdOrderFailed'));
     }
   };

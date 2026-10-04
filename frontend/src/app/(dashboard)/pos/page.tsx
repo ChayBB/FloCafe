@@ -994,7 +994,11 @@ export default function POSPage() {
       setShowTablePicker(false);
       toast.success(t('orderHeld', { tableName }));
       await refreshTables();
-    } catch {
+    } catch (error) {
+      // See CartPanel's handleHold: the toast stays generic, but the reason has
+      // to reach the console or a failed hold is undiagnosable.
+      console.error('[POS] Hold order failed:', (error as { response?: { status?: number } })?.response?.status,
+        (error as { response?: { data?: unknown } })?.response?.data ?? error);
       toast.error(t('holdOrderFailed'));
     }
   };
