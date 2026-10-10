@@ -55,16 +55,17 @@ export function fmt(amount: number): string {
   return amount.toFixed(2);
 }
 
-/** Opens a product's detail modal, picks a preset quantity, and adds it to the cart. */
+/**
+ * Taps a product's catalog card once per unit, adding one to the cart each tap.
+ *
+ * The seeded coffee and the suites' own tracked products carry no variants, add-ons
+ * or weighed quantity, so a tap adds directly and repeated taps merge into one line.
+ */
 export async function addToCart(page: Page, productName: string, quantity = 1): Promise<void> {
-  await page.getByTestId('pos-product-card').filter({ hasText: productName }).first().click();
-  const modal = page.locator('.fixed.inset-0').last();
-  await expect(modal).toBeVisible();
-  if (quantity > 1) {
-    await modal.getByRole('button', { name: String(quantity), exact: true }).click();
+  const card = page.getByTestId('pos-product-card').filter({ hasText: productName }).first();
+  for (let tap = 0; tap < quantity; tap += 1) {
+    await card.click();
   }
-  await modal.getByRole('button', { name: /Add to Cart/ }).click();
-  await expect(modal).toBeHidden();
 }
 
 /**
@@ -84,7 +85,10 @@ export async function placeOrderAndPayCash(page: Page): Promise<string> {
   // elements without separators, so match case-insensitively.
   await expect(modal).toContainText(/Total Due/i, { timeout: 30_000 });
   const owed = money((await shown()).match(/Total Due[^\d]*([\d,]+\.\d{2})/i)?.[1] ?? '');
-  expect(Number.isFinite(owed) && owed > 0, `the checkout modal must state an amount due (got "${owed}")`).toBeTruthy();
+  expect(
+    Number.isFinite(owed) && owed > 0,
+    `the checkout modal must state an amount due (got "${owed}")`,
+  ).toBeTruthy();
 
   await modal.getByRole('button', { name: /^Cash/ }).click();
   const confirm = modal.getByRole('button', { name: /Confirm Payment/ });
@@ -106,7 +110,10 @@ export async function placeOrderAndPayCash(page: Page): Promise<string> {
  * wants one has to open this menu first.
  */
 export async function openOrderOverflowMenu(page: Page): Promise<void> {
-  await page.locator('button[aria-haspopup="menu"]').filter({ has: page.locator('svg.lucide-ellipsis') }).click();
+  await page
+    .locator('button[aria-haspopup="menu"]')
+    .filter({ has: page.locator('svg.lucide-ellipsis') })
+    .click();
   await expect(page.getByRole('menu')).toBeVisible();
 }
 
@@ -130,7 +137,10 @@ export async function setApprovalPin(
     headers: ownerAuth(),
     data: { pin },
   });
-  expect(res.ok(), `setting an approval PIN on ${userId} must succeed (got ${res.status()} ${await res.text()})`).toBeTruthy();
+  expect(
+    res.ok(),
+    `setting an approval PIN on ${userId} must succeed (got ${res.status()} ${await res.text()})`,
+  ).toBeTruthy();
 }
 
 export type OrderRecord = {
@@ -158,7 +168,9 @@ export async function fetchProductStock(page: Page, productId: string): Promise<
   const headers = await authHeader(page);
   const res = await page.request.get(`${E2E_BASE_URL}/api/products`, { headers });
   expect(res.ok()).toBeTruthy();
-  const { products } = (await res.json()) as { products: Array<{ id: string; stock_quantity: number }> };
+  const { products } = (await res.json()) as {
+    products: Array<{ id: string; stock_quantity: number }>;
+  };
   const found = products.find((p) => p.id === productId);
   expect(found, `product ${productId} must exist`).toBeTruthy();
   return (found as { stock_quantity: number }).stock_quantity;
@@ -190,11 +202,16 @@ export async function createTrackedProduct(
     },
   });
   expect(res.status(), `creating product ${name} must succeed (got ${res.status()})`).toBe(201);
-  const { product } = (await res.json()) as { product: { id: string; name: string; price: number } };
+  const { product } = (await res.json()) as {
+    product: { id: string; name: string; price: number };
+  };
   return product;
 }
 
-export async function deleteProduct(api: { request: APIRequestContext }, productId: string): Promise<void> {
+export async function deleteProduct(
+  api: { request: APIRequestContext },
+  productId: string,
+): Promise<void> {
   await api.request.delete(`${E2E_BASE_URL}/api/products/${productId}`, { headers: ownerAuth() });
 }
 
@@ -217,6 +234,10 @@ export async function fetchCustomers(page: Page): Promise<CustomerRecord[]> {
 
 /** Opens the order detail pane for a row in the master list. */
 export async function openOrder(page: Page, orderNumber: string): Promise<void> {
-  await page.getByRole('button').filter({ hasText: `#${orderNumber}` }).first().click();
+  await page
+    .getByRole('button')
+    .filter({ hasText: `#${orderNumber}` })
+    .first()
+    .click();
   await expect(page.getByText(`#${orderNumber}`).nth(1)).toBeVisible();
 }
