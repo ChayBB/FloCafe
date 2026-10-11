@@ -2,19 +2,32 @@ import { randomBytes } from 'crypto';
 import { getDatabase, now, withTxn } from '../db';
 import {
   SupplyUnit,
+  UnitConversionError,
   assertSupplyUnit,
   convertQuantity,
   roundQuantity,
 } from './units';
 import { applySupplyStockChange } from './supplies';
 
+export type RecipeValidationCode =
+  | 'product_missing'
+  | 'items_missing'
+  | 'supply_id_missing'
+  | 'duplicate_supply'
+  | 'supply_missing'
+  | 'quantity_invalid'
+  | 'unit_invalid'
+  | 'yield_invalid';
+
 export class RecipeServiceError extends Error {
   readonly statusCode: number;
+  readonly diagnosticCode?: RecipeValidationCode;
 
-  constructor(statusCode: number, message: string) {
+  constructor(statusCode: number, message: string, diagnosticCode?: RecipeValidationCode) {
     super(message);
     this.name = 'RecipeServiceError';
     this.statusCode = statusCode;
+    this.diagnosticCode = diagnosticCode;
   }
 }
 
@@ -62,19 +75,24 @@ function newId(prefix: string): string {
   return `${prefix}_${randomBytes(12).toString('hex')}`;
 }
 
-function assertPositiveFinite(value: unknown, field: string): number {
+function assertPositiveFinite(
+  value: unknown,
+  field: string,
+  diagnosticCode: 'quantity_invalid' | 'yield_invalid',
+): number {
   const quantity = typeof value === 'string' ? Number(value) : value;
   if (typeof quantity !== 'number' || !Number.isFinite(quantity)) {
-    throw new RecipeServiceError(400, `${field} must be a finite number`);
+    throw new RecipeServiceError(400, `${field} must be a finite number`, diagnosticCode);
   }
   if (quantity <= 0) {
-    throw new RecipeServiceError(400, `${field} must be greater than zero`);
+    throw new RecipeServiceError(400, `${field} must be greater than zero`, diagnosticCode);
   }
   return quantity;
 }
 
 function loadRecipeItems(db: ReturnType<typeof getDatabase>, recipeId: string): RecipeComponent[] {
-  const rows = db.prepare(`
+  const rows = db
+    .prepare(`
     SELECT
       ri.supply_id,
       s.name AS supply_name,
@@ -85,7 +103,8 @@ function loadRecipeItems(db: ReturnType<typeof getDatabase>, recipeId: string): 
     JOIN supplies s ON s.id = ri.supply_id
     WHERE ri.recipe_id = ?
     ORDER BY ri.created_at, ri.id
-  `).all(recipeId) as {
+  `)
+    .all(recipeId) as {
     supply_id: string;
     supply_name: string;
     base_unit: SupplyUnit;
@@ -98,79 +117,114 @@ function loadRecipeItems(db: ReturnType<typeof getDatabase>, recipeId: string): 
   }));
 }
 
-export function getRecipeByProduct(db: ReturnType<typeof getDatabase>, productId: string): RecipeRecord | null {
-  const row = db.prepare(`
+export function getRecipeByProduct(
+  db: ReturnType<typeof getDatabase>,
+  productId: string,
+): RecipeRecord | null {
+  const row = db
+    .prepare(`
     SELECT r.*, p.name AS product_name
     FROM recipes r
     LEFT JOIN products p ON p.id = r.product_id
     WHERE r.product_id = ?
-  `).get(productId) as (Omit<RecipeRecord, 'items'> & { product_name: string | null }) | undefined;
+  `)
+    .get(productId) as (Omit<RecipeRecord, 'items'> & { product_name: string | null }) | undefined;
   if (!row) return null;
   return { ...row, items: loadRecipeItems(db, row.id) };
 }
 
 export function getRecipe(db: ReturnType<typeof getDatabase>, id: string): RecipeRecord | null {
-  const row = db.prepare(`
+  const row = db
+    .prepare(`
     SELECT r.*, p.name AS product_name
     FROM recipes r
     LEFT JOIN products p ON p.id = r.product_id
     WHERE r.id = ?
-  `).get(id) as (Omit<RecipeRecord, 'items'> & { product_name: string | null }) | undefined;
+  `)
+    .get(id) as (Omit<RecipeRecord, 'items'> & { product_name: string | null }) | undefined;
   if (!row) return null;
   return { ...row, items: loadRecipeItems(db, row.id) };
 }
 
 export function listRecipes(db: ReturnType<typeof getDatabase>): RecipeRecord[] {
-  const rows = db.prepare(`
+  const rows = db
+    .prepare(`
     SELECT r.*, p.name AS product_name
     FROM recipes r
     LEFT JOIN products p ON p.id = r.product_id
     ORDER BY p.name COLLATE NOCASE
-  `).all() as (Omit<RecipeRecord, 'items'> & { product_name: string | null })[];
+  `)
+    .all() as (Omit<RecipeRecord, 'items'> & { product_name: string | null })[];
   return rows.map((row) => ({ ...row, items: loadRecipeItems(db, row.id) }));
 }
 
-export function saveRecipe(db: ReturnType<typeof getDatabase>, input: SaveRecipeInput): RecipeRecord {
+export function saveRecipe(
+  db: ReturnType<typeof getDatabase>,
+  input: SaveRecipeInput,
+): RecipeRecord {
   const productId = String(input.productId || '').trim();
-  if (!productId) throw new RecipeServiceError(400, 'product_id is required');
+  if (!productId) throw new RecipeServiceError(400, 'product_id is required', 'product_missing');
   const product = db.prepare('SELECT id FROM products WHERE id = ?').get(productId);
-  if (!product) throw new RecipeServiceError(404, 'Product not found');
+  if (!product) throw new RecipeServiceError(404, 'Product not found', 'product_missing');
 
   if (!Array.isArray(input.items) || input.items.length === 0) {
-    throw new RecipeServiceError(400, 'items must contain at least one supply');
+    throw new RecipeServiceError(400, 'items must contain at least one supply', 'items_missing');
   }
 
   const seenSupplies = new Set<string>();
   const normalizedItems: { supplyId: string; quantity: number; unit: SupplyUnit }[] = [];
   for (const item of input.items) {
     const supplyId = String(item?.supply_id || item?.supplyId || '').trim();
-    if (!supplyId) throw new RecipeServiceError(400, 'each item requires a supply_id');
+    if (!supplyId)
+      throw new RecipeServiceError(400, 'each item requires a supply_id', 'supply_id_missing');
     if (seenSupplies.has(supplyId)) {
-      throw new RecipeServiceError(400, 'duplicate supply_id in recipe');
+      throw new RecipeServiceError(400, 'duplicate supply_id in recipe', 'duplicate_supply');
     }
     seenSupplies.add(supplyId);
-    const supply = db.prepare('SELECT id, base_unit FROM supplies WHERE id = ? AND deleted_at IS NULL').get(supplyId) as
-      | { id: string; base_unit: SupplyUnit }
-      | undefined;
-    if (!supply) throw new RecipeServiceError(404, `Supply ${supplyId} not found`);
-    const quantity = assertPositiveFinite(item.quantity, 'item.quantity');
-    const unit = assertSupplyUnit(item.unit, 'item.unit');
+    const supply = db
+      .prepare('SELECT id, base_unit FROM supplies WHERE id = ? AND deleted_at IS NULL')
+      .get(supplyId) as { id: string; base_unit: SupplyUnit } | undefined;
+    if (!supply)
+      throw new RecipeServiceError(404, `Supply ${supplyId} not found`, 'supply_missing');
+    const quantity = assertPositiveFinite(item.quantity, 'item.quantity', 'quantity_invalid');
+    let unit: SupplyUnit;
+    try {
+      unit = assertSupplyUnit(item.unit, 'item.unit');
+    } catch (error) {
+      if (error instanceof UnitConversionError) {
+        throw new RecipeServiceError(error.statusCode, error.message, error.diagnosticCode);
+      }
+      throw error;
+    }
     // Validate convertibility at save time so depletion cannot fail later.
-    convertQuantity(quantity, unit, supply.base_unit);
+    try {
+      convertQuantity(quantity, unit, supply.base_unit);
+    } catch (error) {
+      if (error instanceof UnitConversionError) {
+        throw new RecipeServiceError(error.statusCode, error.message, error.diagnosticCode);
+      }
+      throw error;
+    }
     normalizedItems.push({ supplyId, quantity, unit });
   }
 
-  const yieldQuantity = input.yieldQuantity === undefined ? 1 : assertPositiveFinite(input.yieldQuantity, 'yield_quantity');
+  const yieldQuantity =
+    input.yieldQuantity === undefined
+      ? 1
+      : assertPositiveFinite(input.yieldQuantity, 'yield_quantity', 'yield_invalid');
   const isActive = input.isActive === false ? 0 : 1;
   const timestamp = now();
 
   const recipeId = withTxn(() => {
-    const existing = db.prepare('SELECT id FROM recipes WHERE product_id = ?').get(productId) as { id: string } | undefined;
+    const existing = db.prepare('SELECT id FROM recipes WHERE product_id = ?').get(productId) as
+      | { id: string }
+      | undefined;
     let id: string;
     if (existing) {
       id = existing.id;
-      db.prepare('UPDATE recipes SET yield_quantity = ?, is_active = ?, updated_at = ? WHERE id = ?')
-        .run(yieldQuantity, isActive, timestamp, id);
+      db.prepare(
+        'UPDATE recipes SET yield_quantity = ?, is_active = ?, updated_at = ? WHERE id = ?',
+      ).run(yieldQuantity, isActive, timestamp, id);
       db.prepare('DELETE FROM recipe_items WHERE recipe_id = ?').run(id);
     } else {
       id = newId('rcp');
@@ -196,7 +250,9 @@ export function saveRecipe(db: ReturnType<typeof getDatabase>, input: SaveRecipe
 }
 
 export function deleteRecipe(db: ReturnType<typeof getDatabase>, productId: string): void {
-  const existing = db.prepare('SELECT id FROM recipes WHERE product_id = ?').get(productId) as { id: string } | undefined;
+  const existing = db.prepare('SELECT id FROM recipes WHERE product_id = ?').get(productId) as
+    | { id: string }
+    | undefined;
   if (!existing) throw new RecipeServiceError(404, 'Recipe not found');
   withTxn(() => {
     db.prepare('DELETE FROM recipe_items WHERE recipe_id = ?').run(existing.id);

@@ -5,7 +5,12 @@ import { randomUUID } from 'node:crypto';
 import { getDatabase, now } from '../db';
 import { validatePassword, authRateLimit, invalidateUserAuthCache } from '../middleware/security';
 import { hasPermission, requireAnyPermission, requirePermission } from '../services/authorization';
-import { AdministrationUnreachableError, assertAdministrationReachable } from '../services/authorization';
+import {
+  AdministrationUnreachableError,
+  assertAdministrationReachable,
+} from '../services/authorization';
+import { cloudSync } from '../services/cloud-sync';
+import { serializeOperationFailure } from '../lib/operation-failure';
 import { isValidEmail } from './auth';
 import { ROLE_ACCESS, ROLE_KEYS, OPERATIONAL_ROLES, hasRole } from '../../shared/role-permissions';
 
@@ -16,10 +21,55 @@ const router = Router();
  * staff gate must admit it too: gating only on staff.operational.manage let one
  * override turn a protected permission into an inert one.
  */
-const requireStaffWrite = requireAnyPermission('staff.operational.manage', 'staff.privileged.manage');
+const requireStaffWrite = requireAnyPermission(
+  'staff.operational.manage',
+  'staff.privileged.manage',
+);
 
 const VALID_ROLES: readonly string[] = ROLE_KEYS;
-const STAFF_SELECT_FIELDS = 'id, name, email, role, (pin_hash IS NOT NULL) AS has_pin, is_active, created_at, updated_at';
+const STAFF_SELECT_FIELDS =
+  'id, name, email, role, (pin_hash IS NOT NULL) AS has_pin, is_active, created_at, updated_at';
+
+function captureAdministrationAccessGuard(): void {
+  const failure = serializeOperationFailure({
+    capture_point: 'fc.backend.staff.administration_access_guard',
+    outcome: 'not_applied',
+  });
+  try {
+    if (failure) cloudSync.captureOperationFailure(failure);
+  } catch {
+    // Diagnostics cannot change a protected staff decision.
+  }
+}
+
+function captureStaffValidation(
+  capturePoint: 'fc.backend.staff.create.validation' | 'fc.backend.staff.update.validation',
+  validationCode: string,
+): void {
+  const failure = serializeOperationFailure({
+    capture_point: capturePoint,
+    outcome: 'not_applied',
+    facts: { validation_code: validationCode },
+  });
+  try {
+    if (failure) cloudSync.captureOperationFailure(failure);
+  } catch {
+    // Diagnostics cannot change staff validation responses.
+  }
+}
+
+function captureStaffTargetAccessDenied(action: string): void {
+  const failure = serializeOperationFailure({
+    capture_point: 'fc.backend.staff.target_access_denied',
+    outcome: 'not_applied',
+    facts: { action },
+  });
+  try {
+    if (failure) cloudSync.captureOperationFailure(failure);
+  } catch {
+    // Diagnostics cannot change staff authorization decisions.
+  }
+}
 
 function canModifyTargetStaff(requesterId: string, targetRole: string): boolean {
   if (hasRole(targetRole, ROLE_ACCESS.ownerManager)) {
@@ -41,12 +91,18 @@ function isValidPin(pin: unknown): boolean {
 }
 
 function normalizeStaffEmail(email: unknown): string {
-  return String(email || '').trim().toLowerCase();
+  return String(email || '')
+    .trim()
+    .toLowerCase();
 }
 
 function normalizeStationIds(value: unknown): string[] | null {
   if (value === undefined) return [];
-  if (!Array.isArray(value) || value.length > 100 || value.some((id) => typeof id !== 'string' || id.trim().length === 0 || id.length > 128)) {
+  if (
+    !Array.isArray(value) ||
+    value.length > 100 ||
+    value.some((id) => typeof id !== 'string' || id.trim().length === 0 || id.length > 128)
+  ) {
     return null;
   }
   return [...new Set(value.map((id) => id.trim()))];
@@ -79,8 +135,8 @@ router.get('/', requirePermission('staff.view'), (req: Request, res: Response) =
     const staff = db.prepare(query).all(...params);
     res.json({ staff });
   } catch (error: any) {
-    console.error("[API] Internal error:", error);
-    res.status(500).json({ error: "Internal server error" });
+    console.error('[API] Internal error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -89,24 +145,26 @@ router.get('/', requirePermission('staff.view'), (req: Request, res: Response) =
 router.get('/:id', requirePermission('staff.view'), (req: Request, res: Response) => {
   try {
     const db = getDatabase();
-    const member = db.prepare(
-      `SELECT ${STAFF_SELECT_FIELDS} FROM users WHERE id = ?`
-    ).get(req.params.id) as any;
+    const member = db
+      .prepare(`SELECT ${STAFF_SELECT_FIELDS} FROM users WHERE id = ?`)
+      .get(req.params.id) as any;
 
     if (!member) {
       return res.status(404).json({ error: 'Staff member not found' });
     }
 
-    const performance = db.prepare(`
+    const performance = db
+      .prepare(`
       SELECT COUNT(*) as orders_served, COALESCE(SUM(total), 0) as total_sales
       FROM orders
       WHERE user_id = ? AND date(created_at) = date('now')
-    `).get(req.params.id);
+    `)
+      .get(req.params.id);
 
     res.json({ staff: { ...member, performance } });
   } catch (error: any) {
-    console.error("[API] Internal error:", error);
-    res.status(500).json({ error: "Internal server error" });
+    console.error('[API] Internal error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -119,23 +177,36 @@ router.post('/', requireStaffWrite, authRateLimit(), (req: Request, res: Respons
     const normalizedStationIds = normalizeStationIds(station_ids);
 
     if (!name || !normalizedEmail || !password || !role) {
+      captureStaffValidation('fc.backend.staff.create.validation', 'required_fields');
       return res.status(400).json({ error: 'name, email, password, and role are required' });
     }
     if (!isValidEmail(normalizedEmail)) {
+      captureStaffValidation('fc.backend.staff.create.validation', 'email_invalid');
       return res.status(400).json({ error: 'Enter a valid email address' });
     }
     if (!validatePassword(password)) {
-      return res.status(400).json({ error: 'Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, and one number.' });
+      captureStaffValidation('fc.backend.staff.create.validation', 'password_policy');
+      return res.status(400).json({
+        error:
+          'Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, and one number.',
+      });
     }
 
     if (!VALID_ROLES.includes(role)) {
+      captureStaffValidation('fc.backend.staff.create.validation', 'role_invalid');
       return res.status(400).json({ error: `role must be one of: ${VALID_ROLES.join(', ')}` });
     }
     if (normalizedStationIds === null) {
-      return res.status(400).json({ error: 'station_ids must contain at most 100 valid station IDs' });
+      captureStaffValidation('fc.backend.staff.create.validation', 'station_list_invalid');
+      return res
+        .status(400)
+        .json({ error: 'station_ids must contain at most 100 valid station IDs' });
     }
     if (role !== 'chef' && normalizedStationIds.length > 0) {
-      return res.status(400).json({ error: 'Kitchen stations can only be assigned to chef accounts' });
+      captureStaffValidation('fc.backend.staff.create.validation', 'station_role_mismatch');
+      return res
+        .status(400)
+        .json({ error: 'Kitchen stations can only be assigned to chef accounts' });
     }
 
     const requesterId = (req as any).user.userId;
@@ -144,8 +215,11 @@ router.post('/', requireStaffWrite, authRateLimit(), (req: Request, res: Respons
     // otherwise an account denied staff.operational.manage could create a
     // cashier yet be refused when it tried to edit, deactivate or reactivate
     // that same cashier.
-    const requiredToCreate = isOperationalRole(role) ? 'staff.operational.manage' : 'staff.privileged.manage';
+    const requiredToCreate = isOperationalRole(role)
+      ? 'staff.operational.manage'
+      : 'staff.privileged.manage';
     if (!hasPermission(requesterId, requiredToCreate)) {
+      captureStaffTargetAccessDenied('create_target');
       return res.status(403).json({
         error: isOperationalRole(role)
           ? 'This account cannot create operational staff accounts'
@@ -154,9 +228,11 @@ router.post('/', requireStaffWrite, authRateLimit(), (req: Request, res: Respons
     }
 
     if (isOperationalRole(role) && hasNonEmptyPin(pin)) {
+      captureStaffValidation('fc.backend.staff.create.validation', 'pin_role_mismatch');
       return res.status(400).json({ error: 'PINs are only permitted for owner and manager roles' });
     }
     if (hasNonEmptyPin(pin) && !isValidPin(pin)) {
+      captureStaffValidation('fc.backend.staff.create.validation', 'pin_invalid');
       return res.status(400).json({ error: 'PIN must be between 4 and 6 numeric digits' });
     }
 
@@ -164,14 +240,28 @@ router.post('/', requireStaffWrite, authRateLimit(), (req: Request, res: Respons
 
     const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(normalizedEmail);
     if (existing) {
+      const failure = serializeOperationFailure({
+        capture_point: 'fc.backend.staff.duplicate_email',
+        outcome: 'not_applied',
+      });
+      try {
+        if (failure) cloudSync.captureOperationFailure(failure);
+      } catch {
+        // Diagnostics cannot change the duplicate-email response.
+      }
       return res.status(400).json({ error: 'Email already in use' });
     }
 
     if (normalizedStationIds.length > 0) {
       const placeholders = normalizedStationIds.map(() => '?').join(',');
-      const activeStations = db.prepare(`SELECT id FROM kitchen_stations WHERE is_active = 1 AND id IN (${placeholders})`).all(...normalizedStationIds);
+      const activeStations = db
+        .prepare(`SELECT id FROM kitchen_stations WHERE is_active = 1 AND id IN (${placeholders})`)
+        .all(...normalizedStationIds);
       if (activeStations.length !== normalizedStationIds.length) {
-        return res.status(400).json({ error: 'One or more station_ids do not match an active kitchen station' });
+        captureStaffValidation('fc.backend.staff.create.validation', 'station_unavailable');
+        return res
+          .status(400)
+          .json({ error: 'One or more station_ids do not match an active kitchen station' });
       }
     }
 
@@ -184,18 +274,28 @@ router.post('/', requireStaffWrite, authRateLimit(), (req: Request, res: Respons
       db.prepare(`
         INSERT INTO users (id, name, email, password, role, pin_hash, station_assignments_configured, is_active, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
-      `).run(id, name, normalizedEmail, hashedPassword, role, hashedPin, normalizedStationIds.length > 0 ? 1 : 0, now(), now());
+      `).run(
+        id,
+        name,
+        normalizedEmail,
+        hashedPassword,
+        role,
+        hashedPin,
+        normalizedStationIds.length > 0 ? 1 : 0,
+        now(),
+        now(),
+      );
 
       if (normalizedStationIds.length > 0) {
-        const insertAssignment = db.prepare('INSERT INTO station_users (user_id, station_id, created_at) VALUES (?, ?, ?)');
+        const insertAssignment = db.prepare(
+          'INSERT INTO station_users (user_id, station_id, created_at) VALUES (?, ?, ?)',
+        );
         for (const stationId of normalizedStationIds) insertAssignment.run(id, stationId, now());
       }
     });
     createStaff();
 
-    const member = db.prepare(
-      `SELECT ${STAFF_SELECT_FIELDS} FROM users WHERE id = ?`
-    ).get(id);
+    const member = db.prepare(`SELECT ${STAFF_SELECT_FIELDS} FROM users WHERE id = ?`).get(id);
 
     res.status(201).json({
       staff: {
@@ -204,8 +304,8 @@ router.post('/', requireStaffWrite, authRateLimit(), (req: Request, res: Respons
       },
     });
   } catch (error: any) {
-    console.error("[API] Internal error:", error);
-    res.status(500).json({ error: "Internal server error" });
+    console.error('[API] Internal error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -219,7 +319,10 @@ router.put('/:id', requireStaffWrite, authRateLimit(), (req: Request, res: Respo
     const db = getDatabase();
 
     if (is_active !== undefined) {
-      return res.status(400).json({ error: 'Use /deactivate or /reactivate endpoints to change account status' });
+      captureStaffValidation('fc.backend.staff.update.validation', 'status_change_requires_action');
+      return res
+        .status(400)
+        .json({ error: 'Use /deactivate or /reactivate endpoints to change account status' });
     }
 
     const member = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id) as any;
@@ -229,74 +332,103 @@ router.put('/:id', requireStaffWrite, authRateLimit(), (req: Request, res: Respo
 
     const requesterId = (req as any).user.userId;
     if (!canModifyTargetStaff(requesterId, member.role)) {
-      return res.status(403).json({ error: 'This account cannot modify privileged staff accounts' });
+      captureStaffTargetAccessDenied('update_privileged');
+      return res
+        .status(403)
+        .json({ error: 'This account cannot modify privileged staff accounts' });
     }
 
     if (role !== undefined) {
       if (!VALID_ROLES.includes(role)) {
+        captureStaffValidation('fc.backend.staff.update.validation', 'role_invalid');
         return res.status(400).json({ error: `role must be one of: ${VALID_ROLES.join(', ')}` });
       }
       if (role !== member.role && !hasPermission(requesterId, 'staff.privileged.manage')) {
+        captureStaffTargetAccessDenied('role_change');
         return res.status(403).json({ error: 'Only owners can change roles' });
       }
     }
 
     const targetRole = role ?? member.role;
     if (isOperationalRole(targetRole) && hasNonEmptyPin(pin)) {
+      captureStaffValidation('fc.backend.staff.update.validation', 'pin_role_mismatch');
       return res.status(400).json({ error: 'PINs are only permitted for owner and manager roles' });
     }
     if (hasNonEmptyPin(pin) && !isValidPin(pin)) {
+      captureStaffValidation('fc.backend.staff.update.validation', 'pin_invalid');
       return res.status(400).json({ error: 'PIN must be between 4 and 6 numeric digits' });
     }
 
     if (emailProvided && !normalizedEmail) {
+      captureStaffValidation('fc.backend.staff.update.validation', 'email_missing');
       return res.status(400).json({ error: 'email is required' });
     }
     if (normalizedEmail && !isValidEmail(normalizedEmail)) {
+      captureStaffValidation('fc.backend.staff.update.validation', 'email_invalid');
       return res.status(400).json({ error: 'Enter a valid email address' });
     }
     if (normalizedEmail && normalizedEmail !== member.email) {
-      const existing = db.prepare('SELECT id FROM users WHERE email = ? AND id != ?').get(normalizedEmail, req.params.id);
+      const existing = db
+        .prepare('SELECT id FROM users WHERE email = ? AND id != ?')
+        .get(normalizedEmail, req.params.id);
       if (existing) {
+        const failure = serializeOperationFailure({
+          capture_point: 'fc.backend.staff.update.duplicate_email',
+          outcome: 'not_applied',
+        });
+        try {
+          if (failure) cloudSync.captureOperationFailure(failure);
+        } catch {
+          // Diagnostics cannot change the duplicate-email response.
+        }
         return res.status(400).json({ error: 'Email already in use' });
       }
     }
 
     if (password && !validatePassword(password)) {
-      return res.status(400).json({ error: 'Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, and one number.' });
+      captureStaffValidation('fc.backend.staff.update.validation', 'password_policy');
+      return res.status(400).json({
+        error:
+          'Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, and one number.',
+      });
     }
 
-    const passwordChanged = Boolean(password && (!member.password || !bcrypt.compareSync(password, member.password)));
-    const hashedPassword = passwordChanged
-      ? bcrypt.hashSync(password, 10)
-      : member.password;
+    const passwordChanged = Boolean(
+      password && (!member.password || !bcrypt.compareSync(password, member.password)),
+    );
+    const hashedPassword = passwordChanged ? bcrypt.hashSync(password, 10) : member.password;
 
     const pinChanged = isOperationalRole(targetRole)
       ? Boolean(member.pin_hash)
-      : pin !== undefined && (
-          hasNonEmptyPin(pin)
-            ? (!member.pin_hash || !bcrypt.compareSync(String(pin), member.pin_hash))
-            : Boolean(member.pin_hash)
-        );
+      : pin !== undefined &&
+        (hasNonEmptyPin(pin)
+          ? !member.pin_hash || !bcrypt.compareSync(String(pin), member.pin_hash)
+          : Boolean(member.pin_hash));
 
     const hashedPin = isOperationalRole(targetRole)
       ? null
       : pin !== undefined
-        ? (hasNonEmptyPin(pin) ? (pinChanged ? bcrypt.hashSync(String(pin), 10) : member.pin_hash) : null)
+        ? hasNonEmptyPin(pin)
+          ? pinChanged
+            ? bcrypt.hashSync(String(pin), 10)
+            : member.pin_hash
+          : null
         : member.pin_hash;
 
     // Revoke outstanding sessions only when credentials actually change.
     const credentialsChanged = passwordChanged || pinChanged;
     const tokensValidAfter = credentialsChanged ? now() : member.tokens_valid_after;
 
-    const demotesActiveOwner = member.role === 'owner' && member.is_active === 1 && targetRole !== 'owner';
+    const demotesActiveOwner =
+      member.role === 'owner' && member.is_active === 1 && targetRole !== 'owner';
     assertAdministrationReachable(db, {
       kind: 'user_state',
       userId: String(req.params.id),
       role: targetRole,
       isActive: member.is_active === 1,
     });
-    const result = db.prepare(`
+    const result = db
+      .prepare(`
       UPDATE users SET
         name       = COALESCE(?, name),
         email      = COALESCE(?, email),
@@ -310,27 +442,39 @@ router.put('/:id', requireStaffWrite, authRateLimit(), (req: Request, res: Respo
           ? = 0
           OR (SELECT COUNT(*) FROM users WHERE role = 'owner' AND is_active = 1) > 1
         )
-    `).run(
-      name || null, normalizedEmail || null, hashedPassword,
-      role || null, hashedPin, tokensValidAfter,
-      now(), req.params.id, demotesActiveOwner ? 1 : 0,
-    );
+    `)
+      .run(
+        name || null,
+        normalizedEmail || null,
+        hashedPassword,
+        role || null,
+        hashedPin,
+        tokensValidAfter,
+        now(),
+        req.params.id,
+        demotesActiveOwner ? 1 : 0,
+      );
     if (result.changes === 0) {
-      return res.status(400).json({ error: 'Cannot change the role of the last active owner. Create or promote another active owner first.' });
+      captureAdministrationAccessGuard();
+      return res.status(400).json({
+        error:
+          'Cannot change the role of the last active owner. Create or promote another active owner first.',
+      });
     }
     invalidateUserAuthCache(req.params.id as string);
 
-    const updated = db.prepare(
-      `SELECT ${STAFF_SELECT_FIELDS} FROM users WHERE id = ?`
-    ).get(req.params.id);
+    const updated = db
+      .prepare(`SELECT ${STAFF_SELECT_FIELDS} FROM users WHERE id = ?`)
+      .get(req.params.id);
 
     res.json({ staff: updated });
   } catch (error: any) {
     if (error instanceof AdministrationUnreachableError) {
+      captureAdministrationAccessGuard();
       return res.status(400).json({ error: error.message, code: 'administration_unreachable' });
     }
-    console.error("[API] Internal error:", error);
-    res.status(500).json({ error: "Internal server error" });
+    console.error('[API] Internal error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -343,7 +487,10 @@ router.post('/:id/deactivate', requireStaffWrite, (req: Request, res: Response) 
     if (member.is_active === 0) return res.status(400).json({ error: 'Already deactivated' });
 
     if (!canModifyTargetStaff((req as any).user.userId, member.role)) {
-      return res.status(403).json({ error: 'This account cannot deactivate or reactivate privileged staff accounts' });
+      captureStaffTargetAccessDenied('deactivate_privileged');
+      return res
+        .status(403)
+        .json({ error: 'This account cannot deactivate or reactivate privileged staff accounts' });
     }
 
     const changedAt = now();
@@ -353,25 +500,29 @@ router.post('/:id/deactivate', requireStaffWrite, (req: Request, res: Response) 
       role: member.role,
       isActive: false,
     });
-    const result = db.prepare(`
+    const result = db
+      .prepare(`
       UPDATE users SET is_active = 0, tokens_valid_after = ?, updated_at = ?
       WHERE id = ? AND is_active = 1
         AND (role != 'owner' OR (SELECT COUNT(*) FROM users WHERE role = 'owner' AND is_active = 1) > 1)
-    `).run(changedAt, changedAt, req.params.id);
+    `)
+      .run(changedAt, changedAt, req.params.id);
     if (result.changes === 0) {
+      captureAdministrationAccessGuard();
       return res.status(400).json({ error: 'Cannot deactivate the last owner account' });
     }
     invalidateUserAuthCache(req.params.id as string);
-    const updated = db.prepare(
-      `SELECT ${STAFF_SELECT_FIELDS} FROM users WHERE id = ?`
-    ).get(req.params.id);
+    const updated = db
+      .prepare(`SELECT ${STAFF_SELECT_FIELDS} FROM users WHERE id = ?`)
+      .get(req.params.id);
     res.json({ staff: updated });
   } catch (error: any) {
     if (error instanceof AdministrationUnreachableError) {
+      captureAdministrationAccessGuard();
       return res.status(400).json({ error: error.message, code: 'administration_unreachable' });
     }
-    console.error("[API] Internal error:", error);
-    res.status(500).json({ error: "Internal server error" });
+    console.error('[API] Internal error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -383,18 +534,24 @@ router.post('/:id/reactivate', requireStaffWrite, (req: Request, res: Response) 
     if (member.is_active === 1) return res.status(400).json({ error: 'Already active' });
 
     if (!canModifyTargetStaff((req as any).user.userId, member.role)) {
-      return res.status(403).json({ error: 'This account cannot deactivate or reactivate privileged staff accounts' });
+      captureStaffTargetAccessDenied('reactivate_privileged');
+      return res
+        .status(403)
+        .json({ error: 'This account cannot deactivate or reactivate privileged staff accounts' });
     }
 
-    db.prepare('UPDATE users SET is_active = 1, updated_at = ? WHERE id = ?').run(now(), req.params.id);
+    db.prepare('UPDATE users SET is_active = 1, updated_at = ? WHERE id = ?').run(
+      now(),
+      req.params.id,
+    );
     invalidateUserAuthCache(req.params.id as string);
-    const updated = db.prepare(
-      `SELECT ${STAFF_SELECT_FIELDS} FROM users WHERE id = ?`
-    ).get(req.params.id);
+    const updated = db
+      .prepare(`SELECT ${STAFF_SELECT_FIELDS} FROM users WHERE id = ?`)
+      .get(req.params.id);
     res.json({ staff: updated });
   } catch (error: any) {
-    console.error("[API] Internal error:", error);
-    res.status(500).json({ error: "Internal server error" });
+    console.error('[API] Internal error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

@@ -284,6 +284,12 @@ and settlement - is in [Order lifecycle](../architecture/order-lifecycle.md).
 | `PATCH` | `/:orderId/items/:itemId/cancel` | any authenticated role + item cancel limiter, then an in-handler permission check | path: `orderId`, `itemId`; body: `override_pin`, `reason`, `manager_id` | See the note below. Returns `{ order: { ...order, items } }`. |
 | `PATCH` | `/:orderId/items/:itemId/restore` | in-handler `orders.item.restore` (shipped to `ROLE_ACCESS.ownerManager`) | path: `orderId`, `itemId` | Returns `{ order: { ...order, items } }`. `400` on a completed or cancelled order or a paid one. Re-deducts inventory and recipe components, and rescales an order-level percentage discount. |
 
+Order creation and item append accept an optional version-4 UUID `X-Operation-ID` correlation
+header. A validation rejection with a registered failure point includes `reason_code`, `operation`, `stage`,
+`classification`, `outcome`, and `correlation_id` alongside `error`; `display_code` may also be
+present. A valid supplied UUID is returned as the correlation id, otherwise the server generates
+one. Failures without a registered tuple may retain the `{ error }` response.
+
 Both item endpoints resolve the caller's effective permissions from the database inside a `withTxn`
 (deferred, not immediate) transaction rather than from the JWT claim, and re-run every policy check
 there. Each opens the single transaction scope it runs in; the route does not wrap the handler
@@ -568,6 +574,11 @@ Router: `main/routes/settings.ts`. Full path: `/api/settings`.
 | `GET` | `/:key` | `ROLE_ACCESS.allStaff` + settings read limiter | path: `key` | One setting. Registered after every named route, so a named key resolves to its named handler. |
 | `PUT` | `/:key` | `ROLE_ACCESS.ownerManager` + settings write limiter | path: `key`; body: `value` | Body `value`. Only the allow-listed non-sensitive keys are accepted; sensitive keys need their named route. `key: currency` returns `409 currency_change_requires_reset` on any value change. |
 
+`diagnostics_consent` and `diagnostics_transmission_enabled` are owner/manager-writable Boolean
+settings. Their delivery gates and consent synchronization are described in [store-attributed
+diagnostics](../architecture/cloud-integrations.md#store-attributed-diagnostics), including how
+`telemetry_enabled` affects anonymous diagnostic delivery.
+
 ### Tax packs
 
 Router: `main/routes/tax-packs.ts`. Full path: `/api/tax-packs`.
@@ -675,7 +686,7 @@ Router: `main/routes/support-ticket.ts`. Full path: `/api/support-ticket`.
 | `GET` | `/profile` | `ROLE_ACCESS.allStaff` | none | - |
 | `GET` | `/diagnostics-preview` | `ROLE_ACCESS.allStaff` | query: `?category` | - |
 | `GET` | `/:clientTicketId/status` | `ROLE_ACCESS.allStaff` | path: `clientTicketId` | - |
-| `POST` | `/` | `ROLE_ACCESS.allStaff` | none | - |
+| `POST` | `/` | `ROLE_ACCESS.allStaff` | body: support-ticket fields; optional `operation_failure` | Queues the ticket; the structured failure context is validated and normalized as described in [cloud integrations](../architecture/cloud-integrations.md#linking-a-ticket-to-a-known-operation-failure). |
 | `GET` | `/pre-login/profile` | any authenticated role + pre-login limiter | none | Unauthenticated tenant profile for the login-screen ticket form. Body limit 300kb on this subtree. |
 | `GET` | `/pre-login/:clientTicketId/status` | any authenticated role + pre-login limiter | path: `clientTicketId` | Unauthenticated ticket status lookup; `clientTicketId` must be a UUID. |
 | `POST` | `/pre-login` | any authenticated role + pre-login limiter | none | Unauthenticated ticket creation from the login screen. Body limit 300kb on this subtree. |
@@ -686,10 +697,12 @@ Router: `main/routes/diagnostics.ts`. Full path: `/api/diagnostics`.
 
 | Method | Path | Authorization | Parameters | Response |
 | --- | --- | --- | --- | --- |
-| `POST` | `/event` | `ROLE_ACCESS.allStaff` + diagnostics write limiter | none | Consent-gated diagnostic event intake. |
-| `GET` | `/recent` | `ROLE_ACCESS.allStaff` | query: `?limit` (clamped to 200) | `{ failures: [ ... ] }`, the locally captured failures, newest first. |
-| `DELETE` | `/recent` | `ROLE_ACCESS.ownerManager` (`settings.manage`) | none | `{ removed }`, the number of local failures dropped. Nothing has been transmitted, so nothing is withdrawn. |
-| `GET` | `/support-bundle` | `ROLE_ACCESS.allStaff` | query: `?limit` (clamped to 200), `?category` | `{ bundle: { system, recent_failures } }` for the copy-for-support action. Never carries the raw log tail. |
+| `POST` | `/event` | `support.use` + diagnostics write limiter | body: legacy event fields | Local-only legacy event intake; free-form messages are never automatically transmitted. |
+| `POST` | `/capture` | authenticated API caller + diagnostics write limiter | body: `capture_point`, `operation_id`, `outcome`, optional allowlisted `facts` | `202` with the server-registered reason, operation, stage, classification, outcome, and correlation ID; rejects unregistered points or invalid fields. |
+| `GET` | `/health` | `support.use` | none | Safe consent, transport, queue, rejection, and delivery-gap state without report bytes or error text. |
+| `GET` | `/recent` | `support.use` | query: `?limit` (clamped to 200) | `{ failures: [ ... ] }`, locally captured failures, newest first. |
+| `DELETE` | `/recent` | `settings.manage` | none | `{ removed }`, the number of local failures dropped. This clears local evidence only. |
+| `GET` | `/support-bundle` | `support.use` | query: `?limit` (clamped to 200), `?category` | `{ bundle: { system, recent_failures } }` for copy-for-support. Never carries the raw log tail. |
 
 ### Database
 
