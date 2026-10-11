@@ -1570,9 +1570,13 @@ export default function POSPage() {
       {checkoutTable && (
         <TableCheckoutModal
           table={checkoutTable}
+          tables={tables}
           currency={currency}
           cartItemCount={cart.itemCount()}
-          onClose={() => setCheckoutTable(null)}
+          onClose={() => {
+            setCheckoutTable(null);
+            refreshTables();
+          }}
           onAddItems={handleAddItemsToOrder}
           onPrintBill={async (bill, reservedWindow) => {
             await printBillForTenant(bill, true, reservedWindow);
@@ -1595,6 +1599,11 @@ export default function POSPage() {
             setCheckoutOverridePin(overridePin);
           }}
           onAddCartToOrder={handleAddCartToOrder}
+          onOrderMoved={({ sourceTable, targetTable }) => {
+            if (cart.tableId === sourceTable.id) {
+              cart.setTableId(targetTable.id);
+            }
+          }}
         />
       )}
 
