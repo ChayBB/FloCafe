@@ -1291,7 +1291,37 @@ const exactStepIndex = (command: string, workingDirectory?: string) =>
         : step['working-directory'] === workingDirectory),
   );
 
-const gateIndex = exactStepIndex('node scripts/ci/check-changed-format.cjs');
+const stepRunsCommand = (
+  step: Record<string, string>,
+  command: string,
+  workingDirectory?: string,
+) => {
+  if (!step?.run) return false;
+  if (
+    workingDirectory !== undefined &&
+    step['working-directory'] !== undefined &&
+    step['working-directory'] !== workingDirectory
+  ) {
+    return false;
+  }
+  const lines = step.run.split('\n');
+  return lines.some((line) => {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('#')) return false;
+    if (workingDirectory !== undefined && !step['working-directory']) {
+      return (
+        (line.includes(`cd ${workingDirectory}`) || line.includes(workingDirectory)) &&
+        line.includes(command)
+      );
+    }
+    return line.includes(command);
+  });
+};
+
+const findStepIndex = (command: string, workingDirectory?: string) =>
+  lintJobSteps.findIndex((step) => stepRunsCommand(step, command, workingDirectory));
+
+const gateIndex = findStepIndex('node scripts/ci/check-changed-format.cjs');
 assertOrThrow(gateIndex >= 0, 'CI must run the changed-file formatting gate');
 assertOrThrow(
   exactStepIndex('npm ci') >= 0 && exactStepIndex('npm ci') < gateIndex,
@@ -1307,10 +1337,100 @@ for (const [required, workingDirectory] of [
   ['npm run lint:budget', undefined],
 ] as const) {
   assertOrThrow(
-    exactStepIndex(required, workingDirectory) >= 0,
+    findStepIndex(required, workingDirectory) >= 0,
     `the ${required} gate must stay in the lint job`,
   );
 }
+
+// Verify that parallelized lint steps propagate any sub-command failure
+const backendLintStepIndex = findStepIndex('npm run lint:backend');
+assertOrThrow(backendLintStepIndex >= 0, 'backend lint step must exist');
+const backendLintStep = lintJobSteps[backendLintStepIndex];
+const frontendLintStep = lintJobSteps[gateIndex];
+
+const fakeBinDir = tempDir('fake-bin');
+const npmScript = `#!/bin/sh
+if [ "\${FAIL_NPM_BACKEND:-}" = "1" ] && [ "$1" = "run" ] && [ "$2" = "lint:backend" ]; then
+  exit 1
+fi
+if [ "\${FAIL_NPM_FRONTEND:-}" = "1" ] && [ "$1" = "run" ] && [ "$2" = "lint" ]; then
+  exit 1
+fi
+if [ "\${FAIL_NPM_BUDGET:-}" = "1" ] && [ "$1" = "run" ] && [ "$2" = "lint:budget" ]; then
+  exit 1
+fi
+exit 0
+`;
+const npxScript = `#!/bin/sh
+if [ "\${FAIL_NPX_TSC:-}" = "1" ]; then
+  exit 1
+fi
+exit 0
+`;
+const nodeScript = `#!/bin/sh
+if [ "\${FAIL_NODE_FORMAT:-}" = "1" ] && echo "$*" | grep -q "check-changed-format.cjs"; then
+  exit 1
+fi
+exit 0
+`;
+
+for (const [name, script] of [
+  ['npm', npmScript],
+  ['npx', npxScript],
+  ['node', nodeScript],
+] as const) {
+  const p = path.join(fakeBinDir, name);
+  fs.writeFileSync(p, script);
+  fs.chmodSync(p, 0o755);
+  if (process.platform === 'win32') {
+    fs.writeFileSync(path.join(fakeBinDir, `${name}.cmd`), `@sh "%~dp0\\\\${name}" %*\n`);
+  }
+}
+
+const runLintStepScript = (script: string, env: Record<string, string> = {}) => {
+  const bashExecutable = process.platform === 'win32' ? 'bash' : '/bin/bash';
+  return spawnSync(bashExecutable, ['-e', '-u', '-o', 'pipefail', '-c', script], {
+    cwd: rootDir,
+    env: {
+      ...process.env,
+      PATH: `${fakeBinDir}${path.delimiter}${process.env.PATH || ''}`,
+      ...env,
+    },
+    encoding: 'utf8',
+  });
+};
+
+assertEqualOrThrow(
+  runLintStepScript(backendLintStep.run).status,
+  0,
+  'backend lint step must pass when both lint and typecheck succeed',
+);
+assertOrThrow(
+  runLintStepScript(backendLintStep.run, { FAIL_NPM_BACKEND: '1' }).status !== 0,
+  'backend lint step must fail when npm run lint:backend fails',
+);
+assertOrThrow(
+  runLintStepScript(backendLintStep.run, { FAIL_NPX_TSC: '1' }).status !== 0,
+  'backend lint step must fail when npx tsc fails',
+);
+
+assertEqualOrThrow(
+  runLintStepScript(frontendLintStep.run).status,
+  0,
+  'frontend lint/format/budget step must pass when all sub-commands succeed',
+);
+assertOrThrow(
+  runLintStepScript(frontendLintStep.run, { FAIL_NPM_FRONTEND: '1' }).status !== 0,
+  'frontend lint step must fail when frontend lint fails',
+);
+assertOrThrow(
+  runLintStepScript(frontendLintStep.run, { FAIL_NODE_FORMAT: '1' }).status !== 0,
+  'frontend lint step must fail when format check fails',
+);
+assertOrThrow(
+  runLintStepScript(frontendLintStep.run, { FAIL_NPM_BUDGET: '1' }).status !== 0,
+  'frontend lint step must fail when lint budget fails',
+);
 
 const filterStep = workflow.jobs.changes.steps.find(
   (step: { id?: string }) => step.id === 'filter',
@@ -1361,9 +1481,9 @@ for (const file of [
   );
 }
 
-assertEqualOrThrow(
-  rootScripts.scripts['format:check:changed'],
+assertIncludesOrThrow(
   lintJobSteps[gateIndex].run,
+  rootScripts.scripts['format:check:changed'],
   'the contributor command and the CI step must run the same gate',
 );
 
