@@ -131,6 +131,175 @@ test('LAN/browser sidebar pins to the viewport top with zero title-bar markup on
   );
 });
 
+test('sidebar theme toggle button does not clip horizontally or vertically across locales, sidebar states, and theme modes (#1069)', async ({
+  page,
+}) => {
+  await page.goto(`${BASE}/auth/login`);
+  await page.locator('#email').fill('owner@flo.local');
+  await page.locator('#password').fill(E2E_PASSWORD);
+  await page.locator('button[type="submit"]').click();
+  await page.waitForURL(/\/pos/, { timeout: 20000 });
+
+  const locales = [
+    {
+      code: 'vi',
+      title: 'Giao diện',
+      modes: [
+        { mode: 'system', label: 'Theo hệ thống' },
+        { mode: 'light', label: 'Sáng' },
+        { mode: 'dark', label: 'Tối' },
+      ],
+    },
+    {
+      code: 'tr',
+      title: 'Tema ve Renk Modu',
+      modes: [
+        { mode: 'system', label: 'Sistem Varsayılanı' },
+        { mode: 'light', label: 'Açık Tema' },
+        { mode: 'dark', label: 'Koyu Tema' },
+      ],
+    },
+  ] as const;
+
+  const resetThemeToSystem = async () => {
+    const res = await page.request.put(`${BASE}/api/settings/theme_mode`, {
+      headers: { Authorization: `Bearer ${getE2eToken()}` },
+      data: { value: 'system' },
+    });
+    expect(res.ok(), 'resetting theme_mode=system must succeed').toBeTruthy();
+  };
+
+  try {
+    const sidebar = page.locator('[data-slot="sidebar"]');
+    const themeButton = page.getByTestId('sidebar-theme-toggle');
+
+    for (const locale of locales) {
+      await resetThemeToSystem();
+      await setLanguage(page, locale.code);
+      await page.goto(`${BASE}/pos`);
+      await expect(sidebar).toHaveAttribute('data-state', 'expanded');
+      await expect(themeButton).toBeVisible();
+
+      for (const { mode, label } of locale.modes) {
+        const context = `${locale.code} expanded (${mode})`;
+        await expect(themeButton, `${context}: title visible`).toContainText(locale.title);
+        await expect(themeButton, `${context}: mode label visible`).toContainText(label);
+
+        const metrics = await themeButton.evaluate((el) => {
+          const spans = Array.from(el.querySelectorAll('span')).map((span) => ({
+            text: span.textContent,
+            clientWidth: span.clientWidth,
+            scrollWidth: span.scrollWidth,
+            clientHeight: span.clientHeight,
+            scrollHeight: span.scrollHeight,
+          }));
+          return {
+            clientWidth: el.clientWidth,
+            scrollWidth: el.scrollWidth,
+            clientHeight: el.clientHeight,
+            scrollHeight: el.scrollHeight,
+            spans,
+          };
+        });
+
+        expect(
+          metrics.scrollWidth,
+          `${context}: button must not overflow horizontally (${JSON.stringify(metrics)})`,
+        ).toBeLessThanOrEqual(metrics.clientWidth + 1);
+        expect(
+          metrics.scrollHeight,
+          `${context}: button must not overflow vertically (${JSON.stringify(metrics)})`,
+        ).toBeLessThanOrEqual(metrics.clientHeight + 2);
+        expect(metrics.spans.length, `${context}: renders title and mode spans`).toBe(2);
+        for (const span of metrics.spans) {
+          expect(
+            span.clientWidth,
+            `${context}: span "${span.text}" has visible width`,
+          ).toBeGreaterThan(0);
+          expect(
+            span.clientHeight,
+            `${context}: span "${span.text}" has visible height`,
+          ).toBeGreaterThan(0);
+          expect(
+            span.scrollWidth,
+            `${context}: span "${span.text}" must not clip horizontally`,
+          ).toBeLessThanOrEqual(span.clientWidth + 1);
+          expect(
+            span.scrollHeight,
+            `${context}: span "${span.text}" must not clip vertically`,
+          ).toBeLessThanOrEqual(span.clientHeight + 2);
+        }
+
+        await Promise.all([
+          page.waitForResponse(
+            (r) => r.url().includes('/api/settings/theme_mode') && r.request().method() === 'PUT',
+          ),
+          themeButton.click(),
+        ]);
+      }
+
+      await page.keyboard.press('Control+b');
+      await expect(sidebar).toHaveAttribute('data-collapsible', 'icon');
+      await expect(themeButton).toHaveCSS('width', '32px');
+
+      for (const { mode } of locale.modes) {
+        const context = `${locale.code} collapsed (${mode})`;
+        await expect(themeButton.locator('svg'), `${context}: icon visible`).toBeVisible();
+
+        const collapsedMetrics = await themeButton.evaluate((el) => {
+          const spans = Array.from(el.querySelectorAll('span')).map((span) => ({
+            text: span.textContent,
+            clientWidth: span.clientWidth,
+            scrollWidth: span.scrollWidth,
+            clientHeight: span.clientHeight,
+            scrollHeight: span.scrollHeight,
+          }));
+          return {
+            clientWidth: el.clientWidth,
+            scrollWidth: el.scrollWidth,
+            clientHeight: el.clientHeight,
+            scrollHeight: el.scrollHeight,
+            spans,
+          };
+        });
+
+        expect(collapsedMetrics.clientWidth, `${context}: compact width`).toBe(32);
+        expect(collapsedMetrics.clientHeight, `${context}: compact height`).toBe(32);
+        expect(
+          collapsedMetrics.scrollWidth,
+          `${context}: collapsed button must not overflow horizontally`,
+        ).toBeLessThanOrEqual(collapsedMetrics.clientWidth + 1);
+        expect(
+          collapsedMetrics.scrollHeight,
+          `${context}: collapsed button must not overflow vertically`,
+        ).toBeLessThanOrEqual(collapsedMetrics.clientHeight + 2);
+        for (const span of collapsedMetrics.spans) {
+          expect(span.clientWidth, `${context}: span "${span.text}" hidden when collapsed`).toBe(0);
+          expect(span.clientHeight, `${context}: span "${span.text}" hidden when collapsed`).toBe(
+            0,
+          );
+        }
+
+        await Promise.all([
+          page.waitForResponse(
+            (r) => r.url().includes('/api/settings/theme_mode') && r.request().method() === 'PUT',
+          ),
+          themeButton.click(),
+        ]);
+      }
+
+      await page.keyboard.press('Control+b');
+      await expect(sidebar).toHaveAttribute('data-state', 'expanded');
+      await expect
+        .poll(async () => themeButton.evaluate((el) => el.clientWidth))
+        .toBeGreaterThan(100);
+    }
+  } finally {
+    await resetThemeToSystem().catch(() => {});
+    await setLanguage(page, 'en');
+  }
+});
+
 /**
  * Scroll assertions for the POS and Orders control surfaces.
  *
