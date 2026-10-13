@@ -495,4 +495,458 @@ try {
 }
 
 console.log('✓ All ProductGrid search Enter IME composition tests passed.');
+
+console.log('Testing usePosKeyboardShortcuts modifier and physical key guards...');
+
+// Minimal React hook + window harness to exercise usePosKeyboardShortcuts directly in Node
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const reactModule = require('../frontend/node_modules/react') as {
+  useRef: typeof import('react').useRef;
+  useEffect: typeof import('react').useEffect;
+};
+const origUseRef = reactModule.useRef;
+const origUseEffect = reactModule.useEffect;
+const origWindow = (globalThis as Record<string, unknown>).window;
+const origHTMLElement = (globalThis as Record<string, unknown>).HTMLElement;
+
+class StubHTMLElement {
+  tagName = 'DIV';
+  isContentEditable = false;
+  getAttribute(): string | null {
+    return null;
+  }
+  matches(): boolean {
+    return false;
+  }
+}
+
+function createShortcutHarness(optionsOverrides: Partial<UsePosKeyboardShortcutsOptions> = {}) {
+  let keydownListener: ((e: KeyboardEvent) => void) | null = null;
+  const calls: Record<string, number> = {
+    focusSearch: 0,
+    tender: 0,
+    toggleTables: 0,
+    openCheckout: 0,
+    openCashMovement: 0,
+    focusCustomer: 0,
+    holdOrder: 0,
+    toggleFullscreen: 0,
+    dismissModalOrBlur: 0,
+    incrementLastItem: 0,
+    decrementLastItem: 0,
+    clearCart: 0,
+    showHelp: 0,
+  };
+
+  const handlers: PosKeyboardShortcutHandlers = {
+    onFocusSearch: () => {
+      calls.focusSearch += 1;
+    },
+    onTender: () => {
+      calls.tender += 1;
+    },
+    onToggleTables: () => {
+      calls.toggleTables += 1;
+    },
+    onOpenCheckout: () => {
+      calls.openCheckout += 1;
+    },
+    onOpenCashMovement: () => {
+      calls.openCashMovement += 1;
+    },
+    onFocusCustomer: () => {
+      calls.focusCustomer += 1;
+    },
+    onHoldOrder: () => {
+      calls.holdOrder += 1;
+    },
+    onToggleFullscreen: () => {
+      calls.toggleFullscreen += 1;
+    },
+    onDismissModalOrBlur: () => {
+      calls.dismissModalOrBlur += 1;
+      return true;
+    },
+    onIncrementLastItem: () => {
+      calls.incrementLastItem += 1;
+    },
+    onDecrementLastItem: () => {
+      calls.decrementLastItem += 1;
+    },
+    onClearCart: () => {
+      calls.clearCart += 1;
+    },
+    onShowHelp: () => {
+      calls.showHelp += 1;
+    },
+  };
+
+  (globalThis as Record<string, unknown>).HTMLElement = StubHTMLElement;
+  (globalThis as Record<string, unknown>).window = {
+    addEventListener: (type: string, fn: (e: KeyboardEvent) => void) => {
+      if (type === 'keydown') keydownListener = fn;
+    },
+    removeEventListener: () => {
+      keydownListener = null;
+    },
+  };
+  reactModule.useRef = ((init: unknown) => ({ current: init })) as typeof reactModule.useRef;
+  reactModule.useEffect = ((effect: () => void | (() => void)) => {
+    effect();
+  }) as typeof reactModule.useEffect;
+
+  usePosKeyboardShortcuts(handlers, {
+    enabled: true,
+    anyModalOpen: false,
+    tablePickerOpen: false,
+    cartItemCount: 2,
+    ...optionsOverrides,
+  });
+
+  const dispatch = (init: Partial<KeyboardEvent>) => {
+    assert.ok(keydownListener, 'keydown listener should be registered');
+    let defaultPrevented = false;
+    const event = {
+      key: '',
+      code: '',
+      ctrlKey: false,
+      metaKey: false,
+      altKey: false,
+      shiftKey: false,
+      target: new StubHTMLElement(),
+      preventDefault: () => {
+        defaultPrevented = true;
+      },
+      ...init,
+    } as unknown as KeyboardEvent;
+    keydownListener(event);
+    return { defaultPrevented };
+  };
+
+  return { calls, dispatch };
+}
+
+try {
+  // (a) Ctrl+- / Meta+- / Alt+- (and +/= equivalents) must not decrement/increment cart items
+  {
+    const { calls, dispatch } = createShortcutHarness();
+
+    const plainMinus = dispatch({ key: '-', code: 'Minus' });
+    assert.strictEqual(calls.decrementLastItem, 1, 'plain Minus decrements last cart item');
+    assert.strictEqual(plainMinus.defaultPrevented, true, 'plain Minus prevents default');
+
+    const ctrlMinus = dispatch({ key: '-', code: 'Minus', ctrlKey: true });
+    assert.strictEqual(calls.decrementLastItem, 1, 'Ctrl+Minus must not decrement cart item');
+    assert.strictEqual(
+      ctrlMinus.defaultPrevented,
+      false,
+      'Ctrl+Minus must not prevent browser zoom',
+    );
+
+    const metaMinus = dispatch({ key: '-', code: 'Minus', metaKey: true });
+    assert.strictEqual(calls.decrementLastItem, 1, 'Meta+Minus must not decrement cart item');
+    assert.strictEqual(
+      metaMinus.defaultPrevented,
+      false,
+      'Meta+Minus must not prevent browser zoom',
+    );
+
+    const altMinus = dispatch({ key: '–', code: 'Minus', altKey: true });
+    assert.strictEqual(
+      calls.decrementLastItem,
+      1,
+      'Alt+Minus (Option+-) must not decrement cart item',
+    );
+    assert.strictEqual(altMinus.defaultPrevented, false, 'Alt+Minus must not prevent default');
+
+    const ctrlPlus = dispatch({ key: '+', code: 'Equal', ctrlKey: true, shiftKey: true });
+    const metaEqual = dispatch({ key: '=', code: 'Equal', metaKey: true });
+    const altEqual = dispatch({ key: '≠', code: 'Equal', altKey: true });
+    assert.strictEqual(
+      calls.incrementLastItem,
+      0,
+      'Ctrl/Meta/Alt + Equal/Plus must not increment cart item',
+    );
+    assert.strictEqual(ctrlPlus.defaultPrevented, false);
+    assert.strictEqual(metaEqual.defaultPrevented, false);
+    assert.strictEqual(altEqual.defaultPrevented, false);
+  }
+
+  // (b) Alt/Option combinations use physical Digit codes and modifier guards without misfiring
+  {
+    const { calls, dispatch } = createShortcutHarness();
+
+    // Standard Alt+2 / Alt+4 and macOS Option+2 (key='™') / Option+4 (key='¢') with physical Digit2/Digit4
+    const alt2 = dispatch({ key: '2', code: 'Digit2', altKey: true });
+    assert.strictEqual(calls.toggleTables, 1, 'Alt+Digit2 (key="2") triggers onToggleTables');
+    assert.strictEqual(alt2.defaultPrevented, true);
+
+    const option2 = dispatch({ key: '™', code: 'Digit2', altKey: true });
+    assert.strictEqual(calls.toggleTables, 2, 'Option+Digit2 (key="™") triggers onToggleTables');
+    assert.strictEqual(option2.defaultPrevented, true);
+
+    const alt4 = dispatch({ key: '4', code: 'Digit4', altKey: true });
+    assert.strictEqual(calls.openCheckout, 1, 'Alt+Digit4 (key="4") triggers onOpenCheckout');
+    assert.strictEqual(alt4.defaultPrevented, true);
+
+    const option4 = dispatch({ key: '¢', code: 'Digit4', altKey: true });
+    assert.strictEqual(calls.openCheckout, 2, 'Option+Digit4 (key="¢") triggers onOpenCheckout');
+    assert.strictEqual(option4.defaultPrevented, true);
+
+    // Option+Digit combinations on other keys or with extra modifiers must not misfire or prevent default
+    for (const ignoredCombo of [
+      { key: '€', code: 'Digit2', altKey: true, shiftKey: true },
+      { key: '2', code: 'Digit2', altKey: true, ctrlKey: true },
+      { key: '2', code: 'Digit2', altKey: true, metaKey: true },
+      { key: '4', code: 'Digit4', altKey: true, shiftKey: true },
+      { key: '4', code: 'Digit4', altKey: true, ctrlKey: true },
+      { key: '4', code: 'Digit4', altKey: true, metaKey: true },
+      { key: '2', code: 'KeyQ', altKey: true },
+      { key: '4', code: 'KeyE', altKey: true },
+      { key: '-', code: 'Digit6', altKey: true },
+      { key: '+', code: 'Digit1', altKey: true },
+      { key: '/', code: 'Digit7', altKey: true, shiftKey: true },
+      { key: '?', code: 'Slash', altKey: true, shiftKey: true },
+      { key: 'F4', code: 'F4', altKey: true },
+      { key: ' ', code: 'Space', ctrlKey: true },
+      { key: ' ', code: 'Space', metaKey: true },
+      { key: ' ', code: 'Space', altKey: true },
+    ]) {
+      const res = dispatch(ignoredCombo);
+      assert.strictEqual(
+        res.defaultPrevented,
+        false,
+        `rejected combo ${JSON.stringify(ignoredCombo)} must not prevent default`,
+      );
+    }
+
+    assert.strictEqual(
+      calls.toggleTables,
+      2,
+      'modified/non-Digit2 Alt combos do not misfire toggleTables',
+    );
+    assert.strictEqual(
+      calls.openCheckout,
+      2,
+      'Alt+F4 or non-Digit4 combos do not misfire openCheckout',
+    );
+    assert.strictEqual(
+      calls.decrementLastItem,
+      0,
+      'Option+Digit emitting "-" does not decrement cart',
+    );
+    assert.strictEqual(
+      calls.incrementLastItem,
+      0,
+      'Option+Digit emitting "+" does not increment cart',
+    );
+    assert.strictEqual(calls.focusSearch, 0, 'Option+Digit emitting "/" does not focus search');
+    assert.strictEqual(calls.showHelp, 0, 'Option+Slash emitting "?" does not open help');
+    assert.strictEqual(calls.tender, 0, 'Ctrl/Meta/Alt+Space does not tender order');
+  }
+
+  // Verify tablePickerOpen closes on macOS Option+Digit2 and F2, while modified F2 does not
+  {
+    const { calls, dispatch } = createShortcutHarness({
+      anyModalOpen: true,
+      tablePickerOpen: true,
+    });
+    const option2Close = dispatch({ key: '™', code: 'Digit2', altKey: true });
+    assert.strictEqual(calls.toggleTables, 1, 'Option+Digit2 closes open table picker');
+    assert.strictEqual(option2Close.defaultPrevented, true);
+
+    const f2Close = dispatch({ key: 'F2', code: 'F2' });
+    assert.strictEqual(calls.toggleTables, 2, 'plain F2 closes open table picker');
+    assert.strictEqual(f2Close.defaultPrevented, true);
+
+    for (const mod of [
+      { ctrlKey: true },
+      { metaKey: true },
+      { altKey: true },
+      { shiftKey: true },
+    ]) {
+      const res = dispatch({ key: 'F2', code: 'F2', ...mod });
+      assert.strictEqual(
+        calls.toggleTables,
+        2,
+        `modified F2 (${JSON.stringify(mod)}) must not toggle open table picker`,
+      );
+      assert.strictEqual(
+        res.defaultPrevented,
+        false,
+        `modified F2 (${JSON.stringify(mod)}) must not prevent default when table picker is open`,
+      );
+    }
+  }
+
+  // Table-driven tests for Escape, F1, F11, F2, F3, F4, F6, F8, Space, ?, /, and Alt+Backspace:
+  // (1) plain shortcut invokes expected handler and sets defaultPrevented = true
+  // (2) unsupported Ctrl, Meta, Alt, and Shift combinations do not trigger POS actions and leave defaultPrevented = false
+  {
+    type CallKey =
+      | 'dismissModalOrBlur'
+      | 'showHelp'
+      | 'toggleFullscreen'
+      | 'toggleTables'
+      | 'openCashMovement'
+      | 'openCheckout'
+      | 'focusCustomer'
+      | 'holdOrder'
+      | 'tender'
+      | 'focusSearch'
+      | 'clearCart';
+
+    interface ShortcutCase {
+      label: string;
+      plainInit: Partial<KeyboardEvent>;
+      expectedCall: CallKey;
+      rejectedModifiers: Array<{ name: string; init: Partial<KeyboardEvent> }>;
+    }
+
+    const allFourModifiers: Array<{ name: string; init: Partial<KeyboardEvent> }> = [
+      { name: 'Ctrl', init: { ctrlKey: true } },
+      { name: 'Meta', init: { metaKey: true } },
+      { name: 'Alt', init: { altKey: true } },
+      { name: 'Shift', init: { shiftKey: true } },
+      { name: 'Ctrl+Shift', init: { ctrlKey: true, shiftKey: true } },
+      { name: 'Meta+Alt', init: { metaKey: true, altKey: true } },
+    ];
+
+    const shortcutTable: ShortcutCase[] = [
+      {
+        label: 'Escape',
+        plainInit: { key: 'Escape', code: 'Escape' },
+        expectedCall: 'dismissModalOrBlur',
+        rejectedModifiers: allFourModifiers,
+      },
+      {
+        label: 'F1',
+        plainInit: { key: 'F1', code: 'F1' },
+        expectedCall: 'showHelp',
+        rejectedModifiers: allFourModifiers,
+      },
+      {
+        label: 'F11',
+        plainInit: { key: 'F11', code: 'F11' },
+        expectedCall: 'toggleFullscreen',
+        rejectedModifiers: allFourModifiers,
+      },
+      {
+        label: 'F2',
+        plainInit: { key: 'F2', code: 'F2' },
+        expectedCall: 'toggleTables',
+        rejectedModifiers: allFourModifiers,
+      },
+      {
+        label: 'F3',
+        plainInit: { key: 'F3', code: 'F3' },
+        expectedCall: 'openCashMovement',
+        rejectedModifiers: allFourModifiers,
+      },
+      {
+        label: 'F4',
+        plainInit: { key: 'F4', code: 'F4' },
+        expectedCall: 'openCheckout',
+        rejectedModifiers: allFourModifiers,
+      },
+      {
+        label: 'F6',
+        plainInit: { key: 'F6', code: 'F6' },
+        expectedCall: 'focusCustomer',
+        rejectedModifiers: allFourModifiers,
+      },
+      {
+        label: 'F8',
+        plainInit: { key: 'F8', code: 'F8' },
+        expectedCall: 'holdOrder',
+        rejectedModifiers: allFourModifiers,
+      },
+      {
+        label: 'Space',
+        plainInit: { key: ' ', code: 'Space' },
+        expectedCall: 'tender',
+        rejectedModifiers: allFourModifiers,
+      },
+      {
+        label: '? (Shift+Slash)',
+        plainInit: { key: '?', code: 'Slash', shiftKey: true },
+        expectedCall: 'showHelp',
+        rejectedModifiers: [
+          { name: 'Ctrl', init: { ctrlKey: true, shiftKey: true } },
+          { name: 'Meta', init: { metaKey: true, shiftKey: true } },
+          { name: 'Alt', init: { altKey: true, shiftKey: true } },
+        ],
+      },
+      {
+        label: '/',
+        plainInit: { key: '/', code: 'Slash' },
+        expectedCall: 'focusSearch',
+        rejectedModifiers: [
+          { name: 'Ctrl', init: { ctrlKey: true } },
+          { name: 'Meta', init: { metaKey: true } },
+          { name: 'Alt', init: { altKey: true } },
+        ],
+      },
+      {
+        label: 'Alt+Backspace',
+        plainInit: { key: 'Backspace', code: 'Backspace', altKey: true },
+        expectedCall: 'clearCart',
+        rejectedModifiers: [
+          { name: 'Plain (no Alt)', init: { altKey: false } },
+          { name: 'Alt+Ctrl', init: { altKey: true, ctrlKey: true } },
+          { name: 'Alt+Meta', init: { altKey: true, metaKey: true } },
+          { name: 'Alt+Shift', init: { altKey: true, shiftKey: true } },
+        ],
+      },
+    ];
+
+    for (const testCase of shortcutTable) {
+      const { calls, dispatch } = createShortcutHarness();
+
+      // 1. Plain (or expected chord) shortcut works and prevents default
+      const plainRes = dispatch(testCase.plainInit);
+      assert.strictEqual(
+        calls[testCase.expectedCall],
+        1,
+        `${testCase.label}: expected ${testCase.expectedCall} to be called once`,
+      );
+      assert.strictEqual(
+        plainRes.defaultPrevented,
+        true,
+        `${testCase.label}: expected defaultPrevented to be true`,
+      );
+      const totalCallsAfterPlain = Object.values(calls).reduce((sum, n) => sum + n, 0);
+      assert.strictEqual(
+        totalCallsAfterPlain,
+        1,
+        `${testCase.label}: expected no other handlers to be called`,
+      );
+
+      // 2. Unsupported modifier combinations do not fire any handler and do not prevent default
+      for (const mod of testCase.rejectedModifiers) {
+        const modRes = dispatch({ ...testCase.plainInit, ...mod.init });
+        const totalCallsAfterMod = Object.values(calls).reduce((sum, n) => sum + n, 0);
+        assert.strictEqual(
+          totalCallsAfterMod,
+          1,
+          `${testCase.label} with ${mod.name}: must not trigger any POS handler`,
+        );
+        assert.strictEqual(
+          modRes.defaultPrevented,
+          false,
+          `${testCase.label} with ${mod.name}: must not prevent default browser/OS shortcut`,
+        );
+      }
+    }
+  }
+} finally {
+  reactModule.useRef = origUseRef;
+  reactModule.useEffect = origUseEffect;
+  if (origWindow === undefined) delete (globalThis as Record<string, unknown>).window;
+  else (globalThis as Record<string, unknown>).window = origWindow;
+  if (origHTMLElement === undefined) delete (globalThis as Record<string, unknown>).HTMLElement;
+  else (globalThis as Record<string, unknown>).HTMLElement = origHTMLElement;
+}
+
+console.log('✓ All modifier and physical key guard tests passed.');
 console.log('All POS keyboard shortcuts unit tests passed successfully.');
