@@ -2514,6 +2514,10 @@ export default function SettingsPage() {
             if (!active()) return;
             applyHydratedKitchenSetting('kotPrintingEnabled', res?.data.setting?.value !== 'false');
           }),
+          readOptional('/settings/kds_enabled').then((res) => {
+            if (!active()) return;
+            applyHydratedKitchenSetting('kdsEnabled', res?.data.setting?.value !== 'false');
+          }),
         ]);
         return;
       }
@@ -3202,7 +3206,7 @@ export default function SettingsPage() {
       applyKitchenSettingValue(field, authoritative, saveTenantId);
     } catch (error) {
       if (
-        field === 'kotPrintingEnabled' &&
+        (field === 'kotPrintingEnabled' || field === 'kdsEnabled') &&
         axios.isAxiosError(error) &&
         error.response?.status === 404
       ) {
