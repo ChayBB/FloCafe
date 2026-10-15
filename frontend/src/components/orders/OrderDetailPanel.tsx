@@ -37,6 +37,7 @@ import {
   Loader2,
   ClipboardList,
   Bike,
+  Pencil,
 } from 'lucide-react';
 import { useTranslations } from 'use-intl';
 import type { Order, OrderItem, Bill, Customer } from '@/lib/types';
@@ -46,6 +47,7 @@ import { useFormatCurrency } from '@/hooks/useFormatCurrency';
 import { useFormatDate } from '@/hooks/useFormatDate';
 import { parseDbTimestamp } from '@/lib/utils';
 import { formatItemHeading } from '@/lib/printer/item-heading';
+import { isTerminalItemStatus } from '../../../../shared/order-item-status';
 import {
   orderStatusBadge,
   paymentStatusBadge,
@@ -60,6 +62,8 @@ export interface OrderDetailPanelProps {
   order: Order | null;
   now: number;
   canCancelItems: boolean;
+  canEditItems?: boolean;
+  onEditItem?: (order: Order, item: OrderItem) => void;
   canRestoreItems: boolean;
   canRefund: boolean;
   isWhatsAppReady: boolean;
@@ -104,6 +108,8 @@ function OrderDetailContent({
   order,
   now,
   canCancelItems,
+  canEditItems = false,
+  onEditItem,
   canRestoreItems,
   canRefund,
   isWhatsAppReady,
@@ -151,11 +157,9 @@ function OrderDetailContent({
   const [showVoidedItems, setShowVoidedItems] = useState(false);
   const [showPrintActivity, setShowPrintActivity] = useState(false);
 
-  const activeItems = (order.items || []).filter(
-    (i) => !['cancelled', 'voided', 'void_adjustment'].includes(i.status),
-  );
-  const inactiveItems = (order.items || []).filter((i) =>
-    ['cancelled', 'voided'].includes(i.status),
+  const activeItems = (order.items || []).filter((i) => !isTerminalItemStatus(i.status));
+  const inactiveItems = (order.items || []).filter(
+    (i) => ['cancelled', 'voided', 'refunded'].includes(i.status) && !i.superseded,
   );
 
   const bill = order.bill;
@@ -562,6 +566,19 @@ function OrderDetailContent({
                     <span className="text-muted-foreground font-medium">
                       {fmt(Number(item.total))}
                     </span>
+                    {canEditItems &&
+                      onEditItem &&
+                      !isPaid &&
+                      !['completed', 'cancelled'].includes(order.status) && (
+                        <button
+                          type="button"
+                          onClick={() => onEditItem(order, item)}
+                          className="size-8 flex items-center justify-center text-muted-foreground hover:text-foreground rounded-md hover:bg-muted transition-colors"
+                          title={tOrders('editItem')}
+                        >
+                          <Pencil size={14} />
+                        </button>
+                      )}
                     {canCancelItems &&
                       !isPaid &&
                       !['completed', 'cancelled'].includes(order.status) && (
