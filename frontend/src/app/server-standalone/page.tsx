@@ -2,7 +2,7 @@
 
 import axios, { AxiosInstance } from 'axios';
 import toast from 'react-hot-toast';
-import { Bell, BellOff, CheckCircle2, ChefHat, ChevronDown, Circle, Flame, LayoutGrid, LogOut, Minus, Plus, RefreshCw, Search, Send, ShoppingCart, Smartphone, SquarePen, Trash2, UserRound } from 'lucide-react';
+import { Bell, BellOff, CheckCircle2, ChefHat, Circle, Flame, LayoutGrid, LogOut, Minus, Plus, RefreshCw, Search, Send, ShoppingCart, Smartphone, SquarePen, Trash2, UserRound } from 'lucide-react';
 import { Drawer, DrawerContent, DrawerTrigger } from '@/components/ui/drawer';
 import { ServerPaymentSheet } from '@/components/server-app/ServerPaymentSheet';
 import { ServerTablePicker, activeOrderOf } from '@/components/server-app/ServerTablePicker';
@@ -35,6 +35,9 @@ type ServerAppInfo = {
   currency_symbol: string;
   currency_position: 'prefix' | 'suffix';
   currency_fraction_digits: number;
+  business_name?: string | null;
+  business_logo?: string | null;
+  business_cover?: string | null;
 };
 
 type ServerAppKey = keyof AppConfig['Messages']['serverApp'];
@@ -494,6 +497,9 @@ export default function ServerStandalonePage() {
   }
 
   const activeTable = tables.find((table) => table.id === selectedTableId) || null;
+  const activeTableLabel = activeTable ? (activeTable.name ?? String(activeTable.number)) : '';
+  // The square button shows only the table, so the full action stays in the accessible name.
+  const tableButtonLabel = activeTable ? `${t('selectTable')}: ${activeTableLabel}` : t('selectTable');
   const filteredProducts = products.filter((product) => {
     const matchesCategory = selectedCategoryId === 'all' || product.category_id === selectedCategoryId;
     const matchesQuery = !query || product.name.toLowerCase().includes(query.toLowerCase());
@@ -665,8 +671,26 @@ export default function ServerStandalonePage() {
     </>
   );
 
+  // Shop branding above everything else. Rendered only when a photo is set, so a
+  // shop that has not uploaded one keeps the full screen for the order list.
+  const coverBanner = regional?.business_cover ? (
+    <div className="relative h-28 w-full overflow-hidden sm:h-36">
+      <img src={regional.business_cover} alt="" className="h-full w-full object-cover" />
+      <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+      <div className="absolute inset-x-0 bottom-0 flex items-center gap-2 p-3">
+        {regional.business_logo && (
+          <img src={regional.business_logo} alt="" className="h-10 w-10 shrink-0 rounded-lg border border-white/30 object-cover" />
+        )}
+        {regional.business_name && (
+          <span className="truncate text-base font-semibold text-white drop-shadow">{regional.business_name}</span>
+        )}
+      </div>
+    </div>
+  ) : null;
+
   return (
     <div className="min-h-screen bg-background text-foreground">
+      {coverBanner}
       <header className="sticky top-0 z-20 border-b border-border bg-card/95 px-3 py-2 backdrop-blur">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-2 sm:gap-3">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand text-white"><ChefHat size={18} /></div>
@@ -674,20 +698,19 @@ export default function ServerStandalonePage() {
             <h1 className="truncate text-base font-semibold">{t('title')}</h1>
             <p className="truncate text-xs text-muted-foreground">{user.name}</p>
           </div>
+          {/* Square, alongside the other header actions. The open table is the face of
+              the button, so the header still says which one it is without the label. */}
           <button
             onClick={() => setTablePickerOpen(true)}
-            className="order-last flex min-h-11 w-full min-w-0 items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-start sm:order-none sm:w-auto sm:max-w-[45%]"
+            aria-label={tableButtonLabel}
+            title={tableButtonLabel}
+            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border ${
+              activeTable ? 'border-brand bg-brand/10 text-brand' : 'border-border text-muted-foreground'
+            }`}
           >
-            <LayoutGrid size={16} className="shrink-0 text-muted-foreground" />
-            {/* The action always reads as "select a table"; the current table rides
-                alongside it so the header still says which one is open. */}
-            <span className="shrink-0 text-sm font-semibold">{t('selectTable')}</span>
-            {activeTable && (
-              <span className="min-w-0 flex-1 truncate rounded-full bg-brand/10 px-2 py-0.5 text-xs font-semibold text-brand">
-                {activeTable.name ?? String(activeTable.number)}
-              </span>
-            )}
-            <ChevronDown size={16} className="shrink-0 text-muted-foreground" />
+            {activeTable
+              ? <span className="w-full truncate px-1 text-center text-sm font-semibold">{activeTableLabel}</span>
+              : <LayoutGrid size={17} />}
           </button>
           <button
             onClick={() => setSoundMuted((muted) => !muted)}
