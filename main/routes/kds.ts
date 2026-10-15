@@ -6,6 +6,7 @@ import { requireKdsEnabled, requireKdsEnabledOr404, isTokenRevoked, isTokenStale
 import { hasPermission, requirePermission } from '../services/authorization';
 import { parseCategoryIds } from './auth';
 import { notifyKdsUpdate } from '../services/kds';
+import { emitOrderItemStatus } from '../services/server-app-events';
 import { ROLE_ACCESS, hasRole } from '../../shared/role-permissions';
 
 const router = Router();
@@ -446,6 +447,24 @@ router.patch('/items/:id/status', requirePermission('kitchen.status.update'), re
     }
 
     notifyKdsUpdate();
+
+    // Pushes the change to the waiter covering that table (see main/server-app.ts).
+    // The standalone KDS marks items ready through this route, not /api/order-items.
+    const changed = db.prepare(`
+      SELECT oi.id AS item_id, oi.product_name, o.id AS order_id, o.table_id
+      FROM order_items oi JOIN orders o ON o.id = oi.order_id
+      WHERE oi.id = ?
+    `).get(req.params.id) as { item_id: number; product_name: string; order_id: number; table_id: string | null } | undefined;
+    if (changed) {
+      emitOrderItemStatus({
+        itemId: changed.item_id,
+        productName: changed.product_name,
+        orderId: changed.order_id,
+        tableId: changed.table_id,
+        status,
+      });
+    }
+
     res.json({ item: projectKdsItem(updatedItem, restrictedPayload) });  } catch (error: any) {
     if (error.message === 'VOIDED_ITEM') {
       return res.status(400).json({ error: 'This item has been voided and can no longer be updated' });

@@ -107,6 +107,34 @@ Two consequences matter when you work on it:
 When the server app feature is disabled, the authenticated middleware answers `404` rather than
 revealing that the surface exists.
 
+## The server app push socket
+
+`:3003` upgrades `/server-app` to a WebSocket, authenticating the token from the query string
+because the browser `WebSocket` API cannot set headers. It replies `{"type":"connected"}` on open
+and then carries two alerts, each re-scoped per event to the tables the caller covers so a
+reassignment takes effect without a reconnect:
+
+| Type | Raised by | Meaning |
+| --- | --- | --- |
+| `item_status` | `emitOrderItemStatus()` | A kitchen line changed status; the page chimes on `ready`. |
+| `guest_order` | `emitGuestOrder()` | A customer ordered from their own phone — see [guest-ordering.md](../guest-ordering.md). |
+
+Both travel through [`main/services/server-app-events.ts`](../../main/services/server-app-events.ts),
+an in-process bus that exists so `main/routes` never imports the Server App module, which would be
+a cycle.
+
+**Every write that changes an order item's status must emit.** Three paths do, and a new one has to
+join them: a path that skips the emit still updates the board, so the omission is invisible until a
+waiter notices the alert arriving late, by way of the 30-second fallback poll.
+
+| Path | Used by |
+| --- | --- |
+| `status_update` over the `/kds` socket | the standalone KDS — the usual case |
+| `PATCH /api/kds/items/:id/status` | the KDS REST fallback |
+| `PATCH /api/order-items/:id/status` | the in-app KDS |
+
+[`tests/server-app-ready-push.test.ts`](../../tests/server-app-ready-push.test.ts) pins all three.
+
 ## Capability-based title bar detection
 
 Whether the main window uses native caption controls or HTML fallback buttons is decided by probing

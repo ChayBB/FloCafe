@@ -6,6 +6,7 @@ import { parseCategoryIds } from '../routes/auth';
 import { getUserAuthStatus, isTokenRevoked, isTokenStale } from '../middleware/security';
 import { ROLE_ACCESS, hasRole } from '../../shared/role-permissions';
 import { hasPermission } from './authorization';
+import { emitOrderItemStatus } from './server-app-events';
 
 interface KdsClient {
   ws: WebSocket;
@@ -493,6 +494,23 @@ function handleStatusUpdate(client: KdsClient, message: any): void {
     if (result.error) {
       client.ws.send(JSON.stringify({ type: 'error', message: result.error }));
       return;
+    }
+
+    // Pushed before the KDS re-broadcast: the waiter waiting on this plate should
+    // not queue behind every kitchen screen's payload being rebuilt.
+    const changed = db.prepare(`
+      SELECT oi.id AS item_id, oi.product_name, o.id AS order_id, o.table_id
+      FROM order_items oi JOIN orders o ON o.id = oi.order_id
+      WHERE oi.id = ?
+    `).get(order_item_id) as { item_id: number; product_name: string; order_id: number; table_id: string | null } | undefined;
+    if (changed) {
+      emitOrderItemStatus({
+        itemId: changed.item_id,
+        productName: changed.product_name,
+        orderId: changed.order_id,
+        tableId: changed.table_id,
+        status,
+      });
     }
 
     broadcastOrderUpdate();
