@@ -15,18 +15,19 @@ interface ImageUploaderProps {
   onChange: (value: string | null) => void;
   /** Product ID for URL proxy fetch */
   productId?: string;
+  /** Crop aspect as width ÷ height. 1 (square) suits products and logos; wider suits a cover. */
+  aspect?: number;
 }
 
 type Mode = 'idle' | 'cropping' | 'url-input';
 
-export default function ImageUploader({ value, onChange, productId }: ImageUploaderProps) {
+export default function ImageUploader({ value, onChange, productId, aspect = 1 }: ImageUploaderProps) {
   const t = useTranslations('products');
   const tCommon = useTranslations('common');
   const [mode, setMode] = useState<Mode>('idle');
   const [cropSrc, setCropSrc] = useState<string | null>(null);
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
-  const [aspect] = useState(1); // Always 1:1
   const [urlInput, setUrlInput] = useState('');
   const [fetching, setFetching] = useState(false);
   
@@ -86,7 +87,7 @@ export default function ImageUploader({ value, onChange, productId }: ImageUploa
       const x = cropAreaRef.current.x || 0;
       const y = cropAreaRef.current.y || 0;
 
-      const dataUri = compressCroppedImage(img, { x, y, width, height });
+      const dataUri = compressCroppedImage(img, { x, y, width, height }, aspect);
       if (!dataUri) {
         toast.error(t('imageCompressFailed'));
         return;
@@ -165,7 +166,7 @@ export default function ImageUploader({ value, onChange, productId }: ImageUploa
               <X size={20} />
             </button>
           </div>
-          <div className="relative w-full aspect-square bg-muted">
+          <div className="relative w-full bg-muted" style={{ aspectRatio: String(Math.min(aspect, 2)) }}>
             <Cropper
               image={cropSrc}
               crop={crop}

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef } from 'react';
+import ImageUploader from '@/components/products/ImageUploader';
 import { Building2, Hash, CreditCard, Lock } from 'lucide-react';
 import { useTranslations, useLocale } from 'use-intl';
 import { Ltr } from '@/components/layout/Ltr';
@@ -74,6 +75,8 @@ export interface BusinessForm {
   businessPhone: string;
   businessAddress: string;
   instagramHandle: string;
+  businessLogo: string | null;
+  businessCover: string | null;
 }
 
 export interface OrderNumberForm {
@@ -188,6 +191,31 @@ export function GeneralSettingsTab({
               <p className="font-medium text-foreground">{form.businessName || currentTenant?.business_name}</p>
             )}
           </div>
+          {isAdmin && (
+            <div className="md:col-span-2 grid grid-cols-1 sm:grid-cols-[160px_1fr] gap-4">
+              <div>
+                <label className="block text-sm text-muted-foreground mb-1">{t('businessLogo')}</label>
+                <ImageUploader
+                  value={form.businessLogo}
+                  onChange={(value) => {
+                    markHydrationTouched('businessLogo');
+                    setForm((p) => ({ ...p, businessLogo: value }));
+                  }}
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-muted-foreground mb-1">{t('businessCover')}</label>
+                <ImageUploader
+                  value={form.businessCover}
+                  onChange={(value) => {
+                    markHydrationTouched('businessCover');
+                    setForm((p) => ({ ...p, businessCover: value }));
+                  }}
+                  aspect={3}
+                />
+              </div>
+            </div>
+          )}
           {/* Country, Timezone, Currency in single line with individual headings */}
           <div className="md:col-span-2 space-y-2">
             {/* Headings */}

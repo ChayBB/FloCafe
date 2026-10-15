@@ -1363,6 +1363,8 @@
     "browserWebusb": "Browser WebUSB",
     "builtIn": "Built-in",
     "businessName": "Pangalan ng Negosyo",
+    "businessLogo": "Logo ng tindahan",
+    "businessCover": "Larawan ng tindahan",
     "cancel": "Kanselahin",
     "checkForUpdates": "Suriin ang Mga Update",
     "checking": "Sinusuri...",

@@ -10,6 +10,7 @@ import * as dns from 'dns';
 import * as https from 'https';
 import * as net from 'net';
 import { asyncHandler } from '../middleware/async-handler';
+import { validateImageDataUri } from '../lib/image-data-uri';
 
 const MAX_FETCH_BYTES = 10 * 1024 * 1024;
 
@@ -148,27 +149,6 @@ function fetchPinnedHttps(
     request.on('error', (error) => finish(error));
     request.end();
   });
-}
-
-/** Validates image data URI format (webp/png/jpeg) and length limit. */
-function validateImageUrl(imageUrl: any): { valid: boolean; error?: string } {
-  if (imageUrl === null || imageUrl === undefined) {
-    return { valid: true }; // null means "clear the image"
-  }
-  if (typeof imageUrl !== 'string') {
-    return { valid: false, error: 'image_url must be a string or null' };
-  }
-  if (!imageUrl.startsWith('data:image/')) {
-    return { valid: false, error: 'image_url must be a Base64 data URI' };
-  }
-  const formatMatch = imageUrl.match(/^data:image\/(webp|png|jpeg|jpg);base64,/);
-  if (!formatMatch) {
-    return { valid: false, error: 'Invalid image format. Supported: webp, png, jpeg' };
-  }
-  if (imageUrl.length > 50_000) {
-    return { valid: false, error: 'Image too large (max 50,000 characters)' };
-  }
-  return { valid: true };
 }
 
 /** Batch loads category and addon group relations for a list of products. */
@@ -847,7 +827,7 @@ router.post('/', requirePermission('catalog.manage'), (req: Request, res: Respon
     }
 
     // Validate image_url at write time (server-side security boundary)
-    const imageValidation = validateImageUrl(image_url);
+    const imageValidation = validateImageDataUri(image_url);
     if (!imageValidation.valid) {
       return res.status(400).json({ error: imageValidation.error });
     }
@@ -991,7 +971,7 @@ router.put('/:id', requirePermission('catalog.manage'), (req: Request, res: Resp
 
     // Validate image_url at write time (server-side security boundary)
     if ('image_url' in req.body) {
-      const imageValidation = validateImageUrl(image_url);
+      const imageValidation = validateImageDataUri(image_url);
       if (!imageValidation.valid) {
         return res.status(400).json({ error: imageValidation.error });
       }

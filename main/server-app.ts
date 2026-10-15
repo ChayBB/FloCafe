@@ -423,6 +423,12 @@ export function startServerApp(): Promise<void> {
         currency_position: snapshot.currencyPosition,
         currency_fraction_digits: snapshot.currencyFractionDigits,
         kds_enabled: settings.kds_enabled !== 'false',
+        // Branding for the page header. Served unauthenticated like the rest of
+        // this payload: a shop's own name and photo are not a secret, and :3003
+        // is never published beyond the local network.
+        business_name: settings.business_name || null,
+        business_logo: settings.business_logo || null,
+        business_cover: settings.business_cover || null,
       });
     });
 

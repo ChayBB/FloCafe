@@ -1363,6 +1363,8 @@
     "browserWebusb": "브라우저 WebUSB",
     "builtIn": "내장",
     "businessName": "상호명",
+    "businessLogo": "매장 로고",
+    "businessCover": "매장 사진",
     "cancel": "취소",
     "checkForUpdates": "업데이트 확인",
     "checking": "확인 중...",

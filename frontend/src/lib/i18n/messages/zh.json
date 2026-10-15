@@ -1363,6 +1363,8 @@
     "browserWebusb": "浏览器 WebUSB",
     "builtIn": "内置",
     "businessName": "商家名称",
+    "businessLogo": "店铺标志",
+    "businessCover": "店铺照片",
     "cancel": "取消",
     "checkForUpdates": "检查更新",
     "checking": "检查中…",

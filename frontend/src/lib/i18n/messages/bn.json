@@ -1363,6 +1363,8 @@
     "browserWebusb": "ওয়েবইউএসবি ব্রাউজার",
     "builtIn": "বিল্ট ইন",
     "businessName": "ব্যবসার নাম",
+    "businessLogo": "দোকানের লোগো",
+    "businessCover": "দোকানের ছবি",
     "cancel": "বাতিল করুন",
     "checkForUpdates": "আপডেটের জন্য চেক করুন",
     "checking": "পরীক্ষা করা হচ্ছে...",

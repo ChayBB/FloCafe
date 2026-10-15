@@ -1363,6 +1363,8 @@
     "browserWebusb": "WebUSB trình duyệt",
     "builtIn": "Tích hợp",
     "businessName": "Tên cửa hàng",
+    "businessLogo": "Logo cửa hàng",
+    "businessCover": "Ảnh cửa hàng",
     "cancel": "Hủy",
     "checkForUpdates": "Kiểm tra cập nhật",
     "checking": "Đang kiểm tra...",

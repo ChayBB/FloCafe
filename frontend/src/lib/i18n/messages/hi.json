@@ -1363,6 +1363,8 @@
     "browserWebusb": "ब्राउज़र WebUSB",
     "builtIn": "में निर्मित",
     "businessName": "व्यवसाय का नाम",
+    "businessLogo": "दुकान का लोगो",
+    "businessCover": "दुकान की तस्वीर",
     "cancel": "रद्द करें",
     "checkForUpdates": "अपडेट देखें",
     "checking": "जाँच हो रही है...",

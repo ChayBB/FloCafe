@@ -1363,6 +1363,8 @@
     "browserWebusb": "ブラウザWebUSB",
     "builtIn": "内蔵",
     "businessName": "店舗名",
+    "businessLogo": "店舗ロゴ",
+    "businessCover": "店舗の写真",
     "cancel": "キャンセル",
     "checkForUpdates": "更新を確認",
     "checking": "確認中…",

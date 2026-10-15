@@ -28,6 +28,7 @@ import {
   validateLanguagePolicySetting,
 } from '../lib/print-language-settings';
 import { isThemeMode } from '../title-bar-theme';
+import { validateImageDataUri } from '../lib/image-data-uri';
 
 const router = Router();
 const configuredSettingsReadLimit = Number.parseInt(process.env.FLO_SETTINGS_READ_RATE_LIMIT_MAX || '', 10);
@@ -159,6 +160,8 @@ function businessShape(s: Record<string, string>) {
     business_address: s.business_address || '',
     business_phone: s.business_phone || '',
     instagram_handle: s.instagram_handle || '',
+    business_logo: s.business_logo || '',
+    business_cover: s.business_cover || '',
     billing_type: s.billing_type || 'postpaid',
     tables_required: s.tables_required !== 'false',
     tax_registered: s.tax_registered === 'true' || s.tax_registered === '1',
@@ -210,11 +213,16 @@ router.put('/business', requirePermission('settings.manage'), (req: Request, res
       bill_show_name, bill_show_address, bill_show_phone, bill_show_tax_id,
       bill_show_tax_breakdown, bill_show_customer_name, bill_show_customer_phone, bill_show_table_number,
       bill_delivery_show_customer_phone_always,
-      currency_display, number_digits, calendar } = req.body;
+      currency_display, number_digits, calendar, business_logo, business_cover } = req.body;
     const normalizedCurrency = typeof currency === 'string' ? currency.trim().toUpperCase() : currency;
     const normalizedInstagramHandle = instagram_handle !== undefined
       ? String(instagram_handle || '').trim().slice(0, 100)
       : undefined;
+
+    for (const [field, value] of [['business_logo', business_logo], ['business_cover', business_cover]] as const) {
+      const check = validateImageDataUri(value, { field });
+      if (!check.valid) return res.status(400).json({ error: check.error });
+    }
 
     if (!validBusinessLocation(timezone, normalizedCurrency, country)) {
       return res.status(400).json({ error: 'Invalid timezone, currency, or country' });
@@ -288,6 +296,7 @@ router.put('/business', requirePermission('settings.manage'), (req: Request, res
       bill_show_name, bill_show_address, bill_show_phone, bill_show_tax_id,
       bill_show_tax_breakdown, bill_show_customer_name, bill_show_customer_phone, bill_show_table_number,
       bill_delivery_show_customer_phone_always,
+      business_logo, business_cover,
       ...localeUpdates,
       // Only mark country as user-confirmed if it actually changed in this submission.
       ...countryConfirmationPatch(country, currentSettings.country, req.body.country_selected),

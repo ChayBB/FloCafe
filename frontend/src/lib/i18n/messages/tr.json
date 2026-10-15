@@ -1363,6 +1363,8 @@
     "browserWebusb": "Tarayıcı WebUSB",
     "builtIn": "Dahili",
     "businessName": "İşletme Adı",
+    "businessLogo": "İşletme logosu",
+    "businessCover": "İşletme fotoğrafı",
     "cancel": "İptal",
     "checkForUpdates": "Güncellemeleri Kontrol Et",
     "checking": "Kontrol ediliyor...",

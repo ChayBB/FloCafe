@@ -1426,6 +1426,7 @@ export default function SettingsPage() {
     tablesRequired: true,
     taxRegistered: false,
     taxRegistrationNumber: '', businessAddress: '', businessPhone: '', instagramHandle: '',
+    businessLogo: null, businessCover: null,
     currencyDisplay: 'rial',
     numberDigits: 'locale',
     calendar: 'locale',
@@ -1633,6 +1634,8 @@ export default function SettingsPage() {
         businessAddress: d.business_address || '',
         businessPhone: d.business_phone || '',
         instagramHandle: d.instagram_handle || '',
+        businessLogo: d.business_logo || null,
+        businessCover: d.business_cover || null,
         currencyDisplay: d.currency_display === 'toman' ? 'toman' : d.currency_display === 'toman_short' ? 'toman_short' : 'rial',
         numberDigits: d.number_digits === 'latin' ? 'latin' : 'locale',
         calendar: d.calendar === 'persian' ? 'persian' : d.calendar === 'gregorian' ? 'gregorian' : 'locale',
@@ -1841,6 +1844,8 @@ export default function SettingsPage() {
           businessAddress: d.business_address || '',
           businessPhone: d.business_phone || '',
           instagramHandle: d.instagram_handle || '',
+          businessLogo: d.business_logo || null,
+          businessCover: d.business_cover || null,
           currencyDisplay: d.currency_display === 'toman' ? 'toman' : d.currency_display === 'toman_short' ? 'toman_short' : 'rial',
           numberDigits: d.number_digits === 'latin' ? 'latin' : 'locale',
           calendar: d.calendar === 'persian' ? 'persian' : d.calendar === 'gregorian' ? 'gregorian' : 'locale',
@@ -2950,6 +2955,8 @@ export default function SettingsPage() {
         business_address: form.businessAddress,
         business_phone: normalizedBusinessPhone,
         instagram_handle: form.instagramHandle,
+        business_logo: form.businessLogo,
+        business_cover: form.businessCover,
         currency_display: form.currencyDisplay,
         number_digits: form.numberDigits,
         calendar: form.calendar,
@@ -2995,7 +3002,7 @@ export default function SettingsPage() {
       posSettings.setBillPhone(normalizedBusinessPhone);
       posSettings.setBillingType(form.billingType);
       posSettings.setTablesRequired(form.tablesRequired);
-      updateCurrentTenant({ currency: form.currency, timezone: form.timezone, business_day_start_time: form.businessDayStartTime, country: form.countryCode, currency_display: form.currencyDisplay, number_digits: form.numberDigits, calendar: form.calendar });
+      updateCurrentTenant({ business_logo: form.businessLogo, currency: form.currency, timezone: form.timezone, business_day_start_time: form.businessDayStartTime, country: form.countryCode, currency_display: form.currencyDisplay, number_digits: form.numberDigits, calendar: form.calendar });
       if (!silent) toast.success(t('storeSaved'));
     } catch (err: unknown) {
       const responseData = (err as { response?: { data?: unknown } }).response?.data;

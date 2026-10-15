@@ -1363,6 +1363,8 @@
     "browserWebusb": "Браузер WebUSB",
     "builtIn": "Встроенный",
     "businessName": "Название компании",
+    "businessLogo": "Логотип заведения",
+    "businessCover": "Фото заведения",
     "cancel": "Отмена",
     "checkForUpdates": "Проверить обновления",
     "checking": "Проверяем...",

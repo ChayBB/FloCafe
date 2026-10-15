@@ -1363,6 +1363,8 @@
     "browserWebusb": "Shfletuesi WebUSB",
     "builtIn": "I ndertuar",
     "businessName": "Emri i biznesit",
+    "businessLogo": "Logoja e dyqanit",
+    "businessCover": "Fotoja e dyqanit",
     "cancel": "Anulo",
     "checkForUpdates": "Kontrollo për përditësime",
     "checking": "Po kontrollon...",

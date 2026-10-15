@@ -14,6 +14,7 @@ export interface User {
 export interface Tenant {
   id: number;
   business_name: string;
+  business_logo?: string | null;
   slug: string;
   database_name: string;
   business_type: 'restaurant';

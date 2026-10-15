@@ -12,17 +12,23 @@ const CROP_ENCODING_ATTEMPTS = [
   { size: 320, quality: 0.4 },
 ];
 
-/** Encode a selected product-image crop within the database size limit. */
-export function compressCroppedImage(image: HTMLImageElement, crop: CropArea): string | null {
+/**
+ * Encode a selected crop within the database size limit.
+ *
+ * `aspect` is width ÷ height: 1 for a product or logo, wider for a cover photo.
+ * The attempt ladder shrinks the long edge, so a wide crop keeps its shape
+ * instead of being squashed into a square.
+ */
+export function compressCroppedImage(image: HTMLImageElement, crop: CropArea, aspect = 1): string | null {
   try {
     for (const { size, quality } of CROP_ENCODING_ATTEMPTS) {
       const canvas = document.createElement('canvas');
-      canvas.width = size;
-      canvas.height = size;
+      canvas.width = aspect >= 1 ? size : Math.max(1, Math.round(size * aspect));
+      canvas.height = aspect >= 1 ? Math.max(1, Math.round(size / aspect)) : size;
       const ctx = canvas.getContext('2d');
       if (!ctx) return null;
 
-      ctx.drawImage(image, crop.x, crop.y, crop.width, crop.height, 0, 0, size, size);
+      ctx.drawImage(image, crop.x, crop.y, crop.width, crop.height, 0, 0, canvas.width, canvas.height);
       const dataUri = canvas.toDataURL('image/webp', quality);
       if (dataUri !== 'data:,' && dataUri.length <= MAX_BASE64_LENGTH) return dataUri;
     }

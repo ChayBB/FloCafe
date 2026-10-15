@@ -1363,6 +1363,8 @@
     "browserWebusb": "WebUSB peramban",
     "builtIn": "Bawaan",
     "businessName": "Nama Bisnis",
+    "businessLogo": "Logo toko",
+    "businessCover": "Foto toko",
     "cancel": "Batal",
     "checkForUpdates": "Periksa Pembaruan",
     "checking": "Memeriksa...",

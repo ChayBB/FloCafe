@@ -1363,6 +1363,8 @@
     "browserWebusb": "WebUSB del navegador",
     "builtIn": "Integrado",
     "businessName": "Nombre del Negocio",
+    "businessLogo": "Logotipo del negocio",
+    "businessCover": "Foto del negocio",
     "cancel": "Cancelar",
     "checkForUpdates": "Buscar actualizaciones",
     "checking": "Buscando...",

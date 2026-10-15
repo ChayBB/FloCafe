@@ -1363,6 +1363,8 @@
     "browserWebusb": "متصفح WebUSB",
     "builtIn": "مدمج في",
     "businessName": "اسم الشركة",
+    "businessLogo": "شعار المتجر",
+    "businessCover": "صورة المتجر",
     "cancel": "إلغاء",
     "checkForUpdates": "التحقق من وجود تحديثات",
     "checking": "جاري التحقق...",

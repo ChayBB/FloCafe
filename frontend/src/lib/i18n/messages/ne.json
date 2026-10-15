@@ -1363,6 +1363,8 @@
     "browserWebusb": "WebUSB ब्राउजर",
     "builtIn": "भित्र निर्मित",
     "businessName": "व्यापार नाम",
+    "businessLogo": "पसलको लोगो",
+    "businessCover": "पसलको तस्बिर",
     "cancel": "रद्द गर्नुहोस्",
     "checkForUpdates": "अपडेटहरूको लागि जाँच गर्नुहोस्",
     "checking": "जाँच गर्दै...",

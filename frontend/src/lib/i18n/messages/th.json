@@ -1363,6 +1363,8 @@
     "browserWebusb": "WebUSB ผ่านเบราว์เซอร์",
     "builtIn": "มาพร้อมระบบ",
     "businessName": "ชื่อกิจการ",
+    "businessLogo": "โลโก้ร้าน",
+    "businessCover": "ภาพหน้าร้าน",
     "cancel": "ยกเลิก",
     "checkForUpdates": "ตรวจหาการอัปเดต",
     "checking": "กำลังตรวจสอบ...",

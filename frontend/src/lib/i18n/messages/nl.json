@@ -1363,6 +1363,8 @@
     "browserWebusb": "Browser WebUSB",
     "builtIn": "Ingebouwd",
     "businessName": "Bedrijfsnaam",
+    "businessLogo": "Logo van de zaak",
+    "businessCover": "Foto van de zaak",
     "cancel": "Annuleren",
     "checkForUpdates": "Controleer op updates",
     "checking": "Controleren...",
