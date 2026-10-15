@@ -2,6 +2,8 @@
 
 import type { AxiosInstance } from 'axios';
 import { useEffect, useRef } from 'react';
+import { parseDbTimestamp } from '@/lib/utils';
+import { ORDER_TONES, playBell, playChime, playWhenReady } from '@/lib/alert-sounds';
 
 export interface ReadyAlertTable {
   id: string;
@@ -13,6 +15,7 @@ interface PolledItem {
   id: number;
   product_name: string;
   status: string;
+  updated_at?: string;
 }
 
 interface PolledOrder {
@@ -25,26 +28,10 @@ interface PolledOrder {
 // dropped connection, so it runs far less often than it did before the socket existed.
 const POLL_INTERVAL_MS = 30_000;
 const RECONNECT_DELAY_MS = 5_000;
+// A screen that wakes up rings only for a change this recent; anything older is
+// already history by the time anyone looks at it.
+const WAKE_ALERT_WINDOW_MS = 15_000;
 const TOKEN_KEY = 'flocafe:server-app-token';
-
-/** Two short rising tones, synthesised so no audio asset ships with the app. */
-function playChime(context: AudioContext) {
-  const start = context.currentTime;
-  [880, 1174].forEach((frequency, index) => {
-    const oscillator = context.createOscillator();
-    const gain = context.createGain();
-    oscillator.type = 'sine';
-    oscillator.frequency.value = frequency;
-    const at = start + index * 0.18;
-    // Ramped rather than switched on/off: a hard gate clicks on most speakers.
-    gain.gain.setValueAtTime(0.0001, at);
-    gain.gain.exponentialRampToValueAtTime(0.25, at + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.16);
-    oscillator.connect(gain).connect(context.destination);
-    oscillator.start(at);
-    oscillator.stop(at + 0.18);
-  });
-}
 
 /**
  * Polls the tables this device is allowed to see and fires a chime the moment the
@@ -82,20 +69,36 @@ export function useServerReadyAlerts({
     onGuestOrderRef.current = onGuestOrder;
   }, [muted, tables, onReady, onGuestOrder]);
 
-  function chime() {
+  function chime(play: (context: AudioContext) => void) {
     if (mutedRef.current) return;
-    try {
-      if (!audioRef.current) audioRef.current = new AudioContext();
-      // Autoplay policies suspend the context until a gesture; resume is a no-op otherwise.
-      void audioRef.current.resume();
-      playChime(audioRef.current);
-    } catch {
-      // A device without Web Audio still gets the on-screen alert.
-    }
+    playWhenReady(
+      () => audioRef.current,
+      (context) => { audioRef.current = context; },
+      play,
+    );
   }
 
+  // Autoplay policies keep a context suspended until the document is interacted with.
+  // Unlocking on the first touch means the first "ready" of a shift is already audible.
+  useEffect(() => {
+    function unlock() {
+      try {
+        if (!audioRef.current) audioRef.current = new AudioContext();
+        void audioRef.current.resume().catch(() => {});
+      } catch {
+        // No Web Audio on this device.
+      }
+    }
+    window.addEventListener('pointerdown', unlock, { once: true });
+    window.addEventListener('keydown', unlock, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+    };
+  }, []);
+
   function raiseAlert(alert: { productName: string; tableName: string }) {
-    chime();
+    chime(playBell);
     onReadyRef.current(alert);
   }
 
@@ -107,7 +110,11 @@ export function useServerReadyAlerts({
     }
     let cancelled = false;
 
-    async function poll() {
+    /**
+     * `maxAgeMs` suppresses alerts for transitions older than that, used when a
+     * screen wakes: nobody needs to hear about a plate that went up long ago.
+     */
+    async function poll(options: { maxAgeMs?: number } = {}) {
       const visible = new Map(tablesRef.current.map((table) => [table.id, table.name || table.number || table.id]));
       if (visible.size === 0) return;
       try {
@@ -115,6 +122,9 @@ export function useServerReadyAlerts({
           params: { type: 'dine_in', status: 'pending,preparing,ready', per_page: 100 },
         });
         if (cancelled) return;
+        // Both sides are epoch milliseconds, so the device timezone never enters
+        // the comparison; only a badly wrong device clock would skew it.
+        const deviceNow = Date.now();
         const next = new Map<number, string>();
         const alerts: { productName: string; tableName: string }[] = [];
         for (const order of (data.orders || []) as PolledOrder[]) {
@@ -123,9 +133,12 @@ export function useServerReadyAlerts({
           for (const item of order.items || []) {
             next.set(item.id, item.status);
             const previous = statusesRef.current.get(item.id);
-            if (seededRef.current && previous && previous !== 'ready' && item.status === 'ready') {
-              alerts.push({ productName: item.product_name, tableName });
+            if (!seededRef.current || !previous || previous === 'ready' || item.status !== 'ready') continue;
+            if (options.maxAgeMs !== undefined) {
+              const changedAt = parseDbTimestamp(item.updated_at).getTime();
+              if (!Number.isFinite(changedAt) || deviceNow - changedAt > options.maxAgeMs) continue;
             }
+            alerts.push({ productName: item.product_name, tableName });
           }
         }
         statusesRef.current = next;
@@ -167,7 +180,7 @@ export function useServerReadyAlerts({
           // Already scoped server-side to this user's tables; the local lookup
           // is only for a nicer display name.
           const table = tablesRef.current.find((row) => row.id === String(payload.table_id));
-          chime();
+          chime((context) => playChime(context, ORDER_TONES));
           onGuestOrderRef.current?.({
             tableName: table?.name || table?.number || String(payload.table_name ?? payload.table_id ?? ''),
             itemCount: Number(payload.item_count ?? 0),
@@ -196,9 +209,25 @@ export function useServerReadyAlerts({
 
     connect();
 
+    // A hidden or sleeping screen freezes timers and drops the socket, so a waking
+    // one catches up at once rather than waiting out the interval or the retry.
+    function onVisibilityChange() {
+      if (document.visibilityState !== 'visible' || cancelled) return;
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        if (reconnect) {
+          clearTimeout(reconnect);
+          reconnect = null;
+        }
+        connect();
+      }
+      void poll({ maxAgeMs: WAKE_ALERT_WINDOW_MS });
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
     return () => {
       cancelled = true;
       clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
       if (reconnect) clearTimeout(reconnect);
       if (socket) {
         socket.onclose = null;
