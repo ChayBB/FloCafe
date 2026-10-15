@@ -4,10 +4,11 @@ import axios from 'axios';
 import { KdsLoginForm } from '@/components/kds/KdsLoginForm';
 import { KdsWorkspace } from '@/components/kds/KdsWorkspace';
 import { useKdsConnection } from '@/hooks/useKdsConnection';
+import { useKdsOrderAnnouncer } from '@/hooks/useKdsOrderAnnouncer';
 import { useServerKdsInfo } from '@/hooks/useServerKdsInfo';
 import { useSyncServerLanguage } from '@/lib/i18n';
-import { useTranslations } from 'use-intl';
-import { useEffect, useMemo, useState } from 'react';
+import { useLocale, useTranslations } from 'use-intl';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 // Check whether KDS is disabled (endpoint returns 404) without locking out network errors.
 function useKdsDisabledCheck(baseUrl: string): boolean {
@@ -62,6 +63,16 @@ export default function KdsStandalonePage() {
     itemStatus: '/api/kds/items/:itemId/status',
   };
   const conn = useKdsConnection(api ? { api, endpoints: standaloneEndpoints } : { api: axios.create() });
+  const locale = useLocale();
+  const formatTable = useCallback((name: string) => t('tableLabel', { name }), [t]);
+  // Chime, pause, then read the ticket out: a cook with their hands full never
+  // has to look up to know an order landed.
+  useKdsOrderAnnouncer({
+    orders: conn.orders,
+    enabled: !!conn.user,
+    locale,
+    formatTable,
+  });
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
   const { kdsDefaultView } = useServerKdsInfo(origin);
   const kdsDisabled = useKdsDisabledCheck(origin);
