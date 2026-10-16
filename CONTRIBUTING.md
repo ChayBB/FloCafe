@@ -83,6 +83,55 @@ npm run build:frontend   # Export static Next.js frontend
 npm test                 # Run default test suite
 ```
 
+### Formatting
+
+Oxfmt owns formatting, pinned to an exact version in both `package.json` files. The backend scope is
+JavaScript and TypeScript sources under `main/`, `shared/`, `scripts/`, and `tests/`, plus
+`dev-server.js` and `kill-ports.js`. The frontend scope is JavaScript and TypeScript sources under
+`frontend/src/` and `frontend/e2e/`, plus its maintained JavaScript and TypeScript configuration
+files. This includes TypeScript declarations. Formatting never reorders executable imports,
+`package.json` keys, or Tailwind classes.
+
+```sh
+npm run format                 # Write formatting across both scopes
+npm run format:check           # Report formatting drift without writing
+npm run format:backend         # Backend scope only
+npm run format:check:backend   # Backend scope, check only
+cd frontend && npm run format  # Frontend scope only
+```
+
+These npm commands operate on their complete configured scopes; they do not limit formatting to files
+changed by the current task. Generated and derived files stay outside both scopes: the derived
+print-label table, the translation catalogues, committed test fixtures and goldens, lockfiles, build
+output, coverage, and test results. To format only selected files, run
+`npx oxfmt --write -- path/to/file.ts` from the repository root, or
+`cd frontend && npx oxfmt --write -- src/path/to/file.tsx` for frontend files. Pass only paths owned
+by that package and quote paths containing spaces.
+
+`npm run format:check` reports the files that still need formatting. Existing sources carry a
+formatting backlog, so that command fails until they are formatted, and it is not a CI gate. CI
+checks formatting for the files a change touches: `npm run format:check:changed -- --base
+origin/main` (CI supplies its own comparison base) fails when a touched file is unformatted, and it
+checks each touched file as a whole. Untouched legacy files stay out of scope. Lint stays the
+enforced gate: `npm run lint` reports problems and never rewrites sources.
+
+### Editor and pre-commit hook
+
+`npm install` can install a Husky pre-commit hook that runs lint-staged. It formats staged files in
+each package's formatting scope and lints files in that package's lint scope; root lint is limited
+to `main/` and `shared/`, so root scripts, tests and tooling are format-only. The hook stages the
+formatted result. Partially staged files keep their unstaged edits untouched. Hooks are a local
+convenience rather than a gate: `git commit --no-verify` bypasses them, and CI re-runs the same
+scopes for every pull request.
+
+Hook installation is skipped when it does not apply: `HUSKY=0`, `CI`, `NODE_ENV=production`, a source
+archive without a `.git` directory, a frontend-only install, or a checkout where another tool
+already sets `core.hooksPath` (that setting is never replaced), or a default Git hooks directory
+that already contains a non-sample regular file (existing hooks are preserved). When the Oxc hook
+is not installed, use the manual formatter and lint commands above; CI remains the enforced gate.
+Use `HUSKY=0 npm install` inside linked worktrees, which share Git configuration with the main
+checkout.
+
 > **Port configuration:** FloCafe uses ports `3001` (Main API), `3002` (KDS), and `3003` (Server App). If these ports are in use (e.g. by Docker), FloCafe automatically falls back to subsequent available ports. You can also customize them via `PORT`, `KDS_PORT`, and `SERVER_APP_PORT` in `.env`.
 
 ---
@@ -112,7 +161,6 @@ Use clear commit messages following Conventional Commits (`feat:`, `fix:`, `docs
 
 - **Backend (`main/`):** TypeScript with strict types, Express route handlers in `main/routes/`, SQLite access via `better-sqlite3`.
 - **Frontend (`frontend/src/`):** Next.js 16, React 19, Tailwind CSS, shadcn/ui components, and Zustand for shared client state.
-- **Formatting:** Two spaces, single quotes, ESLint compliance (`npm run lint`).
 
 ---
 
@@ -130,6 +178,7 @@ AI coding assistants and tools are welcome. FloCafe itself utilizes AI-assisted 
 
 Before opening a pull request, run checks appropriate to the affected subsystem:
 
+- **Formatting:** Run `npm run format:check:changed -- --base origin/main` for touched files. To fix selected files, use the per-file Oxfmt commands in [Formatting](#formatting); the npm `format` commands write their full scopes.
 - **Frontend changes:** Run `npm run lint` and `npm run build:frontend`.
 - **Translation / i18n changes:** Run `npm run i18n:check`.
 - **Backend changes:** Run `npm run lint`, `npm run build`, and relevant focused test suites (e.g., `npm run test:printer`, `npm run test:tax-engine`).
@@ -173,7 +222,7 @@ FloCafe uses a generic calculation engine paired with data-only country tax pack
 
 - **Authoritative sources:** Tax rules must be backed by authoritative references (official tax authorities, enacted legislation, or official administrative guidelines). Blog posts or AI summaries are not sufficient primary sources.
 - **Jurisdictional scope:** Clearly identify the geographic and legal scope of the pack (country-wide VAT, state/province sales taxes, intra/inter-state rules).
-- **Process:** Open a proposal issue before authoring a pack, provide test vectors covering representative transactions, and verify against `main/tax-packs/types.ts`.
+- **Process:** Open a proposal issue before authoring a pack. Follow the [tax pack authoring procedure](docs/guides/adding-a-tax-pack.md) for executable calculation fixtures and verification against `main/tax-packs/types.ts`.
 - **Disclaimer:** FloCafe is software, not certified legal or tax advice. Tax packs do not by themselves guarantee compliance with local regulations.
 
 For the pack schema, trust model, and catalog mechanics, see the [tax pack reference](docs/reference/tax-packs.md). For the authoring procedure, see [Adding a tax pack](docs/guides/adding-a-tax-pack.md).

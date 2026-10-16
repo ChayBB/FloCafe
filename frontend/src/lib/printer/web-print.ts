@@ -1,6 +1,7 @@
 /** Thermal-width bill printing using browser print dialog for merchants without hardware printers. */
 
 import type { Bill, Tenant } from '@/lib/types';
+import { receiptChargeLines } from '@/lib/charges';
 import toast from 'react-hot-toast';
 import type { PrintWarning } from './warnings';
 import {
@@ -42,7 +43,13 @@ export type PaperSize = 'thermal58' | 'thermal80';
 /** The slice of a tenant a browser receipt needs to render locale-correctly. */
 export type ReceiptTenant = Pick<
   Tenant,
-  'business_name' | 'currency' | 'country' | 'timezone' | 'currency_display' | 'number_digits' | 'calendar'
+  | 'business_name'
+  | 'currency'
+  | 'country'
+  | 'timezone'
+  | 'currency_display'
+  | 'number_digits'
+  | 'calendar'
 >;
 
 /** Encodes HTML entity characters so database-sourced values can't inject markup/scripts into the bill print window. */
@@ -75,6 +82,9 @@ export interface WebPrintOptions {
   footerNote?: string;
   businessName?: string;
   showBusinessName?: boolean;
+  showLogo?: boolean;
+  receiptLogo?: string;
+  receiptLogoRaster?: string;
   showTaxBreakdown?: boolean;
   showCustomerName?: boolean;
   showCustomerPhone?: boolean;
@@ -113,14 +123,17 @@ export async function printWebBill(
   bill: Bill,
   tenant: ReceiptTenant,
   opts: WebPrintOptions = {},
-  reservedWindow?: Window | null
+  reservedWindow?: Window | null,
 ): Promise<PrintWarning[]> {
   const languages = resolvePrintLanguages(opts);
 
   // 1. Open popup window synchronously to maintain transient user activation
-  const printWindow = reservedWindow === undefined
-    ? (typeof window !== 'undefined' ? window.open('', '_blank', 'width=800,height=600') : null)
-    : reservedWindow;
+  const printWindow =
+    reservedWindow === undefined
+      ? typeof window !== 'undefined'
+        ? window.open('', '_blank', 'width=800,height=600')
+        : null
+      : reservedWindow;
   if (!printWindow) {
     toast.error('Please allow popups to print bills');
     throw new Error('Popup window was blocked by browser');
@@ -223,7 +236,7 @@ export async function printWebBill(
 export function generateBillHtml(
   bill: Bill,
   tenant: ReceiptTenant,
-  opts: WebPrintOptions = {}
+  opts: WebPrintOptions = {},
 ): string {
   const {
     paperSize = 'thermal58',
@@ -234,6 +247,9 @@ export function generateBillHtml(
     footerNote,
     businessName,
     showBusinessName = true,
+    showLogo = false,
+    receiptLogo,
+    receiptLogoRaster,
     showTaxBreakdown = true,
     showCustomerName = true,
     showCustomerPhone = true,
@@ -256,6 +272,9 @@ export function generateBillHtml(
     includeTaxId: includeTaxId && !!taxRegistrationNumber,
     taxIdLabel: resolveTaxIdLabel(tenant.country, lang),
     showBusinessName,
+    showLogo,
+    receiptLogo,
+    receiptLogoRaster,
     showTaxBreakdown,
     showCustomerName,
     showCustomerPhone,
@@ -289,9 +308,19 @@ export function generateBillHtml(
     deliveryAddress: documentLabel(customer?.addressLabel, 'print.deliverySlip.address', lang),
     rate: itemsBlock?.header.rate.primary ?? printLabelResolver('receipt.rate', lang),
     totalTax: surfaceLabel(totals?.tax?.label, 'pos.tax', 'receipt.totalTax', lang),
-    deliveryCharge: surfaceLabel(totals?.deliveryCharge?.label, 'pos.delivery', 'receipt.deliveryCharge', lang),
+    deliveryCharge: surfaceLabel(
+      totals?.deliveryCharge?.label,
+      'pos.delivery',
+      'receipt.deliveryCharge',
+      lang,
+    ),
     packagingCharge: documentLabel(totals?.packagingCharge?.label, 'pos.packaging', lang),
-    grandTotal: surfaceLabel(totals?.grandTotal?.label, 'print.grandTotal', 'receipt.grandTotal', lang),
+    grandTotal: surfaceLabel(
+      totals?.grandTotal?.label,
+      'print.grandTotal',
+      'receipt.grandTotal',
+      lang,
+    ),
     taxDetails: breakdown?.heading.primary ?? printLabelResolver('receipt.taxDetails', lang),
     paymentsHeader: payments?.heading.primary ?? printLabelResolver('receipt.payments', lang),
     thankYou: surfaceLabel(messages?.thankYou, 'print.thankYouShort', 'receipt.thankYou', lang),
@@ -303,15 +332,13 @@ export function generateBillHtml(
   const styles = getPaperStyles(paperSize);
 
   const items = itemsBlock?.rows ?? [];
+  const itemisedCharges = receiptChargeLines(totals?.chargesBreakdown);
+  const itemisedChargeIds = new Set(itemisedCharges.map((charge) => charge.id));
   const fmtAmount = (value: number) => formatAmount(value, tenant, trimDecimals);
-  const fmtQuantity = (value: number) => formatNumberForTenant(
-    Number(value) || 0,
-    tenant.country,
-    { digits: tenant.number_digits },
-  );
+  const fmtQuantity = (value: number) =>
+    formatNumberForTenant(Number(value) || 0, tenant.country, { digits: tenant.number_digits });
 
-  const hasTax = (totals?.tax != null)
-    || (breakdown != null && breakdown.lines.length > 0);
+  const hasTax = totals?.tax != null || (breakdown != null && breakdown.lines.length > 0);
 
   return `<!DOCTYPE html>
 <html lang="${localeTag}" dir="${dir}">
@@ -332,6 +359,7 @@ export function generateBillHtml(
     ${messages?.onlineOrderBanner ? `<div class="online-order-banner">${escapeHtml(messages.onlineOrderBanner.label.primary)}${messages.onlineOrderBanner.platform.text ? `<div class="online-order-detail">${escapeHtml(messages.onlineOrderBanner.platform.text)}</div>` : ''}${messages.onlineOrderBanner.externalOrderId.text ? `<div class="online-order-detail">#${escapeHtml(messages.onlineOrderBanner.externalOrderId.text)}</div>` : ''}</div>` : ''}
     <!-- Header -->
     <div class="header">
+      ${header?.logo && header.logo.startsWith('data:image/') ? `<div class="logo-container"><img class="receipt-logo" src="${escapeHtml(header.logo)}" alt="Logo" /></div>` : ''}
       ${header?.name ? `<h1>${escapeHtml(header.name.text)}</h1>` : ''}
       ${header?.address ? `<p>${escapeHtml(header.address.text).replace(/\n/g, '<br>')}</p>` : ''}
       ${header?.phone && header.phoneLabel ? `<p>${escapeHtml(header.phoneLabel.primary)}: ${directionalValue(header.phone, base)}</p>` : ''}
@@ -364,64 +392,93 @@ export function generateBillHtml(
         </tr>
       </thead>
       <tbody>
-        ${items.map(row => `
+        ${items
+          .map(
+            (row) => `
           <tr>
             <td>
               ${escapeHtml(row.name.text)}
-              ${row.addons.length > 0 ? `<br><small class="text-muted">${row.addons.map(a => `+ ${escapeHtml(a.name.text)}${(a.quantity ?? 1) > 1 ? ` ×${escapeHtml(a.quantity)}` : ''}${a.price > 0 ? ` (${fmtAmount(a.price)})` : ''}`).join(', ')}</small>` : ''}
+              ${row.addons.length > 0 ? `<br><small class="text-muted">${row.addons.map((a) => `+ ${escapeHtml(a.name.text)}${(a.quantity ?? 1) > 1 ? ` ×${escapeHtml(a.quantity)}` : ''}${a.price > 0 ? ` (${fmtAmount(a.price)})` : ''}`).join(', ')}</small>` : ''}
               ${row.specialInstructions ? `<br><small class="text-italic">${escapeHtml(row.specialInstructions.text)}</small>` : ''}
             </td>
             <td class="text-end num">${fmtQuantity(row.quantity)}</td>
             <td class="text-end num">${fmtAmount(row.unitPrice ?? 0)}</td>
             <td class="text-end num">${fmtAmount(row.amount)}</td>
           </tr>
-        `).join('')}
+        `,
+          )
+          .join('')}
       </tbody>
     </table>
 
     <!-- Tax Breakdown -->
-    ${breakdown && breakdown.lines.length > 0 ? `
+    ${
+      breakdown && breakdown.lines.length > 0
+        ? `
     <table class="tax-table">
       <thead>
         <tr><th colspan="2">${escapeHtml(L.taxDetails)}</th></tr>
       </thead>
       <tbody>
-        ${breakdown.lines.map((line) => `
+        ${breakdown.lines
+          .map(
+            (line) => `
           <tr><td>${escapeHtml(line.rate === null ? line.label.primary : `${line.label.primary} @${line.rate}%`)}</td><td class="text-end num">${fmtAmount(line.amount)}</td></tr>
-        `).join('')}
+        `,
+          )
+          .join('')}
       </tbody>
     </table>
-    ` : ''}
+    `
+        : ''
+    }
 
     <!-- Totals -->
     <table class="totals-table">
-      ${totals ? `
+      ${
+        totals
+          ? `
       ${totals.pointsRedeemed ? `<tr><td>${escapeHtml(totals.pointsRedeemed.label.primary)}</td><td class="text-end num">-${escapeHtml(totals.pointsRedeemed.points)} pts</td></tr>` : ''}
       <tr><td>${escapeHtml(totals.subtotal.label.primary)}</td><td class="text-end num">${fmtAmount(totals.subtotal.amount)}</td></tr>
       ${totals.discount ? `<tr><td>${escapeHtml(totals.discount.label.primary)}</td><td class="text-end num">-${fmtAmount(totals.discount.amount)}</td></tr>` : ''}
       ${totals.tax ? `<tr><td>${escapeHtml(L.totalTax)}</td><td class="text-end num">${fmtAmount(totals.tax.amount)}</td></tr>` : ''}
-      ${totals.serviceCharge ? `<tr><td>${escapeHtml(totals.serviceCharge.label.primary)}</td><td class="text-end num">${fmtAmount(totals.serviceCharge.amount)}</td></tr>` : ''}
+      ${totals.serviceCharge && !itemisedChargeIds.has('service_charge') ? `<tr><td>${escapeHtml(totals.serviceCharge.label.primary)}</td><td class="text-end num">${fmtAmount(totals.serviceCharge.amount)}</td></tr>` : ''}
       ${totals.deliveryCharge ? `<tr><td>${escapeHtml(L.deliveryCharge)}</td><td class="text-end num">${fmtAmount(totals.deliveryCharge.amount)}</td></tr>` : ''}
-      ${totals.packagingCharge ? `<tr><td>${escapeHtml(L.packagingCharge)}</td><td class="text-end num">${fmtAmount(totals.packagingCharge.amount)}</td></tr>` : ''}
+      ${totals.packagingCharge && !itemisedChargeIds.has('packaging_charge') ? `<tr><td>${escapeHtml(L.packagingCharge)}</td><td class="text-end num">${fmtAmount(totals.packagingCharge.amount)}</td></tr>` : ''}
+      ${itemisedCharges.map((charge) => `<tr><td>${escapeHtml(charge.name)}</td><td class="text-end num">${fmtAmount(charge.amount)}</td></tr>`).join('')}
       <tr class="total-row"><td><strong>${escapeHtml(L.grandTotal)}</strong></td><td class="text-end num"><strong>${fmtAmount(totals.grandTotal.amount)}</strong></td></tr>
       ${totals.pointsEarned ? `<tr><td>${escapeHtml(totals.pointsEarned.label.primary)}</td><td class="text-end num">${escapeHtml(totals.pointsEarned.points)} pts</td></tr>` : ''}
       ${totals.pointsBalance ? `<tr><td>${escapeHtml(totals.pointsBalance.label.primary)}</td><td class="text-end num">${escapeHtml(totals.pointsBalance.points)} pts</td></tr>` : ''}
-      ` : ''}
+      `
+          : ''
+      }
     </table>
 
     <!-- Payments -->
-    ${payments && payments.lines.length > 0 ? `
+    ${
+      payments && payments.lines.length > 0
+        ? `
     <table class="payments-table">
       <thead>
         <tr><th colspan="2">${escapeHtml(L.paymentsHeader)}</th></tr>
       </thead>
       <tbody>
-        ${payments.lines.map((line) => paymentDisplayRows(line).map((row) => `
+        ${payments.lines
+          .map((line) =>
+            paymentDisplayRows(line)
+              .map(
+                (row) => `
           <tr><td>${escapeHtml(paymentLineLabel(row.label))}</td><td class="text-end num">${fmtAmount(row.amount)}</td></tr>
-        `).join('')).join('')}
+        `,
+              )
+              .join(''),
+          )
+          .join('')}
       </tbody>
     </table>
-    ` : ''}
+    `
+        : ''
+    }
 
     <!-- Footer -->
     <div class="footer">
@@ -441,7 +498,9 @@ export function generateBillHtml(
 
 // Helpers
 /** Resolve the receipt language list through the shared policy bridge. */
-function resolvePrintLanguages(opts: Pick<WebPrintOptions, 'language' | 'languages'>): ResolvedPrintLanguages {
+function resolvePrintLanguages(
+  opts: Pick<WebPrintOptions, 'language' | 'languages'>,
+): ResolvedPrintLanguages {
   return opts.languages ?? resolveBillPrintLanguages(opts.language);
 }
 
@@ -469,7 +528,10 @@ function surfaceLabel(
 
 /** Remove the semantic table label's interpolation token for a separate value cell. */
 function stripLabelPlaceholder(label: string): string {
-  return label.replace('{name}', '').replace(/[:：]\s*$/, '').trim();
+  return label
+    .replace('{name}', '')
+    .replace(/[:：]\s*$/, '')
+    .trim();
 }
 
 /** Unknown payment methods keep their legacy capitalized literal rendering. */
@@ -489,6 +551,7 @@ function getPaperStyles(size: PaperSize): string {
     .online-order-banner { text-align: center; font-size: 18px; font-weight: bold; letter-spacing: 1px; border: 2px solid #333; padding: 6px; margin-bottom: 15px; }
     .online-order-banner .online-order-detail { font-size: 13px; font-weight: normal; letter-spacing: normal; margin-top: 2px; }
     .header { text-align: center; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid #ccc; }
+    .receipt-logo { max-width: 80%; max-height: 120px; object-fit: contain; margin: 0 auto 8px auto; display: block; }
     .header h1 { font-size: 24px; margin-bottom: 5px; }
     .bill-details { margin-bottom: 15px; }
     .bill-details table { width: 100%; }
@@ -512,16 +575,22 @@ function getPaperStyles(size: PaperSize): string {
 
   switch (size) {
     case 'thermal58':
-      return baseStyles + `
+      return (
+        baseStyles +
+        `
         .bill-container { padding: 5px; max-width: 58mm; font-size: 10px; }
         .header h1 { font-size: 14px; }
         .items-table th, .items-table td, .tax-table td, .totals-table td, .payments-table td { padding: 2px 4px; }
-      `;
+      `
+      );
     case 'thermal80':
-      return baseStyles + `
+      return (
+        baseStyles +
+        `
         .bill-container { padding: 10px; max-width: 80mm; font-size: 11px; }
         .header h1 { font-size: 16px; }
-      `;
+      `
+      );
     default:
       return baseStyles;
   }

@@ -1,5 +1,5 @@
 /**
- * Migration v107 coverage: the fork-numbering repair.
+ * Migration v122 coverage: the first fork-numbering repair.
  *
  * This fork once numbered its own eight migrations v87-v94 — the same numbers
  * upstream had used for entirely different schema changes. A till that upgraded
@@ -9,7 +9,7 @@
  * again on that machine: no supplies, no recipes, no cash sessions, no
  * configurable permissions, no delivery address, for the life of the install.
  *
- * The eight have since moved to v99-v106. v107 replays upstream's v87-v94 for
+ * The eight have since moved to v114-v121. v122 replays upstream's v87-v94 for
  * exactly the stores that skipped them, and leaves every other store alone.
  *
  * The affected state is reproduced here by dropping what upstream's v87-v94
@@ -24,14 +24,21 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-let activeTestDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-migration-v107-a-'));
+let activeTestDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-migration-v122-a-'));
 
 Module._load = function (request: string, parent: unknown, isMain: boolean) {
-  if (request === 'electron') return { app: { isPackaged: true, getPath: () => activeTestDir, getVersion: () => 'test' } };
+  if (request === 'electron')
+    return { app: { isPackaged: true, getPath: () => activeTestDir, getVersion: () => 'test' } };
   return originalLoad.apply(this, arguments as any);
 };
 
-const { initDatabase, getDatabase, getCurrentSchemaVersion, MIGRATIONS, closeDatabase } = require('../main/db');
+const {
+  initDatabase,
+  getDatabase,
+  getCurrentSchemaVersion,
+  MIGRATIONS,
+  closeDatabase,
+} = require('../main/db');
 
 let passed = 0;
 let failed = 0;
@@ -61,16 +68,19 @@ const UPSTREAM_TABLES = [
   'cash_sessions',
 ];
 
-/** Tables this branch's own migrations create, now at v99-v106. */
+/** Tables this branch's own migrations create, now at v114-v121. */
 const FORK_TABLES = ['table_users', 'staff_work_logs'];
 
 function hasTable(db: any, name: string): boolean {
-  return Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name));
+  return Boolean(
+    db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name),
+  );
 }
 
 function hasColumn(db: any, table: string, column: string): boolean {
-  return (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[])
-    .some((row) => row.name === column);
+  return (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some(
+    (row) => row.name === column,
+  );
 }
 
 function runPendingMigrations(): void {
@@ -91,7 +101,10 @@ function main(): void {
     console.log('\n1. a store that upgraded through the fork gets the skipped migrations back');
     initDatabase();
     let db = getDatabase();
-    assert(getCurrentSchemaVersion() === TAIL(), 'sanity: a fresh install reaches the registry tail');
+    assert(
+      getCurrentSchemaVersion() === TAIL(),
+      'sanity: a fresh install reaches the registry tail',
+    );
 
     db.pragma('foreign_keys = OFF');
     for (const table of UPSTREAM_TABLES) db.exec(`DROP TABLE IF EXISTS ${table}`);
@@ -100,7 +113,10 @@ function main(): void {
 
     assert(getCurrentSchemaVersion() === 94, 'the store now looks like the fork left it, at v94');
     for (const table of UPSTREAM_TABLES) {
-      assert(!hasTable(db, table), `${table} is absent, as on a store that skipped upstream v87-v94`);
+      assert(
+        !hasTable(db, table),
+        `${table} is absent, as on a store that skipped upstream v87-v94`,
+      );
     }
     for (const table of FORK_TABLES) {
       assert(hasTable(db, table), `${table} is present — the fork's own migration had run`);
@@ -111,18 +127,17 @@ function main(): void {
 
     assert(getCurrentSchemaVersion() === TAIL(), 'the store ends at the registry tail again');
     for (const table of UPSTREAM_TABLES) {
-      assert(hasTable(db, table), `${table} exists after the v107 repair`);
+      assert(hasTable(db, table), `${table} exists after the v122 repair`);
     }
     for (const table of FORK_TABLES) {
       assert(hasTable(db, table), `${table} survived the repair`);
     }
-    assert(hasColumn(db, 'users', 'username'),
-      "the fork's own username column is untouched");
+    assert(hasColumn(db, 'users', 'username'), "the fork's own username column is untouched");
 
     closeDatabase();
 
     console.log('\n2. a store that never skipped anything is left alone');
-    activeTestDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-migration-v107-b-'));
+    activeTestDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-migration-v122-b-'));
     initDatabase();
     db = getDatabase();
 
@@ -134,8 +149,12 @@ function main(): void {
     // repair must decline to do anything — including on a second call, since a
     // store that already has upstream's tables must never have their bodies
     // replayed over live data.
-    const repair = MIGRATIONS.find((m: any) => m.version === 107);
-    assert(Boolean(repair), 'v107 is in the registry');
+    const repair = MIGRATIONS.find((m: any) => m.version === 122);
+    assert(Boolean(repair), 'v122 is in the registry');
+    assert(
+      repair?.name === 'repair_upstream_v87_to_v94_skipped_by_fork_numbering',
+      'v122 is the repair, not an unrelated migration that drifted into the slot',
+    );
     const suppliesBefore = db.prepare('SELECT COUNT(*) AS c FROM supplies').get() as { c: number };
     let threw = false;
     try {
@@ -144,13 +163,17 @@ function main(): void {
       threw = true;
       console.error('   ', (error as Error).message);
     }
-    assert(!threw, 'running v107 on an already-complete store throws nothing');
+    assert(!threw, 'running v122 on an already-complete store throws nothing');
     const suppliesAfter = db.prepare('SELECT COUNT(*) AS c FROM supplies').get() as { c: number };
     assert(suppliesBefore.c === suppliesAfter.c, 'and changes nothing');
 
     closeDatabase();
   } finally {
-    try { closeDatabase(); } catch { /* already closed */ }
+    try {
+      closeDatabase();
+    } catch {
+      /* already closed */
+    }
   }
 
   console.log(`\nResults: ${passed} passed, ${failed} failed`);

@@ -12,7 +12,8 @@ import { printerService } from '@/lib/printer/PrinterService';
 import { displayAmountToCents } from '@/lib/money';
 
 /** Open cash session row plus the live expected figure, from
- *  GET /api/cash-sessions/current. Money fields are integer cents. */
+ *  GET /api/cash-sessions/current. The endpoint answers 200 with `null` when
+ *  no shift is open. Money fields are integer cents. */
 export interface CashSession {
   id: number;
   opened_by: string;
@@ -69,14 +70,13 @@ export function useCashSession() {
   const fetchState = async (): Promise<{ data: CashSession | null; error: string | null }> => {
     try {
       const res = await api.get('/cash-sessions/current');
-      return { data: res.data as CashSession, error: null };
+      return { data: (res.data ?? null) as CashSession | null, error: null };
     } catch (err: unknown) {
-      if (axios.isAxiosError(err) && err.response?.status === 404) {
-        return { data: null, error: null };
-      }
       return {
         data: null,
-        error: axios.isAxiosError(err) ? err.response?.data?.error || err.message : 'Failed to load shift',
+        error: axios.isAxiosError(err)
+          ? err.response?.data?.error || err.message
+          : 'Failed to load shift',
       };
     }
   };
@@ -132,9 +132,12 @@ export function useCashSession() {
       setFloatInput('');
       setOpenModalOpen(false);
       toast.success(t('shiftOpened'));
+      if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('flo-shift-changed'));
       await refresh();
     } catch (err: unknown) {
-      setSubmitError(axios.isAxiosError(err) ? err.response?.data?.error || err.message : 'Open failed');
+      setSubmitError(
+        axios.isAxiosError(err) ? err.response?.data?.error || err.message : 'Open failed',
+      );
     } finally {
       setSubmitting(false);
     }
@@ -152,13 +155,18 @@ export function useCashSession() {
     setSubmitting(true);
     setSubmitError(null);
     try {
-      const res = await api.post(`/cash-sessions/${session.id}/close`, { counted_cash_cents: countedCents });
+      const res = await api.post(`/cash-sessions/${session.id}/close`, {
+        counted_cash_cents: countedCents,
+      });
       setClosedResult(res.data);
       setCountedInput('');
       toast.success(t('shiftClosed'));
+      if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('flo-shift-changed'));
       await refresh();
     } catch (err: unknown) {
-      setSubmitError(axios.isAxiosError(err) ? err.response?.data?.error || err.message : 'Close failed');
+      setSubmitError(
+        axios.isAxiosError(err) ? err.response?.data?.error || err.message : 'Close failed',
+      );
     } finally {
       setSubmitting(false);
     }
@@ -185,7 +193,9 @@ export function useCashSession() {
     } catch (err: unknown) {
       const msg = axios.isAxiosError(err)
         ? err.response?.data?.error || err.response?.data?.detail || err.message
-        : (err instanceof Error ? err.message : 'Print failed');
+        : err instanceof Error
+          ? err.message
+          : 'Print failed';
       toast.error(msg);
       return false;
     } finally {
@@ -195,17 +205,40 @@ export function useCashSession() {
 
   const countedCentsOrNull = displayToCents(countedInput);
   const shiftLoadFailedMessage = t('shiftLoadFailed');
-  const variancePreviewCents = session && countedCentsOrNull !== null
-    ? countedCentsOrNull - session.expected_cash_cents
-    : null;
+  const variancePreviewCents =
+    session && countedCentsOrNull !== null
+      ? countedCentsOrNull - session.expected_cash_cents
+      : null;
 
   return {
-    session, loading, error, refresh,
-    openModalOpen, setOpenModalOpen, closeModalOpen, setCloseModalOpen,
-    floatInput, setFloatInput, countedInput, setCountedInput,
-    submitting, submitError, setSubmitError, closedResult, setClosedResult,
-    printing, variancePreviewCents, minorFactor, fmt, unitAdapter,
-    t, tCommon, openShift, closeShift, printClosure, shiftLoadFailedMessage,
+    session,
+    loading,
+    error,
+    refresh,
+    openModalOpen,
+    setOpenModalOpen,
+    closeModalOpen,
+    setCloseModalOpen,
+    floatInput,
+    setFloatInput,
+    countedInput,
+    setCountedInput,
+    submitting,
+    submitError,
+    setSubmitError,
+    closedResult,
+    setClosedResult,
+    printing,
+    variancePreviewCents,
+    minorFactor,
+    fmt,
+    unitAdapter,
+    t,
+    tCommon,
+    openShift,
+    closeShift,
+    printClosure,
+    shiftLoadFailedMessage,
   };
 }
 

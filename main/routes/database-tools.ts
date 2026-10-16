@@ -69,7 +69,13 @@ router.get('/master-pin/status', requirePermission('database.manage'), (_req: Re
   res.json({ available: isMasterPinAvailable(), isSet: isMasterPinSet(), schemaVersion: getCurrentSchemaVersion() });
 });
 
-router.post('/master-pin/reset', requirePermission('database.manage'), (req: Request, res: Response) => {
+router.post('/master-pin/reset', requirePermission('database.manage'), (req: Request, res: Response, next) => {
+  if (isMasterPinSet()) {
+    requireMasterPin(req, res, next);
+    return;
+  }
+  next();
+}, (req: Request, res: Response) => {
   const { pin, confirm_pin } = req.body as { pin?: string; confirm_pin?: string };
   const cleanPin = String(pin || '').trim();
   if (!/^\d{4}$/.test(cleanPin)) {
@@ -123,8 +129,10 @@ router.post('/currency-reset', requirePermission('database.manage'), requireMast
     return res.status(400).json({ error: `Type "${confirmationPhrase}" to confirm` });
   }
 
+  let restorePrepared = false;
   try {
     await googleDrive.prepareForDatabaseRestore();
+    restorePrepared = true;
     const result = await resetDatabaseForCurrencyChange(currency, impact.currentCurrency, getHttpRequestSignal(req));
     const cleanup = googleDrive.completeDatabaseRestore();
     clearUserAuthCache();
@@ -143,7 +151,7 @@ router.post('/currency-reset', requirePermission('database.manage'), requireMast
     console.error('[DB Tools] currency reset error:', error);
     res.status(500).json({ error: 'Currency reset failed' });
   } finally {
-    googleDrive.releaseDatabaseRestore();
+    if (restorePrepared) googleDrive.releaseDatabaseRestore();
   }
 }));
 
@@ -151,8 +159,12 @@ router.post('/initialize', requirePermission('database.manage'), requireMasterPi
   if (req.body?.confirmation_phrase !== INITIALIZE_CONFIRM_PHRASE) {
     return res.status(400).json({ error: `Type "${INITIALIZE_CONFIRM_PHRASE}" to confirm` });
   }
+  let restorePrepared = false;
   try {
-    await googleDrive.prepareForDatabaseRestore();
+    // The owner's typed INITIALIZE may discard a Drive restore boundary that can
+    // never resolve on its own; the reset invalidates Drive state either way.
+    await googleDrive.prepareForDatabaseRestore({ discardUnresolvedBoundary: true });
+    restorePrepared = true;
     const { backupPath } = await resetDatabaseWithBackup(getHttpRequestSignal(req));
     const cleanup = googleDrive.completeDatabaseRestore();
     clearUserAuthCache();
@@ -163,7 +175,7 @@ router.post('/initialize', requirePermission('database.manage'), requireMasterPi
     console.error('[DB Tools] initialize error:', error);
     res.status(500).json({ error: 'Initialize failed' });
   } finally {
-    googleDrive.releaseDatabaseRestore();
+    if (restorePrepared) googleDrive.releaseDatabaseRestore();
   }
 }));
 

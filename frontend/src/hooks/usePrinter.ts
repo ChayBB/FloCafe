@@ -3,7 +3,12 @@
 import { useEffect } from 'react';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { printerService, type PrinterStatus, type PrinterInfo, type PrintMode } from '@/lib/printer/PrinterService';
+import {
+  printerService,
+  type PrinterStatus,
+  type PrinterInfo,
+  type PrintMode,
+} from '@/lib/printer/PrinterService';
 import {
   buildClassicReceiptBytes,
   buildCompactReceiptBytes,
@@ -19,7 +24,12 @@ import {
 } from '@/lib/printer/print-document';
 import { buildTaxBillBytes, type TaxBillOptions } from '@/lib/printer/tax-bill-encoder';
 import { buildKotBytes, type KotOptions } from '@/lib/printer/kot-encoder';
-import { buildDeliverySlipBytes, type DeliverySlipContact, type DeliverySlipPayment, type DeliverySlipWebUsbOptions } from '@/lib/printer/delivery-slip-encoder';
+import {
+  buildDeliverySlipBytes,
+  type DeliverySlipContact,
+  type DeliverySlipPayment,
+  type DeliverySlipWebUsbOptions,
+} from '@/lib/printer/delivery-slip-encoder';
 import {
   hasFinancialPrintWarning,
   makeBillTemplateFallbackWarning,
@@ -37,16 +47,21 @@ import { getCountryByCode, getCurrencySymbol, resolveTenantCurrency } from '@/li
 
 type CoreBillTemplate = 'classic' | 'compact';
 
-function nativeFallbackCapabilities(capabilities?: ThermalPrinterCapabilities): ThermalPrinterCapabilities | undefined {
+function nativeFallbackCapabilities(
+  capabilities?: ThermalPrinterCapabilities,
+): ThermalPrinterCapabilities | undefined {
   return capabilities?.raster.enabled === true
     ? { ...capabilities, raster: { ...capabilities.raster, enabled: false } }
     : capabilities;
 }
 
 function makeRasterFallbackWarning(detail: unknown): PrintWarning {
-  const message = detail instanceof Error
-    ? detail.message
-    : (typeof detail === 'string' && detail.length > 0 ? detail : 'Raster rendering failed');
+  const message =
+    detail instanceof Error
+      ? detail.message
+      : typeof detail === 'string' && detail.length > 0
+        ? detail
+        : 'Raster rendering failed';
   const financial = message.startsWith('Receipt not printed:');
   return {
     field: financial ? 'financial row' : 'raster renderer',
@@ -56,7 +71,10 @@ function makeRasterFallbackWarning(detail: unknown): PrintWarning {
   };
 }
 
-function resolveCoreBillTemplate(value: unknown, source: 'core' | 'pack' | 'merchant' | null): CoreBillTemplate | null {
+function resolveCoreBillTemplate(
+  value: unknown,
+  source: 'core' | 'pack' | 'merchant' | null,
+): CoreBillTemplate | null {
   if (source !== 'core') return null;
   if (value === 'classic' || value === 'compact') return value;
   if (typeof value !== 'string') return null;
@@ -80,7 +98,13 @@ type PaperWidth = 58 | 80;
 /** Tenant fields a browser/thermal receipt needs for locale-correct rendering. */
 type ReceiptTenant = Pick<
   Tenant,
-  'business_name' | 'currency' | 'country' | 'timezone' | 'currency_display' | 'number_digits' | 'calendar'
+  | 'business_name'
+  | 'currency'
+  | 'country'
+  | 'timezone'
+  | 'currency_display'
+  | 'number_digits'
+  | 'calendar'
 >;
 
 export interface HardwarePrinter {
@@ -91,6 +115,7 @@ export interface HardwarePrinter {
   port?: number | null;
   paper_width?: string | null;
   is_default: number;
+  readiness_state?: 'configured';
   profile_id?: string;
   capabilities?: ThermalPrinterCapabilities;
 }
@@ -105,13 +130,27 @@ interface PrinterState {
   printMethod: PrintMode;
   hardwarePrinter: HardwarePrinter | null;
   webusbPrinter: HardwarePrinter | null;
+  defaultPrinter: HardwarePrinter | null;
   refreshHardwarePrinter: () => Promise<void>;
   connect: () => Promise<void>;
   disconnect: () => Promise<void>;
-  printBill: (bill: Bill, tenant: ReceiptTenant, opts?: ReceiptOptions, reservedWindow?: Window | null) => Promise<PrintWarning[]>;
-  printTaxBill: (bill: Bill, tenant: ReceiptTenant, opts?: TaxBillOptions) => Promise<PrintWarning[]>;
+  printBill: (
+    bill: Bill,
+    tenant: ReceiptTenant,
+    opts?: ReceiptOptions,
+    reservedWindow?: Window | null,
+  ) => Promise<PrintWarning[]>;
+  printTaxBill: (
+    bill: Bill,
+    tenant: ReceiptTenant,
+    opts?: TaxBillOptions,
+  ) => Promise<PrintWarning[]>;
   printKot: (order: Order, opts?: KotOptions & { items?: OrderItem[] }) => Promise<PrintWarning[]>;
-  printDeliverySlip: (order: Order, contact: DeliverySlipContact, opts?: DeliverySlipWebUsbOptions) => Promise<PrintWarning[]>;
+  printDeliverySlip: (
+    order: Order,
+    contact: DeliverySlipContact,
+    opts?: DeliverySlipWebUsbOptions,
+  ) => Promise<PrintWarning[]>;
   setPrintMode: (mode: PrintModeType) => void;
   setPaperWidth: (width: PaperWidth) => void;
   setPrintMethod: (method: PrintMode) => void;
@@ -132,20 +171,28 @@ export const usePrinterStore = create<PrinterState>()(
       printMethod: 'escpos',
       hardwarePrinter: null,
       webusbPrinter: null,
+      defaultPrinter: null,
 
       refreshHardwarePrinter: async () => {
         try {
           const res = await api.get('/printers');
-          const list: HardwarePrinter[] = res.data.printers || [];
+          const list: HardwarePrinter[] = (res.data.printers || []).map(
+            (printer: HardwarePrinter) => ({ ...printer, readiness_state: 'configured' }),
+          );
           const defaultPrinter =
             list.find((p) => p.is_default === 1 && p.connection_type !== 'webusb') ||
             list.find((p) => p.connection_type !== 'webusb') ||
             null;
           const webusbPrinters = list.filter((p) => p.connection_type === 'webusb');
           const webusbPrinter = webusbPrinters.length === 1 ? webusbPrinters[0] : null;
-          set({ hardwarePrinter: defaultPrinter, webusbPrinter });
+          const configuredDefault = list.find((p) => p.is_default === 1) || null;
+          set({
+            hardwarePrinter: defaultPrinter,
+            webusbPrinter,
+            defaultPrinter: configuredDefault,
+          });
         } catch {
-          set({ hardwarePrinter: null, webusbPrinter: null });
+          set({ hardwarePrinter: null, webusbPrinter: null, defaultPrinter: null });
         }
       },
 
@@ -169,9 +216,22 @@ export const usePrinterStore = create<PrinterState>()(
           const {
             billTemplate,
             billTemplateSource,
-            billTaxRegistrationNumber, billAddress, billPhone, billFooterMessage,
-            billShowName, billShowAddress, billShowPhone, billShowTaxId,
-            billShowTaxBreakdown, billShowCustomerName, billShowCustomerPhone, billDeliveryShowCustomerPhoneAlways, billShowTableNumber,
+            billTaxRegistrationNumber,
+            billAddress,
+            billPhone,
+            billFooterMessage,
+            receiptLogo,
+            receiptLogoRaster,
+            billShowLogo,
+            billShowName,
+            billShowAddress,
+            billShowPhone,
+            billShowTaxId,
+            billShowTaxBreakdown,
+            billShowCustomerName,
+            billShowCustomerPhone,
+            billDeliveryShowCustomerPhoneAlways,
+            billShowTableNumber,
             printerPaperSize,
             printerUseUnicode,
             printerArabicShaping,
@@ -188,48 +248,79 @@ export const usePrinterStore = create<PrinterState>()(
           );
 
           const isReprint = opts?.isReprint ?? false;
-          const isUnknownCoreTemplate = billTemplateSource === null && (billTemplate === 'compact' || billTemplate === 'classic');
-          const billTemplateWarning = billTemplateSource === 'core' || isUnknownCoreTemplate
-            ? null
-            : makeBillTemplateFallbackWarning({ source: billTemplateSource ?? 'unknown', id: billTemplate });
+          const isUnknownCoreTemplate =
+            billTemplateSource === null &&
+            (billTemplate === 'compact' || billTemplate === 'classic');
+          const billTemplateWarning =
+            billTemplateSource === 'core' || isUnknownCoreTemplate
+              ? null
+              : makeBillTemplateFallbackWarning({
+                  source: billTemplateSource ?? 'unknown',
+                  id: billTemplate,
+                });
           const rasterBillTemplate = resolveCoreBillTemplate(billTemplate, billTemplateSource);
 
           const executeBrowserPrint = async (): Promise<PrintWarning[]> => {
             const { printWebBill } = await import('@/lib/printer/web-print');
             windowTransferred = true;
-            const browserWarnings = await printWebBill(bill, tenant, {
-              paperSize: printerPaperSize,
-              columns: billColumns,
-              languages: opts?.languages ?? resolveBillPrintLanguages(),
-              includeTaxId: billShowTaxId,
-              taxRegistrationNumber: billShowTaxId && billTaxRegistrationNumber ? billTaxRegistrationNumber : undefined,
-              address: billShowAddress && billAddress ? billAddress : undefined,
-              phone: billShowPhone && billPhone ? billPhone : undefined,
-              footerNote: billFooterMessage || undefined,
-              businessName: tenant.business_name,
-              showBusinessName: billShowName,
-              showTaxBreakdown: billShowTaxBreakdown,
-              showCustomerName: billShowCustomerName,
-              showCustomerPhone: billShowCustomerPhone,
-              deliveryShowCustomerPhoneAlways: billDeliveryShowCustomerPhoneAlways,
-              showTableNumber: billShowTableNumber,
-              useUnicode: printerUseUnicode,
-              isReprint,
-              trimDecimals: printerTrimDecimals,
-            }, reservedWindow);
-            return billTemplateWarning ? [...browserWarnings, billTemplateWarning] : browserWarnings;
+            const browserWarnings = await printWebBill(
+              bill,
+              tenant,
+              {
+                paperSize: printerPaperSize,
+                columns: billColumns,
+                languages: opts?.languages ?? resolveBillPrintLanguages(),
+                includeTaxId: billShowTaxId,
+                taxRegistrationNumber:
+                  billShowTaxId && billTaxRegistrationNumber
+                    ? billTaxRegistrationNumber
+                    : undefined,
+                address: billShowAddress && billAddress ? billAddress : undefined,
+                phone: billShowPhone && billPhone ? billPhone : undefined,
+                footerNote: billFooterMessage || undefined,
+                businessName: tenant.business_name,
+                showBusinessName: billShowName,
+                showLogo: billShowLogo,
+                receiptLogo: billShowLogo ? receiptLogo : undefined,
+                receiptLogoRaster: billShowLogo ? receiptLogoRaster : undefined,
+                showTaxBreakdown: billShowTaxBreakdown,
+                showCustomerName: billShowCustomerName,
+                showCustomerPhone: billShowCustomerPhone,
+                deliveryShowCustomerPhoneAlways: billDeliveryShowCustomerPhoneAlways,
+                showTableNumber: billShowTableNumber,
+                useUnicode: printerUseUnicode,
+                isReprint,
+                trimDecimals: printerTrimDecimals,
+              },
+              reservedWindow,
+            );
+            return billTemplateWarning
+              ? [...browserWarnings, billTemplateWarning]
+              : browserWarnings;
           };
 
           const hw = get().hardwarePrinter;
           if (hw && get().printMethod === 'escpos') {
             try {
-              const response = await api.post<{ warnings?: PrintWarning[] }>('/printers/print-bill', { billId: bill.id, useUnicode: printerUseUnicode, arabicShaping: printerArabicShaping, isReprint });
+              const response = await api.post<{ warnings?: PrintWarning[] }>(
+                '/printers/print-bill',
+                {
+                  billId: bill.id,
+                  useUnicode: printerUseUnicode,
+                  arabicShaping: printerArabicShaping,
+                  isReprint,
+                },
+              );
               if (reservedWindow && !reservedWindow.closed) reservedWindow.close();
               windowTransferred = true;
               return response.data.warnings || [];
             } catch (err: unknown) {
-              const e = err as { response?: { data?: { error?: string; detail?: string } }; message?: string };
-              const errorMsg = e.response?.data?.detail || e.response?.data?.error || e.message || 'Print failed';
+              const e = err as {
+                response?: { data?: { error?: string; detail?: string } };
+                message?: string;
+              };
+              const errorMsg =
+                e.response?.data?.detail || e.response?.data?.error || e.message || 'Print failed';
               if (errorMsg.includes('No default printer configured')) {
                 toast('No thermal printer configured — printing via system print', { icon: 'ℹ️' });
                 return await executeBrowserPrint();
@@ -242,7 +333,10 @@ export const usePrinterStore = create<PrinterState>()(
           // to avoid premature browser print fallbacks.
           await printerService.awaitPendingReconnect();
 
-          if (get().printMethod === 'browser' || (!hw && !printerService.isConnected && get().printMethod === 'escpos')) {
+          if (
+            get().printMethod === 'browser' ||
+            (!hw && !printerService.isConnected && get().printMethod === 'escpos')
+          ) {
             if (!hw && !printerService.isConnected && get().printMethod === 'escpos') {
               toast('No thermal printer configured — printing via system print', { icon: 'ℹ️' });
             }
@@ -267,11 +361,15 @@ export const usePrinterStore = create<PrinterState>()(
             ...opts,
             paperWidth: opts?.paperWidth ?? configuredPaperWidth,
             columns: billColumns,
-            taxRegistrationNumber: billShowTaxId && billTaxRegistrationNumber ? billTaxRegistrationNumber : undefined,
+            taxRegistrationNumber:
+              billShowTaxId && billTaxRegistrationNumber ? billTaxRegistrationNumber : undefined,
             address: billShowAddress && billAddress ? billAddress : undefined,
             phone: billShowPhone && billPhone ? billPhone : undefined,
             footerNote: billFooterMessage || undefined,
             showBusinessName: billShowName,
+            showLogo: billShowLogo,
+            receiptLogo: billShowLogo ? receiptLogo : undefined,
+            receiptLogoRaster: billShowLogo ? receiptLogoRaster : undefined,
             showTaxBreakdown: billShowTaxBreakdown,
             showCustomerName: billShowCustomerName,
             showCustomerPhone: billShowCustomerPhone,
@@ -287,8 +385,12 @@ export const usePrinterStore = create<PrinterState>()(
 
           let bytes: Uint8Array;
           const encoderWarnings: PrintWarning[] = [];
-          const nativeBillTemplate = rasterBillTemplate
-            ?? (billTemplateSource === null && (billTemplate === 'compact' || billTemplate === 'classic') ? billTemplate : 'classic');
+          const nativeBillTemplate =
+            rasterBillTemplate ??
+            (billTemplateSource === null &&
+            (billTemplate === 'compact' || billTemplate === 'classic')
+              ? billTemplate
+              : 'classic');
           if (nativeBillTemplate === 'compact') {
             bytes = buildCompactReceiptBytes(bill, tenant, builderOpts, encoderWarnings);
           } else {
@@ -298,7 +400,12 @@ export const usePrinterStore = create<PrinterState>()(
           const webusbPrinter = get().webusbPrinter;
           const webusbCapabilities = webusbPrinter?.capabilities;
           const rasterizePrintDocument = window.electronAPI?.rasterizePrintDocument;
-          if (rasterBillTemplate && webusbPrinter && rasterizePrintDocument && rasterWebUsbPathEnabled(webusbCapabilities, true, webusbPrinter.profile_id)) {
+          if (
+            rasterBillTemplate &&
+            webusbPrinter &&
+            rasterizePrintDocument &&
+            rasterWebUsbPathEnabled(webusbCapabilities, true, webusbPrinter.profile_id)
+          ) {
             try {
               const currency = resolveTenantCurrency(tenant.currency, tenant.country);
               const rasterResult = await rasterizePrintDocument({
@@ -318,7 +425,10 @@ export const usePrinterStore = create<PrinterState>()(
                   language: languages[0],
                   locale: getCountryByCode(tenant.country)?.locale ?? 'en-US',
                   currency,
-                  currencySymbol: getCurrencySymbol(currency, getCountryByCode(tenant.country)?.locale),
+                  currencySymbol: getCurrencySymbol(
+                    currency,
+                    getCountryByCode(tenant.country)?.locale,
+                  ),
                   trimDecimals: printerTrimDecimals,
                   useUnicode: printerUseUnicode,
                   arabicShaping: printerArabicShaping,
@@ -326,12 +436,20 @@ export const usePrinterStore = create<PrinterState>()(
                 },
               });
               if (!rasterResult.ok || !rasterResult.data) {
-                warnings.push(makeRasterFallbackWarning(rasterResult.ok ? undefined : rasterResult.error));
+                warnings.push(
+                  makeRasterFallbackWarning(rasterResult.ok ? undefined : rasterResult.error),
+                );
                 warnings.push(...encoderWarnings);
               } else {
-                if (rasterResult.warnings) warnings.push(...rasterResult.warnings as PrintWarning[]);
-                const rasterFinancialFailed = rasterResult.warnings?.some((warning) => warning.kind === 'financial') ?? false;
-                if (rasterResult.rasterSelected && !rasterResult.rasterFailed && !rasterFinancialFailed) {
+                if (rasterResult.warnings)
+                  warnings.push(...(rasterResult.warnings as PrintWarning[]));
+                const rasterFinancialFailed =
+                  rasterResult.warnings?.some((warning) => warning.kind === 'financial') ?? false;
+                if (
+                  rasterResult.rasterSelected &&
+                  !rasterResult.rasterFailed &&
+                  !rasterFinancialFailed
+                ) {
                   bytes = Uint8Array.from(rasterResult.data);
                 } else {
                   warnings.push(...encoderWarnings);
@@ -354,7 +472,8 @@ export const usePrinterStore = create<PrinterState>()(
           await printerService.print(bytes);
           return warnings;
         } catch (err) {
-          if (!windowTransferred && reservedWindow && !reservedWindow.closed) reservedWindow.close();
+          if (!windowTransferred && reservedWindow && !reservedWindow.closed)
+            reservedWindow.close();
           set({ lastError: (err as Error).message });
           throw err;
         }
@@ -364,15 +483,34 @@ export const usePrinterStore = create<PrinterState>()(
         set({ lastError: null });
         try {
           const {
-            printerUseUnicode, printerArabicShaping, printerTrimDecimals, printerPaperSize,
-            billTaxRegistrationNumber, billAddress, billPhone, billFooterMessage,
-            billShowName, billShowAddress, billShowPhone, billShowTaxId,
-            billShowTaxBreakdown, billShowCustomerName, billShowCustomerPhone, billDeliveryShowCustomerPhoneAlways, billShowTableNumber,
+            printerUseUnicode,
+            printerArabicShaping,
+            printerTrimDecimals,
+            printerPaperSize,
+            billTaxRegistrationNumber,
+            billAddress,
+            billPhone,
+            billFooterMessage,
+            receiptLogo,
+            receiptLogoRaster,
+            billShowLogo,
+            billShowName,
+            billShowAddress,
+            billShowPhone,
+            billShowTaxId,
+            billShowTaxBreakdown,
+            billShowCustomerName,
+            billShowCustomerPhone,
+            billDeliveryShowCustomerPhoneAlways,
+            billShowTableNumber,
           } = usePosSettingsStore.getState();
           const configuredPaperWidth: PaperWidth = printerPaperSize === 'thermal80' ? 80 : 58;
-          const taxBillColumns = columnsForConfiguredPrinter(get().webusbPrinter?.paper_width, configuredPaperWidth);
+          const taxBillColumns = columnsForConfiguredPrinter(
+            get().webusbPrinter?.paper_width,
+            configuredPaperWidth,
+          );
           const languages = opts?.language
-            ? [opts.language as Language] as const
+            ? ([opts.language as Language] as const)
             : resolveBillPrintLanguages();
 
           // Fall back to browser print when no WebUSB thermal transport is connected.
@@ -391,13 +529,16 @@ export const usePrinterStore = create<PrinterState>()(
               languages,
               includeTaxId: billShowTaxId,
               taxRegistrationNumber: billShowTaxId
-                ? (opts?.taxRegistrationNumber || billTaxRegistrationNumber || undefined)
+                ? opts?.taxRegistrationNumber || billTaxRegistrationNumber || undefined
                 : undefined,
-              address: billShowAddress ? (opts?.address || billAddress || undefined) : undefined,
-              phone: billShowPhone ? (opts?.phone || billPhone || undefined) : undefined,
+              address: billShowAddress ? opts?.address || billAddress || undefined : undefined,
+              phone: billShowPhone ? opts?.phone || billPhone || undefined : undefined,
               footerNote: billFooterMessage || undefined,
               businessName: tenant.business_name,
               showBusinessName: billShowName,
+              showLogo: billShowLogo,
+              receiptLogo: billShowLogo ? receiptLogo : undefined,
+              receiptLogoRaster: billShowLogo ? receiptLogoRaster : undefined,
               showTaxBreakdown: billShowTaxBreakdown,
               showCustomerName: billShowCustomerName,
               showCustomerPhone: billShowCustomerPhone,
@@ -416,28 +557,33 @@ export const usePrinterStore = create<PrinterState>()(
             message: `Receipt language "${language}" could not be loaded, so English labels were used.`,
             kind: 'locale' as const,
           }));
-          const bytes = buildTaxBillBytes(bill, tenant, {
-            ...opts,
-            paperWidth: opts?.paperWidth ?? configuredPaperWidth,
-            columns: taxBillColumns,
-            taxRegistrationNumber: billShowTaxId
-              ? (opts?.taxRegistrationNumber || billTaxRegistrationNumber || undefined)
-              : undefined,
-            address: billShowAddress ? (opts?.address || billAddress || undefined) : undefined,
-            phone: billShowPhone ? (opts?.phone || billPhone || undefined) : undefined,
-            showBusinessName: billShowName,
-            showTaxBreakdown: billShowTaxBreakdown,
-            showCustomerName: billShowCustomerName,
-            showCustomerPhone: billShowCustomerPhone,
-            deliveryShowCustomerPhoneAlways: billDeliveryShowCustomerPhoneAlways,
-            showTableNumber: billShowTableNumber,
-            useUnicode: printerUseUnicode,
-            arabicShaping: printerArabicShaping,
-            trimDecimals: printerTrimDecimals,
-            rawEscPos: true,
-            language: languages[0],
-            capabilities: nativeFallbackCapabilities(get().webusbPrinter?.capabilities),
-          }, warnings);
+          const bytes = buildTaxBillBytes(
+            bill,
+            tenant,
+            {
+              ...opts,
+              paperWidth: opts?.paperWidth ?? configuredPaperWidth,
+              columns: taxBillColumns,
+              taxRegistrationNumber: billShowTaxId
+                ? opts?.taxRegistrationNumber || billTaxRegistrationNumber || undefined
+                : undefined,
+              address: billShowAddress ? opts?.address || billAddress || undefined : undefined,
+              phone: billShowPhone ? opts?.phone || billPhone || undefined : undefined,
+              showBusinessName: billShowName,
+              showTaxBreakdown: billShowTaxBreakdown,
+              showCustomerName: billShowCustomerName,
+              showCustomerPhone: billShowCustomerPhone,
+              deliveryShowCustomerPhoneAlways: billDeliveryShowCustomerPhoneAlways,
+              showTableNumber: billShowTableNumber,
+              useUnicode: printerUseUnicode,
+              arabicShaping: printerArabicShaping,
+              trimDecimals: printerTrimDecimals,
+              rawEscPos: true,
+              language: languages[0],
+              capabilities: nativeFallbackCapabilities(get().webusbPrinter?.capabilities),
+            },
+            warnings,
+          );
           if (hasFinancialPrintWarning(warnings)) {
             const refusal = makeFinancialPrintRefusalMessage(warnings);
             toast.error(refusal);
@@ -455,7 +601,8 @@ export const usePrinterStore = create<PrinterState>()(
       printKot: async (order, opts) => {
         set({ lastError: null });
         // Enforce master kot_printing_enabled toggle for all automatic and manual prints.
-        const { kotPrintingEnabled, printerUseUnicode, printerArabicShaping } = usePosSettingsStore.getState();
+        const { kotPrintingEnabled, printerUseUnicode, printerArabicShaping } =
+          usePosSettingsStore.getState();
         const tenant = useAuthStore.getState().currentTenant;
         const tenantTimezone = tenant?.timezone;
         const tenantLocale = getCountryByCode(tenant?.country ?? '')?.locale ?? 'en-US';
@@ -468,11 +615,28 @@ export const usePrinterStore = create<PrinterState>()(
           const hw = get().hardwarePrinter;
           if (hw && get().printMethod === 'escpos') {
             try {
-              const response = await api.post<{ warnings?: PrintWarning[] }>('/printers/print-kot', { orderId: order.id, items: opts?.items, stationName: opts?.stationName, useUnicode: printerUseUnicode, arabicShaping: printerArabicShaping });
+              const response = await api.post<{ warnings?: PrintWarning[] }>(
+                '/printers/print-kot',
+                {
+                  orderId: order.id,
+                  items: opts?.items,
+                  stationName: opts?.stationName,
+                  useUnicode: printerUseUnicode,
+                  arabicShaping: printerArabicShaping,
+                },
+              );
               return response.data.warnings || [];
             } catch (err: unknown) {
-              const e = err as { response?: { data?: { error?: string; detail?: string } }; message?: string };
-              throw new Error(e.response?.data?.detail || e.response?.data?.error || e.message || 'KOT print failed');
+              const e = err as {
+                response?: { data?: { error?: string; detail?: string } };
+                message?: string;
+              };
+              throw new Error(
+                e.response?.data?.detail ||
+                  e.response?.data?.error ||
+                  e.message ||
+                  'KOT print failed',
+              );
             }
           }
 
@@ -492,7 +656,11 @@ export const usePrinterStore = create<PrinterState>()(
             const kotColumns = columnsForConfiguredPrinter(webusbPrinter?.paper_width, paperWidth);
             const webusbCapabilities = webusbPrinter?.capabilities;
             const rasterizeKotDocument = window.electronAPI?.rasterizeKotDocument;
-            const useRaster = Boolean(webusbPrinter && rasterizeKotDocument && rasterWebUsbPathEnabled(webusbCapabilities, true, webusbPrinter.profile_id));
+            const useRaster = Boolean(
+              webusbPrinter &&
+              rasterizeKotDocument &&
+              rasterWebUsbPathEnabled(webusbCapabilities, true, webusbPrinter.profile_id),
+            );
             let rasterOrder = orderForPrint;
             let rasterHydrationError: unknown = null;
             if (useRaster && (orderForPrint.table_id || orderForPrint.customer_id)) {
@@ -507,7 +675,16 @@ export const usePrinterStore = create<PrinterState>()(
             }
             const bytes = buildKotBytes(
               rasterOrder,
-              { ...opts, paperWidth, columns: kotColumns, stationName: opts?.stationName, arabicShaping: printerArabicShaping, language: kotLanguage, timezone: tenantTimezone ?? opts?.timezone, capabilities: nativeFallbackCapabilities(get().webusbPrinter?.capabilities) },
+              {
+                ...opts,
+                paperWidth,
+                columns: kotColumns,
+                stationName: opts?.stationName,
+                arabicShaping: printerArabicShaping,
+                language: kotLanguage,
+                timezone: tenantTimezone ?? opts?.timezone,
+                capabilities: nativeFallbackCapabilities(get().webusbPrinter?.capabilities),
+              },
               encoderWarnings,
             );
             let output = bytes;
@@ -522,25 +699,37 @@ export const usePrinterStore = create<PrinterState>()(
                     stationName: opts?.stationName ?? 'Kitchen',
                     columns: kotColumns,
                     language: kotLanguage,
-                    ...(tenantTimezone ?? opts?.timezone ? { timezone: tenantTimezone ?? opts?.timezone } : {}),
+                    ...((tenantTimezone ?? opts?.timezone)
+                      ? { timezone: tenantTimezone ?? opts?.timezone }
+                      : {}),
                   }),
                   profileId: webusbPrinter.profile_id,
                   options: {
                     columns: kotColumns,
                     language: kotLanguage,
                     locale: tenantLocale,
-                    ...(tenantTimezone ?? opts?.timezone ? { timezone: tenantTimezone ?? opts?.timezone } : {}),
+                    ...((tenantTimezone ?? opts?.timezone)
+                      ? { timezone: tenantTimezone ?? opts?.timezone }
+                      : {}),
                     useUnicode: printerUseUnicode,
                     arabicShaping: printerArabicShaping,
                   },
                 });
                 if (!rasterResult.ok || !rasterResult.data) {
-                  warnings.push(makeRasterFallbackWarning(rasterResult.ok ? undefined : rasterResult.error));
+                  warnings.push(
+                    makeRasterFallbackWarning(rasterResult.ok ? undefined : rasterResult.error),
+                  );
                   warnings.push(...encoderWarnings);
                 } else {
-                  if (rasterResult.warnings) warnings.push(...rasterResult.warnings as PrintWarning[]);
-                  const rasterFinancialFailed = rasterResult.warnings?.some((warning) => warning.kind === 'financial') ?? false;
-                  if (rasterResult.rasterSelected && !rasterResult.rasterFailed && !rasterFinancialFailed) {
+                  if (rasterResult.warnings)
+                    warnings.push(...(rasterResult.warnings as PrintWarning[]));
+                  const rasterFinancialFailed =
+                    rasterResult.warnings?.some((warning) => warning.kind === 'financial') ?? false;
+                  if (
+                    rasterResult.rasterSelected &&
+                    !rasterResult.rasterFailed &&
+                    !rasterFinancialFailed
+                  ) {
                     output = Uint8Array.from(rasterResult.data);
                   } else {
                     warnings.push(...encoderWarnings);
@@ -575,7 +764,12 @@ export const usePrinterStore = create<PrinterState>()(
           // Ensure target KOT language bundle is loaded to avoid fallback to English labels.
           const paperWidth = (get().paperWidth || 80) === 80 ? 80 : 58;
           const { generateKotHtml } = await import('@/lib/printer/kot-web-print');
-          const html = generateKotHtml(orderForPrint, { paperWidth, language: kotLanguage, stationName: opts?.stationName ?? 'Kitchen', timezone: tenantTimezone ?? opts?.timezone });
+          const html = generateKotHtml(orderForPrint, {
+            paperWidth,
+            language: kotLanguage,
+            stationName: opts?.stationName ?? 'Kitchen',
+            timezone: tenantTimezone ?? opts?.timezone,
+          });
           await printerService.printViaBrowser(html, paperWidth);
           // Surface failed locale loads as warnings when falling back to English labels.
           return failedLanguages.map((language) => ({
@@ -596,7 +790,12 @@ export const usePrinterStore = create<PrinterState>()(
         let reservedPopup: Window | null = null;
         try {
           reservedPopup = printerService.reserveBrowserPrintWindow();
-          const { printerUseUnicode, printerArabicShaping, billDeliveryShowCustomerPhoneAlways, billShowCustomerPhone } = usePosSettingsStore.getState();
+          const {
+            printerUseUnicode,
+            printerArabicShaping,
+            billDeliveryShowCustomerPhoneAlways,
+            billShowCustomerPhone,
+          } = usePosSettingsStore.getState();
           // A settings change can swap the receipt language without loading its
           // bundle, so load it first rather than printing an English slip silently.
           const slipLanguages = resolveBillPrintLanguages();
@@ -608,13 +807,19 @@ export const usePrinterStore = create<PrinterState>()(
             : order;
           // Same rule as the backend route: the delivery override, or the
           // receipt setting when the override is off.
-          const slipContact = (billDeliveryShowCustomerPhoneAlways || billShowCustomerPhone) ? contact : { ...contact, phone: '' };
+          const slipContact =
+            billDeliveryShowCustomerPhoneAlways || billShowCustomerPhone
+              ? contact
+              : { ...contact, phone: '' };
           const slipItems = (orderForPrint.items ?? []).map((item) => ({
             product_name: item.product_name,
+            variant_selection: item.variant_selection ?? null,
             quantity: Number(item.quantity) || 0,
             addons: (item.addons ?? []).map((addon) => ({
               name: addon.name,
-              ...(typeof addon.quantity === 'number' && addon.quantity > 0 ? { quantity: addon.quantity } : {}),
+              ...(typeof addon.quantity === 'number' && addon.quantity > 0
+                ? { quantity: addon.quantity }
+                : {}),
             })),
             special_instructions: item.special_instructions ?? null,
           }));
@@ -625,20 +830,31 @@ export const usePrinterStore = create<PrinterState>()(
             created_at: String(orderForPrint.created_at ?? ''),
             type: String((orderForPrint as { type?: string }).type ?? ''),
             special_instructions: orderForPrint.special_instructions ?? null,
+            delivery_note: orderForPrint.delivery_note ?? null,
           };
           const hw = initialPrinter;
           if (hw && get().printMethod === 'escpos') {
             try {
-              const response = await api.post<{ warnings?: PrintWarning[] }>('/printers/print-delivery-slip', {
-                orderId: order.id,
-                useUnicode: printerUseUnicode,
-                arabicShaping: printerArabicShaping,
-              });
+              const response = await api.post<{ warnings?: PrintWarning[] }>(
+                '/printers/print-delivery-slip',
+                {
+                  orderId: order.id,
+                  useUnicode: printerUseUnicode,
+                  arabicShaping: printerArabicShaping,
+                },
+              );
               if (reservedPopup && !reservedPopup.closed) reservedPopup.close();
               return response.data.warnings || [];
             } catch (err: unknown) {
-              const e = err as { response?: { data?: { error?: string; detail?: string } }; message?: string };
-              const errorMsg = e.response?.data?.detail || e.response?.data?.error || e.message || 'Delivery slip print failed';
+              const e = err as {
+                response?: { data?: { error?: string; detail?: string } };
+                message?: string;
+              };
+              const errorMsg =
+                e.response?.data?.detail ||
+                e.response?.data?.error ||
+                e.message ||
+                'Delivery slip print failed';
               if (errorMsg.includes('No default printer configured')) {
                 toast('No thermal printer configured — printing via system print', { icon: 'ℹ️' });
               } else {
@@ -648,17 +864,25 @@ export const usePrinterStore = create<PrinterState>()(
           }
 
           await printerService.awaitPendingReconnect();
-          if ((get().printMethod !== 'escpos' || !printerService.isConnected) && (!reservedPopup || reservedPopup.closed)) {
+          if (
+            (get().printMethod !== 'escpos' || !printerService.isConnected) &&
+            (!reservedPopup || reservedPopup.closed)
+          ) {
             throw new Error('Please allow popups to print');
           }
           const { paperWidth } = get();
-          const paymentResponse = await api.get<{ payment?: DeliverySlipPayment }>(`/printers/delivery-slip-payment/${order.id}`);
+          const paymentResponse = await api.get<{ payment?: DeliverySlipPayment }>(
+            `/printers/delivery-slip-payment/${order.id}`,
+          );
           const slipPayment = paymentResponse.data.payment;
           if (get().printMethod === 'escpos' && printerService.isConnected) {
             if (reservedPopup && !reservedPopup.closed) reservedPopup.close();
             const warnings: PrintWarning[] = [];
             const encoderWarnings: PrintWarning[] = [];
-            const columns = columnsForConfiguredPrinter(get().webusbPrinter?.paper_width, paperWidth);
+            const columns = columnsForConfiguredPrinter(
+              get().webusbPrinter?.paper_width,
+              paperWidth,
+            );
             const bytes = buildDeliverySlipBytes(
               slipOrder,
               slipItems,
@@ -692,19 +916,16 @@ export const usePrinterStore = create<PrinterState>()(
             ] as PrintWarning[];
           }
 
-          const { generateDeliverySlipHtml } = await import('@/lib/printer/delivery-slip-web-print');
-          const html = generateDeliverySlipHtml(
-            slipOrder,
-            slipItems,
-            slipContact,
-            {
-              paperWidth,
-              language: resolveBillPrintLanguages()[0] as Language,
-              ...(slipPayment ? { payment: slipPayment } : {}),
-              ...(tenantTimezone ? { timezone: tenantTimezone } : {}),
-            },
-          );
-          if (!reservedPopup || reservedPopup.closed) throw new Error('Please allow popups to print');
+          const { generateDeliverySlipHtml } =
+            await import('@/lib/printer/delivery-slip-web-print');
+          const html = generateDeliverySlipHtml(slipOrder, slipItems, slipContact, {
+            paperWidth,
+            language: resolveBillPrintLanguages()[0] as Language,
+            ...(slipPayment ? { payment: slipPayment } : {}),
+            ...(tenantTimezone ? { timezone: tenantTimezone } : {}),
+          });
+          if (!reservedPopup || reservedPopup.closed)
+            throw new Error('Please allow popups to print');
           await printerService.printViaBrowser(html, paperWidth, reservedPopup);
           return failedSlipLanguages.map((language) => ({
             field: 'slip language',
@@ -751,7 +972,11 @@ export const usePrinterStore = create<PrinterState>()(
     }),
     {
       name: 'flo-printer-settings',
-      partialize: (state) => ({ printMode: state.printMode, paperWidth: state.paperWidth, printMethod: state.printMethod }),
+      partialize: (state) => ({
+        printMode: state.printMode,
+        paperWidth: state.paperWidth,
+        printMethod: state.printMethod,
+      }),
       // v1: the 'gst' print-mode value was renamed to 'tax'. Carry existing
       // browsers' saved selection forward instead of silently resetting it.
       version: 1,
@@ -762,8 +987,8 @@ export const usePrinterStore = create<PrinterState>()(
         }
         return state as unknown as PrinterState;
       },
-    }
-  )
+    },
+  ),
 );
 
 export function usePrinterStatusSync(): void {
@@ -787,6 +1012,6 @@ export function usePrinterStatusSync(): void {
     });
 
     return unsub;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 }

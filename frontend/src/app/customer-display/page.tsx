@@ -2,40 +2,102 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useTranslations } from 'use-intl';
 import api from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
+import { useFormatDate } from '@/hooks/useFormatDate';
 import type { Order } from '@/lib/types';
+import {
+  CUSTOMER_DISPLAY_DEFAULTS,
+  CUSTOMER_DISPLAY_FEED_PATH,
+  isCustomerDisplayConfig,
+  isCustomerDisplayFeed,
+  type BoardOrder,
+  type CustomerDisplayConfig,
+} from '@/lib/customer-display';
+import {
+  clearStoredDisplayToken,
+  consumeDisplayTokenFromUrl,
+  readStoredDisplayToken,
+} from '@/lib/customer-display-token';
 
-const ACTIVE_STATUSES = new Set<Order['status']>(['pending', 'preparing', 'ready']);
-
-function getCustomerOrderNumber(order: Order): string {
-  return order.bill?.bill_number || order.order_number;
+function toBoardOrder(order: Order): BoardOrder {
+  return {
+    id: order.id,
+    number: order.bill?.bill_number || order.order_number,
+    status: order.status,
+  };
 }
 
 export default function CustomerDisplayPage() {
   const router = useRouter();
+  const t = useTranslations('customerDisplay');
+  const tc = useTranslations('common');
+  const { formatTime } = useFormatDate();
   const { user, currentTenant, loading: authLoading, loadFromStorage } = useAuthStore();
-  const [orders, setOrders] = useState<Order[]>([]);
+  const [orders, setOrders] = useState<BoardOrder[]>([]);
+  const [pairedToken, setPairedToken] = useState<string | null | undefined>(undefined);
+  const [unpaired, setUnpaired] = useState(false);
+  const [businessName, setBusinessName] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [config, setConfig] = useState<CustomerDisplayConfig>(CUSTOMER_DISPLAY_DEFAULTS);
 
   useEffect(() => {
-    loadFromStorage();
+    // The token lives in the URL fragment or localStorage, which only exist in the browser.
+    const resolve = setTimeout(() => {
+      const token = consumeDisplayTokenFromUrl() ?? readStoredDisplayToken();
+      setPairedToken(token);
+      if (!token) loadFromStorage();
+    }, 0);
+    return () => clearTimeout(resolve);
   }, [loadFromStorage]);
 
   useEffect(() => {
-    if (!authLoading && !user) {
+    if (pairedToken === null && !authLoading && !user) {
       router.replace('/auth/login?redirect=/customer-display');
     }
-  }, [authLoading, user, router]);
+  }, [pairedToken, authLoading, user, router]);
+
+  const fetchPairedFeed = async (token: string) => {
+    try {
+      const response = await fetch(`${window.location.origin}/api${CUSTOMER_DISPLAY_FEED_PATH}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: 'no-store',
+      });
+      if (response.status === 401) {
+        clearStoredDisplayToken();
+        setUnpaired(true);
+        return;
+      }
+      const feed: unknown = await response.json();
+      if (!response.ok || !isCustomerDisplayFeed(feed)) throw new Error('feed unavailable');
+      setConfig(feed.config);
+      setBusinessName(feed.business_name);
+      setOrders(feed.orders);
+      setError(false);
+      setLastUpdated(new Date());
+    } catch {
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const fetchOrders = async () => {
     try {
+      const { data: latestConfig } = await api
+        .get('/settings/customer-display')
+        .catch(() => ({ data: null }));
+      const validConfig = isCustomerDisplayConfig(latestConfig) ? latestConfig : null;
+      const activeConfig: CustomerDisplayConfig = validConfig ?? config;
+      if (validConfig) setConfig(validConfig);
       const { data } = await api.get('/orders', { params: { per_page: 50 } });
       const nextOrders = (data.orders || [])
-        .filter((order: Order) => ACTIVE_STATUSES.has(order.status))
-        .sort((a: Order, b: Order) => a.created_at.localeCompare(b.created_at));
+        .filter((order: Order) => (activeConfig.statuses as string[]).includes(order.status))
+        .sort((a: Order, b: Order) => a.created_at.localeCompare(b.created_at))
+        .map(toBoardOrder);
       setOrders(nextOrders);
       setError(false);
       setLastUpdated(new Date());
@@ -47,78 +109,138 @@ export default function CustomerDisplayPage() {
   };
 
   useEffect(() => {
-    if (!user || !currentTenant) return;
-    const initial = setTimeout(fetchOrders, 0);
-    const interval = setInterval(fetchOrders, 3000);
+    if (pairedToken === undefined || unpaired) return;
+    if (pairedToken === null && (!user || !currentTenant)) return;
+    const refresh = () => (pairedToken ? fetchPairedFeed(pairedToken) : fetchOrders());
+    const initial = setTimeout(refresh, 0);
+    const interval = setInterval(refresh, config.refresh_seconds * 1000);
     return () => {
       clearTimeout(initial);
       clearInterval(interval);
     };
-  }, [user, currentTenant]);
+  }, [pairedToken, unpaired, user, currentTenant, config.refresh_seconds]);
 
   const preparing = useMemo(
     () => orders.filter((order) => order.status === 'pending' || order.status === 'preparing'),
     [orders],
   );
   const ready = useMemo(() => orders.filter((order) => order.status === 'ready'), [orders]);
+  const showPreparing = config.statuses.some((status) => status !== 'ready');
+  const showReady = config.statuses.includes('ready');
 
-  if (authLoading || !user || !currentTenant) {
+  if (unpaired) {
     return (
-      <main className="min-h-screen bg-slate-950 text-white flex items-center justify-center">
-        <div className="text-slate-400">Loading…</div>
+      <main className="flex h-screen min-h-0 flex-col items-center justify-center gap-2 bg-slate-950 p-6 text-center text-white">
+        <h1 className="text-2xl font-bold">{t('unpairedTitle')}</h1>
+        <p className="text-slate-400">{t('unpairedHint')}</p>
+      </main>
+    );
+  }
+
+  if (
+    pairedToken === undefined ||
+    (pairedToken === null && (authLoading || !user || !currentTenant))
+  ) {
+    return (
+      <main className="flex h-screen min-h-0 flex-col items-center justify-center bg-slate-950 text-white">
+        <div className="text-slate-400">{tc('loading')}</div>
       </main>
     );
   }
 
   return (
-    <main className="min-h-screen bg-slate-950 text-white p-6 md:p-10 select-none">
-      <header className="max-w-7xl mx-auto flex items-end justify-between gap-4 mb-8">
+    <main className="flex h-screen min-h-0 flex-col bg-slate-950 text-white p-6 md:p-10 select-none">
+      <header className="max-w-7xl mx-auto flex shrink-0 items-end justify-between gap-4 mb-8">
         <div>
-          <div className="text-2xl md:text-3xl font-bold tracking-tight">{currentTenant.business_name}</div>
-          <div className="text-slate-400 mt-1 text-sm md:text-base">Order status</div>
+          <div className="text-2xl md:text-3xl font-bold tracking-tight">
+            {pairedToken ? businessName : currentTenant?.business_name}
+          </div>
+          <div className="text-slate-400 mt-1 text-sm md:text-base">{t('orderStatus')}</div>
         </div>
         <div className="text-end text-xs text-slate-500">
-          {error ? 'Connection problem — retrying…' : lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString()}` : 'Connecting…'}
+          {error
+            ? t('connectionProblem')
+            : lastUpdated
+              ? config.show_updated
+                ? t('updatedAt', { time: formatTime(lastUpdated, { second: '2-digit' }) })
+                : null
+              : t('connecting')}
         </div>
       </header>
 
       {loading ? (
-        <div className="max-w-7xl mx-auto text-center text-slate-400 py-20">Loading orders…</div>
+        <div className="max-w-7xl mx-auto text-center text-slate-400 py-20">
+          {t('loadingOrders')}
+        </div>
       ) : (
-        <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-6">
-          <section className="rounded-3xl bg-blue-950/60 border border-blue-900/70 overflow-hidden">
-            <div className="px-6 py-5 bg-blue-900/50 border-b border-blue-800/60">
-              <h1 className="text-2xl md:text-3xl font-extrabold tracking-wide">PREPARING</h1>
-              <p className="text-blue-200/70 mt-1">We are preparing your order</p>
-            </div>
-            <div className="p-6 grid grid-cols-2 sm:grid-cols-3 gap-4">
-              {preparing.length === 0 ? (
-                <div className="col-span-full py-12 text-center text-slate-500 text-lg">No orders currently being prepared</div>
-              ) : preparing.map((order) => (
-                <div key={order.id} className="rounded-2xl bg-slate-900/80 border border-blue-900/60 p-5 text-center">
-                  <div className="text-xs uppercase tracking-widest text-slate-500 mb-2">Order</div>
-                  <div className="text-3xl md:text-4xl font-black">{getCustomerOrderNumber(order)}</div>
-                </div>
-              ))}
-            </div>
-          </section>
+        <div
+          className={`max-w-7xl mx-auto grid flex-1 min-h-0 grid-cols-1 ${showPreparing && showReady ? 'md:grid-cols-2' : ''} gap-6 overflow-y-auto md:overflow-hidden`}
+        >
+          {showPreparing && (
+            <section className="rounded-3xl bg-blue-950/60 border border-blue-900/70 overflow-hidden flex flex-col md:min-h-0">
+              <div className="px-6 py-5 bg-blue-900/50 border-b border-blue-800/60 shrink-0">
+                <h1 className="text-2xl md:text-3xl font-extrabold tracking-wide uppercase">
+                  {t('preparingTitle')}
+                </h1>
+                <p className="text-blue-200/70 mt-1">{t('preparingHint')}</p>
+              </div>
+              <div
+                data-testid="customer-display-preparing-scroll"
+                className="p-6 grid grid-cols-2 sm:grid-cols-3 gap-4 md:flex-1 md:min-h-0 md:overflow-y-auto"
+              >
+                {preparing.length === 0 ? (
+                  <div className="col-span-full py-12 text-center text-slate-500 text-lg">
+                    {t('noPreparing')}
+                  </div>
+                ) : (
+                  preparing.map((order) => (
+                    <div
+                      key={order.id}
+                      className="rounded-2xl bg-slate-900/80 border border-blue-900/60 p-5 text-center"
+                    >
+                      <div className="text-xs uppercase tracking-widest text-slate-500 mb-2">
+                        {t('orderLabel')}
+                      </div>
+                      <div className="text-3xl md:text-4xl font-black">{order.number}</div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </section>
+          )}
 
-          <section className="rounded-3xl bg-emerald-950/60 border border-emerald-900/70 overflow-hidden">
-            <div className="px-6 py-5 bg-emerald-900/50 border-b border-emerald-800/60">
-              <h1 className="text-2xl md:text-3xl font-extrabold tracking-wide">READY FOR PICKUP</h1>
-              <p className="text-emerald-200/70 mt-1">Please collect your order</p>
-            </div>
-            <div className="p-6 grid grid-cols-2 sm:grid-cols-3 gap-4">
-              {ready.length === 0 ? (
-                <div className="col-span-full py-12 text-center text-slate-500 text-lg">No orders are ready yet</div>
-              ) : ready.map((order) => (
-                <div key={order.id} className="rounded-2xl bg-slate-900/80 border border-emerald-900/60 p-5 text-center">
-                  <div className="text-xs uppercase tracking-widest text-slate-500 mb-2">Order</div>
-                  <div className="text-3xl md:text-4xl font-black">{getCustomerOrderNumber(order)}</div>
-                </div>
-              ))}
-            </div>
-          </section>
+          {showReady && (
+            <section className="rounded-3xl bg-emerald-950/60 border border-emerald-900/70 overflow-hidden flex flex-col md:min-h-0">
+              <div className="px-6 py-5 bg-emerald-900/50 border-b border-emerald-800/60 shrink-0">
+                <h1 className="text-2xl md:text-3xl font-extrabold tracking-wide uppercase">
+                  {t('readyTitle')}
+                </h1>
+                <p className="text-emerald-200/70 mt-1">{t('readyHint')}</p>
+              </div>
+              <div
+                data-testid="customer-display-ready-scroll"
+                className="p-6 grid grid-cols-2 sm:grid-cols-3 gap-4 md:flex-1 md:min-h-0 md:overflow-y-auto"
+              >
+                {ready.length === 0 ? (
+                  <div className="col-span-full py-12 text-center text-slate-500 text-lg">
+                    {t('noReady')}
+                  </div>
+                ) : (
+                  ready.map((order) => (
+                    <div
+                      key={order.id}
+                      className="rounded-2xl bg-slate-900/80 border border-emerald-900/60 p-5 text-center"
+                    >
+                      <div className="text-xs uppercase tracking-widest text-slate-500 mb-2">
+                        {t('orderLabel')}
+                      </div>
+                      <div className="text-3xl md:text-4xl font-black">{order.number}</div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </section>
+          )}
         </div>
       )}
     </main>

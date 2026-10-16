@@ -1,0 +1,305 @@
+/**
+ * Product variants schema foundation.
+ *
+ * Usage: node tests/run-electron-node-test.cjs tests/product-variants-db.test.ts
+ *
+ * Migration v100 adds the product_variants table plus the two dormant-column
+ * hooks the catalog relies on. It is proven twice: on a fresh install, and by
+ * rewinding a populated database to the pre-v100 shape and replaying the
+ * migration, which is the only way to show a pre-existing store keeps its
+ * products and orders.
+ *
+ * The variant recipe-portion column is proven the same way: the migration is
+ * located by name, never by a version literal, and a populated store is rewound
+ * to the shape that predates it so an existing variant is shown keeping its
+ * price and stock while gaining the one-portion default, with a recorded order
+ * snapshot left byte-identical.
+ */
+const Module = require('module');
+const originalLoad = Module._load;
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-product-variants-db-'));
+
+Module._load = function (request: string) {
+  if (request === 'electron') return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
+  return originalLoad.apply(this, arguments as any);
+};
+
+const assert = require('node:assert/strict');
+const { initDatabase, getDatabase, closeDatabase, now, MIGRATIONS, getCurrentSchemaVersion, buildIdealSchemaDb } = require('../main/db');
+
+const LATEST_VERSION = 100;
+
+function columnsOf(db: any, table: string): string[] {
+  return (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((column) => column.name);
+}
+
+function main() {
+  console.log('Product Variants Schema Test');
+  console.log('='.repeat(60));
+
+  initDatabase();
+  const db = getDatabase();
+
+  // ── The migration is registered and applied on a fresh install ──────────
+  const variantsMigration = MIGRATIONS.find((migration: any) => migration.version === LATEST_VERSION);
+  assert.ok(variantsMigration, 'the product variants migration is registered');
+  assert.equal(variantsMigration.name, 'add_product_variants_table', 'the migration is named add_product_variants_table');
+  const tailVersion = MIGRATIONS[MIGRATIONS.length - 1].version;
+  // Nothing here names a version number. The registry has to be a permutation
+  // of 1..N with its highest version last, and a fresh install has to land on
+  // that same N. A new migration therefore cannot land unnoticed, and nobody
+  // has to remember to edit a literal for the suite to stay true.
+  const declaredVersions = MIGRATIONS.map((migration: any) => migration.version);
+  assert.equal(
+    new Set(declaredVersions).size,
+    declaredVersions.length,
+    'every migration version is declared exactly once',
+  );
+  const ascendingVersions = [...declaredVersions].sort((a: number, b: number) => a - b);
+  assert.deepEqual(
+    ascendingVersions,
+    ascendingVersions.map((_: unknown, index: number) => index + 1),
+    'the registry runs contiguously from 1 with no gaps',
+  );
+  assert.equal(
+    tailVersion,
+    ascendingVersions[ascendingVersions.length - 1],
+    'the registry tail is the highest declared version',
+  );
+  assert.equal(getCurrentSchemaVersion(), tailVersion, 'a fresh install reaches the last registry version');
+
+  assert.ok(
+    db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'product_variants'").get(),
+    'product_variants exists on a fresh install',
+  );
+  assert.ok(
+    db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_product_variants_product'").get(),
+    'idx_product_variants_product exists on a fresh install',
+  );
+  assert.ok(
+    db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_product_variants_barcode'").get(),
+    'idx_product_variants_barcode exists on a fresh install',
+  );
+  assert.ok(columnsOf(db, 'order_items').includes('variant_id'), 'order_items.variant_id exists on a fresh install');
+  assert.ok(columnsOf(db, 'products').includes('dietary_tags'), 'products.dietary_tags exists on a fresh install');
+  console.log('   ✓ a fresh install carries the table, both indexes, and both new columns');
+
+  // A fresh install and the in-memory ideal schema are built by the same
+  // pipeline, so a shape difference here means one of them drifted.
+  const idealDb = buildIdealSchemaDb();
+  const idealDdl = (idealDb.prepare(
+    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'product_variants'",
+  ).get() as { sql: string }).sql;
+  idealDb.close();
+  const liveDdl = (db.prepare(
+    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'product_variants'",
+  ).get() as { sql: string }).sql;
+  assert.equal(liveDdl, idealDdl, 'product_variants DDL matches the ideal schema');
+  assert.match(
+    liveDdl,
+    /FOREIGN KEY \(product_id\) REFERENCES products\(id\) ON DELETE CASCADE/,
+    'product_variants cascades from products on delete',
+  );
+  console.log('   ✓ the table definition matches the ideal schema, including the cascade foreign key');
+
+  // ── A populated pre-v100 database upgrades cleanly ──────────────────────
+  const stamp = now();
+  db.prepare(`INSERT INTO categories (id, name, is_active, created_at, updated_at) VALUES ('cat', 'Coffee', 1, ?, ?)`)
+    .run(stamp, stamp);
+  db.prepare(`INSERT INTO products (id, category_id, name, price, cost, stock_quantity, is_active, created_at, updated_at)
+    VALUES ('latte', 'cat', 'Latte', 250, 75, 12, 1, ?, ?)`).run(stamp, stamp);
+  db.prepare(`INSERT INTO users (id, name, email, password, role, is_active, created_at, updated_at)
+    VALUES ('owner', 'Owner', 'owner@example.com', 'hash', 'owner', 1, ?, ?)`).run(stamp, stamp);
+  db.prepare(`INSERT INTO orders (order_number, user_id, status, subtotal, total, created_at, updated_at)
+    VALUES ('ORD-1', 'owner', 'completed', 500, 500, ?, ?)`).run(stamp, stamp);
+  db.prepare(`INSERT INTO order_items (order_id, product_id, product_name, unit_price, quantity, subtotal, total, created_at, updated_at)
+    VALUES (1, 'latte', 'Latte', 250, 2, 500, 500, ?, ?)`).run(stamp, stamp);
+  db.prepare(`INSERT INTO product_variants (id, product_id, name, price, stock_quantity, is_active, created_at, updated_at)
+    VALUES ('var-small', 'latte', 'Small', 200, 4, 1, ?, ?)`).run(stamp, stamp);
+
+  // Rewind to the shape a pre-v100 store has: no table, no columns.
+  db.pragma(`user_version = ${LATEST_VERSION - 1}`);
+  db.exec('DROP TABLE product_variants');
+  db.exec('ALTER TABLE order_items DROP COLUMN variant_id');
+  db.exec('ALTER TABLE products DROP COLUMN dietary_tags');
+  assert.equal(
+    db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'product_variants'").get(),
+    undefined,
+    'the rewound database has no product_variants table',
+  );
+  assert.ok(!columnsOf(db, 'order_items').includes('variant_id'), 'the rewound database has no order_items.variant_id');
+  assert.ok(!columnsOf(db, 'products').includes('dietary_tags'), 'the rewound database has no products.dietary_tags');
+
+  // Replay every migration above the rewound version, exactly as an upgrade
+  // from the previous release would.
+  for (const migration of MIGRATIONS.filter((entry: any) => entry.version > LATEST_VERSION - 1)) {
+    migration.up();
+  }
+  assert.ok(
+    db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'product_variants'").get(),
+    'the migration recreates product_variants on an upgraded database',
+  );
+  assert.ok(
+    db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_product_variants_product'").get(),
+    'the migration recreates the product index on an upgraded database',
+  );
+  assert.ok(
+    db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_product_variants_barcode'").get(),
+    'the migration recreates the barcode index on an upgraded database',
+  );
+  assert.ok(columnsOf(db, 'order_items').includes('variant_id'), 'the migration adds order_items.variant_id');
+  assert.ok(columnsOf(db, 'products').includes('dietary_tags'), 'the migration adds products.dietary_tags');
+  assert.ok(
+    columnsOf(db, 'inventory_movements').includes('variant_id'),
+    'the movement ledger gains its variant pool column on the same upgrade',
+  );
+  console.log('   ✓ replaying the migration chain on a pre-v100 store restores the table, indexes, and columns');
+
+  assert.deepEqual(
+    db.prepare('SELECT id, name, price, cost, stock_quantity FROM products').all(),
+    [{ id: 'latte', name: 'Latte', price: 250, cost: 75, stock_quantity: 12 }],
+    'existing products survive the upgrade untouched',
+  );
+  assert.equal(
+    (db.prepare('SELECT COUNT(*) AS count FROM orders').get() as { count: number }).count, 1,
+    'existing orders survive the upgrade',
+  );
+  assert.deepEqual(
+    db.prepare('SELECT product_id, product_name, unit_price, quantity, total FROM order_items').all(),
+    [{ product_id: 'latte', product_name: 'Latte', unit_price: 250, quantity: 2, total: 500 }],
+    'existing order items survive the upgrade',
+  );
+  assert.deepEqual(db.pragma('foreign_key_check'), [], 'the upgraded schema has no foreign-key violations');
+  console.log('   ✓ the upgrade loses no existing products, orders, or order items');
+
+  // ── New columns default to NULL and the migration is re-runnable ────────
+  db.prepare(
+    `INSERT INTO products (id, name, price, created_at, updated_at) VALUES ('tea', 'Tea', 100, ?, ?)`,
+  ).run(stamp, stamp);
+  assert.equal(
+    db.prepare('SELECT dietary_tags FROM products WHERE id = ?').get('tea').dietary_tags, null,
+    'products.dietary_tags defaults to NULL',
+  );
+  db.prepare(`INSERT INTO order_items (order_id, product_id, product_name, unit_price, quantity, subtotal, total, created_at, updated_at)
+    VALUES (1, ?, ?, 100, 1, 100, 100, ?, ?)`).run('tea', 'Tea', stamp, stamp);
+  assert.equal(
+    db.prepare('SELECT variant_id FROM order_items WHERE product_id = ?').get('tea').variant_id, null,
+    'order_items.variant_id defaults to NULL for existing order lines',
+  );
+
+  const variantUpsert = MIGRATIONS.find((migration: any) => migration.version === LATEST_VERSION).up;
+  variantUpsert();
+  variantUpsert();
+  assert.equal(
+    (db.prepare(`SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'index' AND name = 'idx_product_variants_barcode'`).get() as { count: number }).count,
+    1,
+    'replaying the migration does not duplicate the barcode index',
+  );
+  console.log('   ✓ both new columns default to NULL and the migration is safe to replay');
+
+  // ── Variant recipe portions are additive and start at one ───────────────
+  const portionMigration = MIGRATIONS.find(
+    (migration: any) => migration.name === 'add_variant_recipe_multiplier',
+  );
+  assert.ok(portionMigration, 'the variant recipe-portion migration is registered');
+  // No migration name is pinned as the tail: any later migration would make
+  // that literal stale. What matters is that the portion migration is applied
+  // by the time a fresh install reaches the tail, exactly once.
+  assert.equal(
+    MIGRATIONS.filter((migration: any) => migration.name === 'add_variant_recipe_multiplier').length,
+    1,
+    'the portion migration is registered exactly once',
+  );
+  assert.ok(
+    portionMigration.version <= MIGRATIONS[MIGRATIONS.length - 1].version,
+    'a fresh install applies the portion migration before the registry tail',
+  );
+  db.prepare(`INSERT INTO product_variants (id, product_id, name, price, stock_quantity, track_inventory, is_active, created_at, updated_at)
+    VALUES ('var-portion', 'latte', 'Half portion', 200, 4, 1, 1, ?, ?)`).run(stamp, stamp);
+  // A sale recorded before the migration: its scaled ingredients are history.
+  const historicalSnapshot = '{"recipe_id":"rcp_hist","components":[{"supply_id":"sup_hist","quantity":3.5,"base_unit":"kg"}]}';
+  db.prepare(`INSERT INTO order_items (order_id, product_id, product_name, unit_price, quantity, subtotal, total, recipe_snapshot, created_at, updated_at)
+    VALUES (1, 'latte', 'Latte', 250, 1, 250, 250, ?, ?, ?)`).run(historicalSnapshot, stamp, stamp);
+
+  // Rewind to the shape a store upgraded from the previous release has: the
+  // column is absent, the variant row and its stock are not.
+  db.exec('ALTER TABLE product_variants DROP COLUMN recipe_multiplier');
+  db.pragma(`user_version = ${portionMigration.version - 1}`);
+  assert.ok(
+    !columnsOf(db, 'product_variants').includes('recipe_multiplier'),
+    'the rewound database has no product_variants.recipe_multiplier',
+  );
+
+  portionMigration.up();
+  assert.ok(columnsOf(db, 'product_variants').includes('recipe_multiplier'), 'the migration adds recipe_multiplier');
+  const portionColumn = (db.prepare('PRAGMA table_info(product_variants)').all() as { name: string; notnull: number; dflt_value: string | null }[])
+    .find((column) => column.name === 'recipe_multiplier')!;
+  assert.equal(portionColumn.notnull, 1, 'the multiplier is NOT NULL so no variant can be portion-less by accident');
+  assert.equal(Number(portionColumn.dflt_value), 1, 'the multiplier defaults to one portion');
+  assert.deepEqual(
+    db.prepare("SELECT id, name, price, stock_quantity, track_inventory, recipe_multiplier FROM product_variants WHERE id = 'var-portion'").get(),
+    { id: 'var-portion', name: 'Half portion', price: 200, stock_quantity: 4, track_inventory: 1, recipe_multiplier: 1 },
+    'an existing variant keeps its identity, price and stock and gains the one-portion default',
+  );
+  assert.throws(
+    () => db.prepare("UPDATE product_variants SET recipe_multiplier = 0 WHERE id = 'var-portion'").run(),
+    'the storage boundary refuses a zero portion even for a direct write',
+  );
+  assert.equal(
+    db.prepare('SELECT recipe_snapshot FROM order_items WHERE recipe_snapshot IS NOT NULL').get().recipe_snapshot,
+    historicalSnapshot,
+    'the migration rewrites no historical recipe snapshot',
+  );
+  assert.throws(
+    () => db.prepare("UPDATE product_variants SET recipe_multiplier = -2 WHERE id = 'var-portion'").run(),
+    'the storage boundary refuses a negative portion even for a direct write',
+  );
+  portionMigration.up();
+  portionMigration.up();
+  assert.equal(
+    (db.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name = 'product_variants'").get() as { count: number }).count,
+    1,
+    'replaying the portion migration does not duplicate the table',
+  );
+  assert.deepEqual(db.pragma('foreign_key_check'), [], 'the portion migration leaves no foreign-key violation');
+  console.log('   ✓ the portion column is additive, defaults to one, and refuses nonsense portions');
+
+  // ── Cascade deletes, and the dormant variant_selection column is reused ──
+  db.prepare(`INSERT INTO products (id, name, price, created_at, updated_at) VALUES ('pizza', 'Pizza', 500, ?, ?)`)
+    .run(stamp, stamp);
+  db.prepare(`INSERT INTO product_variants (id, product_id, name, price, created_at, updated_at)
+    VALUES ('var-large', 'pizza', 'Large', 700, ?, ?)`).run(stamp, stamp);
+  db.prepare(`DELETE FROM products WHERE id = 'pizza'`).run();
+  assert.equal(
+    db.prepare('SELECT 1 FROM product_variants WHERE id = ?').get('var-large'), undefined,
+    'deleting a product removes its variants through the cascade',
+  );
+
+  assert.ok(
+    columnsOf(db, 'order_items').includes('variant_selection'),
+    'the pre-existing order_items.variant_selection snapshot column is still present',
+  );
+  assert.ok(
+    columnsOf(db, 'order_items').filter((column) => column.startsWith('variant_')).length === 2,
+    'exactly one identity column (variant_id) and one snapshot column (variant_selection) exist',
+  );
+  console.log('   ✓ variants cascade with their product and the dormant variant_selection column is reused');
+
+  console.log('\n✅ Product variants schema tests passed');
+}
+
+try {
+  main();
+  closeDatabase();
+  Module._load = originalLoad;
+  fs.rmSync(testDir, { recursive: true, force: true });
+} catch (error) {
+  try { closeDatabase(); } catch { }
+  Module._load = originalLoad;
+  fs.rmSync(testDir, { recursive: true, force: true });
+  console.error(error);
+  process.exit(1);
+}

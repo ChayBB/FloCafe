@@ -51,7 +51,7 @@ jobs:
         with:
           filters: |
             frontend: ['frontend/**', 'package.json', 'package-lock.json', '.github/workflows/ci.yml']
-            backend: ['main/**', 'tests/**', 'package.json', 'package-lock.json', 'tsconfig.json', '.github/workflows/ci.yml']
+            backend: ['main/**', 'shared/**', 'scripts/**', 'dev-server.js', 'kill-ports.js', 'tests/**', 'package.json', 'package-lock.json', 'tsconfig.json', '.oxlintrc.json', '.oxfmtrc.json', 'scripts/ci/check-lint-budget.cjs', 'lint-staged.config.mjs', '.husky/**', '.github/workflows/ci.yml']
             kds: ['main/kds-server.ts', 'main/services/kds.ts', 'main/routes/kds.ts', 'tests/kds-*.test.ts']
             db: ['main/db.ts', 'main/migrations/**', 'tests/fixtures/upgrade-snapshots/**', 'tests/upgrade-path.test.ts']
             uninstaller: ['scripts/uninstallers/**', 'tests/windows-uninstaller.Tests.ps1', 'tests/run-windows-uninstaller-tests.cjs', 'package.json', 'package-lock.json', '.github/workflows/ci.yml']
@@ -68,7 +68,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Node.js 22
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
           cache: 'npm'
@@ -88,9 +88,11 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js 22
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
           cache: 'npm'
@@ -107,22 +109,32 @@ jobs:
       - name: Rebuild native modules
         run: npx @electron/rebuild -f -w better-sqlite3
 
-      - name: Backend lint
-        run: npm run lint:backend
-
-      - name: Compile TypeScript
-        run: npx tsc --noEmit
+      - name: Backend lint and TypeScript compilation
+        run: |
+          npm run lint:backend &
+          PID_LINT=$!
+          npx tsc --noEmit &
+          PID_TSC=$!
+          wait $PID_LINT || exit 1
+          wait $PID_TSC || exit 1
 
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
 
-      - name: Frontend lint
-        working-directory: frontend
-        run: npm run lint
-
-      - name: Lint warning budget
-        run: npm run lint:budget
+      # Authoritative formatting gate: the whole touched file, against the pull request base
+      # (or the pushed range), so legacy formatting debt outside the change stays out of scope.
+      - name: Frontend lint, formatting, and lint warning budget
+        run: |
+          (cd frontend && npm run lint) &
+          PID_FELINT=$!
+          node scripts/ci/check-changed-format.cjs &
+          PID_FMT=$!
+          npm run lint:budget &
+          PID_BUDGET=$!
+          wait $PID_FELINT || exit 1
+          wait $PID_FMT || exit 1
+          wait $PID_BUDGET || exit 1
 
       - name: Build frontend
         run: cd frontend && npx cross-env NEXT_BUILD_MODE=desktop npm run build
@@ -130,13 +142,12 @@ jobs:
           NEXT_TELEMETRY_DISABLED: 1
 
   # 4b. Linux Core Test Suite (sharded)
-  # `npm test` runs ~180 suites serially and dominated the PR critical
-  # path. Run the same suites as two round-robin shards on separate runners —
-  # they run in parallel with the build/lint job above, cutting merge-ready time
-  # instead of just the job's own wall time. Shards MUST be separate runners:
+  # `npm test` runs ~180 suites serially. Run the suites as 4 round-robin shards
+  # on separate runners — they run in parallel with the build/lint job above,
+  # cutting merge-ready time to under 3 minutes. Shards MUST be separate runners:
   # several auth suites interfere when run concurrently on one machine.
   linux-tests:
-    name: Core Test Suite (Shard ${{ matrix.shard_number }}/2)
+    name: Core Test Suite (Shard ${{ matrix.shard_number }}/4)
     needs: changes
     if: ${{ needs.changes.outputs.frontend == 'true' || needs.changes.outputs.backend == 'true' || needs.changes.outputs.kds == 'true' || needs.changes.outputs.db == 'true' }}
     runs-on: ubuntu-24.04
@@ -144,17 +155,21 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1]
+        shard: [0, 1, 2, 3]
         include:
           - shard: 0
             shard_number: 1
           - shard: 1
             shard_number: 2
+          - shard: 2
+            shard_number: 3
+          - shard: 3
+            shard_number: 4
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Node.js 22
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
           cache: 'npm'
@@ -176,26 +191,40 @@ jobs:
         if: matrix.shard == 0
         run: bash tests/run-test.sh npm run test:payment-methods-split
 
+      # These two suites live in npm pretest, which the shard runner
+      # intentionally does not execute; run them here so a schema or catalog
+      # API regression fails the PR instead of only a local `npm test`.
+      - name: Product variant schema and catalog API checks (npm pretest)
+        if: matrix.shard == 0
+        run: bash tests/run-test.sh npm run test:product-variants-db && bash tests/run-test.sh npm run test:product-variants-api
+
       - name: Core test suite (shard ${{ matrix.shard }})
         # The suite list is derived from package.json's "test" script at run
         # time, so shard coverage cannot drift from a hand-maintained list.
-        run: xvfb-run -a --server-args='-screen 0 1280x800x24' env SHARD_TOTAL=2 SHARD_INDEX=${{ matrix.shard }} node scripts/ci/run-test-shard.cjs
+        run: xvfb-run -a --server-args='-screen 0 1280x800x24' env SHARD_TOTAL=4 SHARD_INDEX=${{ matrix.shard }} node scripts/ci/run-test-shard.cjs
 
-  # 5. Playwright E2E
-  e2e-playwright:
-    name: End-to-End Playwright Tests
+  # 5. Playwright E2E Sharded Workers
+  e2e-playwright-worker:
+    name: Playwright E2E (Shard ${{ matrix.shard }}/4)
     needs: changes
     if: ${{ needs.changes.outputs.frontend == 'true' || needs.changes.outputs.backend == 'true' || needs.changes.outputs.kds == 'true' || needs.changes.outputs.db == 'true' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Node.js 22
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
           cache: 'npm'
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -206,14 +235,18 @@ jobs:
       - name: Build main backend process
         run: npm run build
 
+      - name: Cache Next.js build
+        uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4.2.2
+        with:
+          path: frontend/.next/cache
+          key: nextjs-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}-${{ hashFiles('frontend/src/**') }}
+          restore-keys: |
+            nextjs-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}-
+
       - name: Build frontend
         run: npm run build:frontend
         env:
           NEXT_TELEMETRY_DISABLED: 1
-
-      - name: Install frontend dependencies for Playwright
-        working-directory: frontend
-        run: npm ci
 
       - name: Cache Playwright Browsers
         id: playwright-cache
@@ -227,36 +260,75 @@ jobs:
         run: npx playwright install chromium
 
       - name: Run renderer and printer regression suites
+        if: matrix.shard == 1
         run: npm run test:release-regressions
         env:
           CI: true
           REQUIRE_VISUAL_EVIDENCE: '1'
           EVIDENCE_DIR: ${{ runner.temp }}/flocafe-release-regressions
 
-      - name: Run Playwright tests
+      - name: Run Playwright tests (shard ${{ matrix.shard }}/4)
         working-directory: frontend
         # This job is the browser-only layer. The Electron project has its own
         # config and dedicated native job with an explicit display server.
-        run: npx playwright test --config=playwright.config.ts --project=chromium
+        run: npx playwright test --config=playwright.config.ts --project=chromium --shard=${{ matrix.shard }}/4 --grep-invert='FINDING:|a paid order offers a refund, and issuing it settles against the recorded sale|@ci-tier1|@ci-tier2'
         env:
           CI: true
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - name: Run verified browser E2E Tier 1 and Tier 2 (shard ${{ matrix.shard }}/4)
+        working-directory: frontend
+        run: npx playwright test --config=playwright.config.ts --project=chromium --retries=0 --shard=${{ matrix.shard }}/4 --grep='@ci-tier1|@ci-tier2' --grep-invert='FINDING:|a paid order offers a refund, and issuing it settles against the recorded sale'
+        env:
+          CI: true
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
-          name: playwright-report
+          name: playwright-report-shard-${{ matrix.shard }}
           path: frontend/playwright-report/
           retention-days: 10
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: always()
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && matrix.shard == 1
         with:
           name: release-regression-evidence
           path: ${{ runner.temp }}/flocafe-release-regressions/
           if-no-files-found: ignore
           retention-days: 10
 
-  # 5b. Native Electron E2E
+  # 5b. End-to-End Playwright Tests Gate
+  # Satisfies the required status check in GitHub ruleset ("End-to-End Playwright Tests")
+  # by verifying that all parallel shards completed successfully.
+  e2e-playwright:
+    name: End-to-End Playwright Tests
+    needs: [changes, e2e-playwright-worker]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Verify all Playwright shards passed
+        run: |
+          changes_result="${{ needs.changes.result }}"
+          worker_result="${{ needs.e2e-playwright-worker.result }}"
+          if [ "$changes_result" != "success" ]; then
+            echo "::error::Path Filtering did not succeed (status: $changes_result); its dependents' skipped status cannot be trusted."
+            exit 1
+          fi
+          if [ "$worker_result" = "skipped" ]; then
+            echo "Playwright tests skipped via path filtering."
+            exit 0
+          fi
+          if [ "$worker_result" = "cancelled" ]; then
+            echo "::warning::Playwright E2E worker was cancelled."
+            exit 1
+          fi
+          if [ "$worker_result" != "success" ]; then
+            echo "::error::One or more Playwright E2E shards failed (status: $worker_result)."
+            exit 1
+          fi
+          echo "All Playwright E2E shards completed successfully."
+
+  # 5c. Native Electron E2E
   # Keep this lifecycle separate from the browser webServer. The native
   # harness owns its temporary profile, database, ports, and app services.
   native-e2e-playwright:
@@ -269,10 +341,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Node.js 22
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
           cache: 'npm'
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -283,23 +358,31 @@ jobs:
       - name: Build main backend process
         run: npm run build
 
+      - name: Cache Next.js build
+        uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4.2.2
+        with:
+          path: frontend/.next/cache
+          key: nextjs-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}-${{ hashFiles('frontend/src/**') }}
+          restore-keys: |
+            nextjs-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}-
+
       - name: Build frontend
         run: npm run build:frontend
         env:
           NEXT_TELEMETRY_DISABLED: 1
 
-      - name: Install frontend dependencies for Playwright
-        working-directory: frontend
-        run: npm ci
-
       - name: Run native Electron tests under Xvfb
         # Playwright supplies --no-sandbox for Electron on Linux. Xvfb is the
         # required visible display; no packaged or modified app is launched.
+        # The harness hides windows by default so local runs do not pop up on a
+        # developer's desktop; CI has no desktop, and the native window-state
+        # and OS-theme tests need a shown window, so opt back in here.
         run: xvfb-run -a --server-args='-screen 0 1280x800x24' npm run test:e2e:electron
         env:
           CI: true
+          FLO_E2E_SHOW_WINDOW: '1'
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: native-playwright-report
@@ -317,7 +400,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Node.js 22
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
           cache: 'npm'
@@ -326,6 +409,40 @@ jobs:
       # Do not run the application lifecycle or install its dependencies here.
       - name: Run Windows uninstaller Pester tests
         run: node tests/run-windows-uninstaller-tests.cjs
+
+  # 6b. Windows Contributor Tooling
+  # The full cross-platform matrix only runs on main, nightly, and dispatch, so Windows-only
+  # tooling breakage (junction handling, CRLF checkouts) reached main twice in a row. This reruns
+  # the contributor tooling suites on the same OS, path-filtered to the files they cover. It is
+  # reported but not yet a required check: the ruleset owns that list.
+  windows-tooling:
+    name: Contributor Tooling (Windows)
+    needs: changes
+    if: ${{ needs.changes.outputs.backend == 'true' }}
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The fixture links this tree in, and resolves the frontend Oxfmt from it.
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Oxc contributor checks (pre-commit hook and changed-file gate)
+        run: npm run test:oxc-contributor-checks
 
   # 7. Documentation Checks
   # Structural checks (Markdown lint, relative links, index completeness) gate.
@@ -341,7 +458,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Node.js 22
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
           cache: 'npm'

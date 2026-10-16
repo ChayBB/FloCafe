@@ -25,7 +25,13 @@ type Shift = {
   minutes: number | null;
 };
 
-type StaffTotal = { user_id: string; user_name: string; minutes: number; shifts: number; open: number };
+type StaffTotal = {
+  user_id: string;
+  user_name: string;
+  minutes: number;
+  shifts: number;
+  open: number;
+};
 
 type Report = {
   year: string;
@@ -46,32 +52,49 @@ function clock(stamp: string): string {
 
 export function WorkCalendar() {
   const t = useTranslations('staff');
-  const today = useMemo(() => new Date(), []);
-  const [year, setYear] = useState(today.getFullYear());
-  const [month, setMonth] = useState(today.getMonth() + 1);
+  // Read on mount rather than during render: the clock is impure, and a
+  // re-render must not silently move the calendar to a different month.
+  const [year, setYear] = useState(() => new Date().getFullYear());
+  const [month, setMonth] = useState(() => new Date().getMonth() + 1);
   const [report, setReport] = useState<Report | null>(null);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    api.get('/staff/work-logs', { params: { year: String(year), month: pad(month) } })
-      .then(({ data }) => { if (!cancelled) setReport(data); })
-      .catch(() => { if (!cancelled) toast.error(t('workLogLoadFailed')); });
-    return () => { cancelled = true; };
+    api
+      .get('/staff/work-logs', { params: { year: String(year), month: pad(month) } })
+      .then(({ data }) => {
+        if (!cancelled) setReport(data);
+      })
+      .catch(() => {
+        if (!cancelled) toast.error(t('workLogLoadFailed'));
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [year, month, t]);
 
-  const step = useCallback((delta: number) => {
-    setSelectedDay(null);
-    setReport(null);
-    const next = new Date(year, month - 1 + delta, 1);
-    setYear(next.getFullYear());
-    setMonth(next.getMonth() + 1);
-  }, [year, month]);
+  const step = useCallback(
+    (delta: number) => {
+      setSelectedDay(null);
+      setReport(null);
+      const next = new Date(year, month - 1 + delta, 1);
+      setYear(next.getFullYear());
+      setMonth(next.getMonth() + 1);
+    },
+    [year, month],
+  );
 
-  const formatHours = useCallback((minutes: number) => {
-    if (minutes <= 0) return '—';
-    return t('workLogHoursShort', { hours: Math.floor(minutes / 60), minutes: pad(minutes % 60) });
-  }, [t]);
+  const formatHours = useCallback(
+    (minutes: number) => {
+      if (minutes <= 0) return '—';
+      return t('workLogHoursShort', {
+        hours: Math.floor(minutes / 60),
+        minutes: pad(minutes % 60),
+      });
+    },
+    [t],
+  );
 
   // Monday-first grid, with blanks before the 1st so dates line up under the
   // weekday they actually fall on.
@@ -89,8 +112,19 @@ export function WorkCalendar() {
     [selectedDay, report],
   );
 
-  const monthLabel = new Date(year, month - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
-  const weekdays = [t('workLogMon'), t('workLogTue'), t('workLogWed'), t('workLogThu'), t('workLogFri'), t('workLogSat'), t('workLogSun')];
+  const monthLabel = new Date(year, month - 1, 1).toLocaleDateString(undefined, {
+    month: 'long',
+    year: 'numeric',
+  });
+  const weekdays = [
+    t('workLogMon'),
+    t('workLogTue'),
+    t('workLogWed'),
+    t('workLogThu'),
+    t('workLogFri'),
+    t('workLogSat'),
+    t('workLogSun'),
+  ];
 
   return (
     <div className="rounded-xl border border-border bg-card p-4">
@@ -99,18 +133,32 @@ export function WorkCalendar() {
           <Clock size={18} /> {t('workLogTitle')}
         </h2>
         <div className="flex items-center gap-1">
-          <button type="button" onClick={() => step(-1)} aria-label={t('workLogPrevMonth')} className="rounded-lg border border-border p-2 hover:bg-muted">
+          <button
+            type="button"
+            onClick={() => step(-1)}
+            aria-label={t('workLogPrevMonth')}
+            className="rounded-lg border border-border p-2 hover:bg-muted"
+          >
             <ChevronLeft size={16} />
           </button>
           <span className="min-w-36 text-center text-sm font-medium">{monthLabel}</span>
-          <button type="button" onClick={() => step(1)} aria-label={t('workLogNextMonth')} className="rounded-lg border border-border p-2 hover:bg-muted">
+          <button
+            type="button"
+            onClick={() => step(1)}
+            aria-label={t('workLogNextMonth')}
+            className="rounded-lg border border-border p-2 hover:bg-muted"
+          >
             <ChevronRight size={16} />
           </button>
         </div>
       </div>
 
       <div className="grid grid-cols-7 gap-1 text-center text-xs text-muted-foreground">
-        {weekdays.map((day) => <div key={day} className="py-1">{day}</div>)}
+        {weekdays.map((day) => (
+          <div key={day} className="py-1">
+            {day}
+          </div>
+        ))}
       </div>
       <div className="grid grid-cols-7 gap-1">
         {cells.map((date, index) => {
@@ -123,11 +171,19 @@ export function WorkCalendar() {
               type="button"
               onClick={() => setSelectedDay(isSelected ? null : date)}
               className={`min-h-16 rounded-lg border p-1.5 text-start transition-colors ${
-                isSelected ? 'border-brand bg-brand/10' : minutes > 0 ? 'border-border bg-muted/50 hover:bg-muted' : 'border-border/60 hover:bg-muted/40'
+                isSelected
+                  ? 'border-brand bg-brand/10'
+                  : minutes > 0
+                    ? 'border-border bg-muted/50 hover:bg-muted'
+                    : 'border-border/60 hover:bg-muted/40'
               }`}
             >
               <span className="block text-xs text-muted-foreground">{Number(date.slice(8))}</span>
-              {minutes > 0 ? <span className="block text-xs font-medium text-foreground">{formatHours(minutes)}</span> : null}
+              {minutes > 0 ? (
+                <span className="block text-xs font-medium text-foreground">
+                  {formatHours(minutes)}
+                </span>
+              ) : null}
             </button>
           );
         })}
@@ -141,7 +197,10 @@ export function WorkCalendar() {
           ) : (
             <ul className="divide-y divide-border">
               {dayShifts.map((shift) => (
-                <li key={`${shift.user_id}-${shift.start}`} className="flex items-center justify-between gap-3 py-2 text-sm">
+                <li
+                  key={`${shift.user_id}-${shift.start}`}
+                  className="flex items-center justify-between gap-3 py-2 text-sm"
+                >
                   <span className="min-w-0 flex-1 truncate">{shift.user_name}</span>
                   <span className="shrink-0 text-muted-foreground">
                     {clock(shift.start)} – {shift.end ? clock(shift.end) : t('workLogStillOpen')}
@@ -165,14 +224,19 @@ export function WorkCalendar() {
         ) : (
           <ul className="divide-y divide-border">
             {report.by_staff.map((person) => (
-              <li key={person.user_id} className="flex items-center justify-between gap-3 py-2 text-sm">
+              <li
+                key={person.user_id}
+                className="flex items-center justify-between gap-3 py-2 text-sm"
+              >
                 <span className="min-w-0 flex-1 truncate">{person.user_name}</span>
                 {person.open > 0 ? (
                   <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800">
                     {t('workLogOpenCount', { count: person.open })}
                   </span>
                 ) : null}
-                <span className="w-20 shrink-0 text-end font-medium">{formatHours(person.minutes)}</span>
+                <span className="w-20 shrink-0 text-end font-medium">
+                  {formatHours(person.minutes)}
+                </span>
               </li>
             ))}
           </ul>

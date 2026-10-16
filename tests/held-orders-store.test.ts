@@ -16,6 +16,8 @@ type HeldOrder = {
   customerId: number | string | null;
   guestCount: number;
   orderNotes: string;
+  waivedChargeIds?: string[];
+  optedInChargeIds?: string[];
   heldAt: string;
 };
 
@@ -50,7 +52,15 @@ const serverApi = {
     }
     return response;
   },
-  post: async (url: string, body: { tableId: string; items: HeldOrder['items']; customerId: HeldOrder['customerId']; guestCount: number; orderNotes: string }) => {
+  post: async (url: string, body: {
+    tableId: string;
+    items: HeldOrder['items'];
+    customerId: HeldOrder['customerId'];
+    guestCount: number;
+    orderNotes: string;
+    waivedChargeIds?: string[];
+    optedInChargeIds?: string[];
+  }) => {
     assert.equal(url, '/held-orders');
     const id = `ho-${body.tableId}-${++nextOrderId}`;
     serverOrders.set(body.tableId, {
@@ -60,6 +70,8 @@ const serverApi = {
       customerId: body.customerId,
       guestCount: body.guestCount,
       orderNotes: body.orderNotes,
+      waivedChargeIds: clone(body.waivedChargeIds ?? []),
+      optedInChargeIds: clone(body.optedInChargeIds ?? []),
       heldAt: '2026-08-01T00:00:00.000Z',
     });
     return { data: { success: true, id } };
@@ -95,11 +107,14 @@ const serverApi = {
 // behavior test without requiring a browser or a Next.js runtime.
 Module._load = function (request: string, parent: unknown, isMain: boolean) {
   if (request === '@/lib/api') return serverApi;
+  if (request === '@/lib/cart-identity') return frontendRequire('./src/lib/cart-identity');
+  if (request === '@/lib/cart-price') return frontendRequire('./src/lib/cart-price');
   if (request === 'zustand') return originalLoad.call(this, frontendRequire.resolve('zustand'), parent, isMain);
   return originalLoad.apply(this, arguments as any);
 };
 
 const { createHeldOrdersStore } = require('../frontend/src/store/held-orders');
+const { useCartStore } = require('../frontend/src/store/cart');
 
 function makeHeldOrder(tableId: string): HeldOrder {
   return {
@@ -122,6 +137,17 @@ function makeHeldOrder(tableId: string): HeldOrder {
 async function main() {
   console.log('Held-order client store regression tests (#256)');
   console.log('='.repeat(60));
+
+  useCartStore.getState().clearCart();
+  useCartStore.getState().toggleWaiveCharge('waived');
+  useCartStore.getState().toggleOptedInCharge('opted-in');
+  useCartStore.getState().setOrderType('dine_in');
+  assert.equal(useCartStore.getState().waivedChargeIds.has('waived'), true, 'reselecting the current order type preserves the waiver');
+  assert.equal(useCartStore.getState().optedInChargeIds.has('opted-in'), true, 'reselecting the current order type preserves the opt-in');
+  useCartStore.getState().loadItems([], null, null, 1);
+  assert.deepEqual(Array.from(useCartStore.getState().waivedChargeIds), [], 'loading another order clears the prior order waiver');
+  assert.deepEqual(Array.from(useCartStore.getState().optedInChargeIds), [], 'loading another order clears the prior order opt-in');
+  useCartStore.getState().clearCart();
 
   serverOrders.clear();
   nextOrderId = 0;
@@ -250,6 +276,141 @@ async function main() {
   );
   assert.equal(secondTerminal.getState().hasHeldOrder('table-c'), true, 'delete errors retain the cached order for retry');
   assert.equal(serverOrders.has('table-c'), true, 'delete errors do not consume the server row');
+
+  // ── Charge selections travel with the hold and come back on resume ──────
+  const selectionStore = createHeldOrdersStore(serverApi);
+  const selectionItems = [{
+    id: 'selection-line',
+    product: { id: 'product-selection', name: 'Latte', price: 100 },
+    quantity: 1,
+    addons: [],
+    special_instructions: '',
+  }];
+  await selectionStore.getState().holdOrder(
+    'table-selection', selectionItems, null, 2, 'no sugar', ['service_charge'], ['optional_packing'],
+  );
+  assert.deepEqual(
+    serverOrders.get('table-selection')?.waivedChargeIds,
+    ['service_charge'],
+    'the hold request carries the waived charge ids to the server',
+  );
+  assert.deepEqual(
+    serverOrders.get('table-selection')?.optedInChargeIds,
+    ['optional_packing'],
+    'the hold request carries the opted-in charge ids to the server',
+  );
+  const heldLocally = selectionStore.getState().getHeldOrder('table-selection');
+  assert.deepEqual(heldLocally?.waivedChargeIds, ['service_charge'], 'the local snapshot keeps the waived selection');
+  assert.deepEqual(heldLocally?.optedInChargeIds, ['optional_packing'], 'the local snapshot keeps the opted-in selection');
+
+  const selectionResume = createHeldOrdersStore(serverApi);
+  await selectionResume.getState().fetchHeldOrders();
+  const fetchedSelections = selectionResume.getState().getHeldOrder('table-selection');
+  assert.deepEqual(fetchedSelections?.waivedChargeIds, ['service_charge'], 'a fetched hold exposes the waived selection');
+  assert.deepEqual(fetchedSelections?.optedInChargeIds, ['optional_packing'], 'a fetched hold exposes the opted-in selection');
+  const restoredSelections = await selectionResume.getState().restoreOrder('table-selection');
+  assert.deepEqual(restoredSelections?.waivedChargeIds, ['service_charge'], 'a resumed hold returns the waived selection');
+  assert.deepEqual(restoredSelections?.optedInChargeIds, ['optional_packing'], 'a resumed hold returns the opted-in selection');
+
+  // A hold written by an older build has no selection fields at all.
+  serverOrders.set('table-legacy-selection', makeHeldOrder('table-legacy-selection'));
+  await selectionResume.getState().fetchHeldOrders();
+  const legacySelections = selectionResume.getState().getHeldOrder('table-legacy-selection');
+  assert.deepEqual(legacySelections?.waivedChargeIds, [], 'a legacy hold without selections defaults to empty waivers');
+  assert.deepEqual(legacySelections?.optedInChargeIds, [], 'a legacy hold without selections defaults to empty opt-ins');
+
+  // Overwriting a hold replaces both selections.
+  await selectionStore.getState().holdOrder(
+    'table-selection', selectionItems, null, 2, 'no sugar', [], ['optional_packing', 'gift_wrap'],
+  );
+  await selectionStore.getState().fetchHeldOrders();
+  const overwritten = selectionStore.getState().getHeldOrder('table-selection');
+  assert.deepEqual(overwritten?.waivedChargeIds, [], 'an overwrite clears the waived selection');
+  assert.deepEqual(overwritten?.optedInChargeIds, ['optional_packing', 'gift_wrap'], 'an overwrite replaces the opted-in selection');
+
+  // A failed hold must not replace the cached hold or its selections.
+  const failedHoldStore = createHeldOrdersStore(serverApi);
+  await failedHoldStore.getState().fetchHeldOrders();
+  const beforeFailedHold = failedHoldStore.getState().getHeldOrder('table-selection');
+  const postFailure = new Error('hold rejected');
+  const originalPost = serverApi.post;
+  serverApi.post = async () => { throw postFailure; };
+  await assert.rejects(
+    () => failedHoldStore.getState().holdOrder('table-selection', selectionItems, null, 2, '', ['late_fee'], ['optional_packing']),
+    /hold rejected/,
+    'a failed hold surfaces its error',
+  );
+  serverApi.post = originalPost;
+  assert.deepEqual(
+    failedHoldStore.getState().getHeldOrder('table-selection'),
+    beforeFailedHold,
+    'a failed hold leaves the cached hold and its selections untouched',
+  );
+  console.log('  ✓ held charge selections survive hold, fetch, overwrite, and resume');
+
+  // ── Caller sequencing: a resume that starts on another cart type ────────
+  // The cart store deliberately clears the charge selections on a real
+  // order-type change, so a restore handler must settle the target type before
+  // it installs the saved selections. These assertions pin both orders: the
+  // load-then-switch sequence is the defect the Orders/POS handlers used to
+  // run, and the switch-then-load sequence is the corrected caller contract.
+  const resumeSelections = (store: typeof useCartStore) => {
+    store.getState().loadItems(
+      selectionItems, 'table-sequence', null, 2, 'no sugar', 'held-sequence',
+      ['service_charge'], ['optional_packing'],
+    );
+  };
+
+  useCartStore.getState().clearCart();
+  useCartStore.getState().setOrderType('takeaway');
+  resumeSelections(useCartStore);
+  useCartStore.getState().setOrderType('dine_in');
+  assert.deepEqual(
+    Array.from(useCartStore.getState().waivedChargeIds),
+    [],
+    'loading the saved selections before the type change drops the saved waivers',
+  );
+  assert.deepEqual(
+    Array.from(useCartStore.getState().optedInChargeIds),
+    [],
+    'loading the saved selections before the type change drops the saved opt-ins',
+  );
+
+  for (const startingType of ['takeaway', 'delivery', 'online'] as const) {
+    useCartStore.getState().clearCart();
+    useCartStore.getState().setOrderType(startingType);
+    useCartStore.getState().setOrderType('dine_in');
+    resumeSelections(useCartStore);
+    assert.equal(useCartStore.getState().orderType, 'dine_in', `a ${startingType} cart resumes as dine-in`);
+    assert.deepEqual(
+      Array.from(useCartStore.getState().waivedChargeIds),
+      ['service_charge'],
+      `a resume from ${startingType} keeps the saved waivers`,
+    );
+    assert.deepEqual(
+      Array.from(useCartStore.getState().optedInChargeIds),
+      ['optional_packing'],
+      `a resume from ${startingType} keeps the saved opt-ins`,
+    );
+    assert.equal(useCartStore.getState().tableId, 'table-sequence', `a resume from ${startingType} keeps the table`);
+    assert.equal(useCartStore.getState().heldOrderId, 'held-sequence', `a resume from ${startingType} keeps the held-order identity`);
+    assert.equal(useCartStore.getState().guestCount, 2, `a resume from ${startingType} keeps the guest count`);
+    assert.equal(useCartStore.getState().orderNotes, 'no sugar', `a resume from ${startingType} keeps the notes`);
+  }
+
+  // A legacy hold without selection arrays resumes with empty selections.
+  useCartStore.getState().clearCart();
+  useCartStore.getState().setOrderType('delivery');
+  useCartStore.getState().setOrderType('dine_in');
+  useCartStore.getState().loadItems(selectionItems, 'table-legacy-resume', null, 1, '', 'held-legacy-resume');
+  assert.deepEqual(Array.from(useCartStore.getState().waivedChargeIds), [], 'a legacy resume has no waived charges');
+  assert.deepEqual(Array.from(useCartStore.getState().optedInChargeIds), [], 'a legacy resume has no opted-in charges');
+
+  // A genuine order-type change still resets the selections.
+  useCartStore.getState().setOrderType('delivery');
+  assert.deepEqual(Array.from(useCartStore.getState().waivedChargeIds), [], 'a real type change still resets the waivers');
+  assert.deepEqual(Array.from(useCartStore.getState().optedInChargeIds), [], 'a real type change still resets the opt-ins');
+  console.log('  ✓ a resume from another cart type keeps the saved charge selections');
 
   console.log('\n✅ Held-order client store regression tests passed');
 }

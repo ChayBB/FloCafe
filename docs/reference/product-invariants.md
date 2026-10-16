@@ -111,6 +111,40 @@ changing a shipped default, does not need this entry updated, but does need
 
 ---
 
+## Applied charge snapshots stay with existing orders
+
+**Rule:** Disabling or removing a charge definition affects new orders only. A charge already
+applied to an existing order remains at its stored amount when the order is edited or discounted;
+still-active definitions that apply to the order type continue to recalculate normally. Checkout
+shows every applied charge. Active, applicable definitions control which optional charges staff can
+add, remove, waive, or restore; retained snapshots without an applicable definition remain visible
+but read-only. Amounts remain configured in Settings. Explicit cashier removal and order-type
+conversion keep their existing behavior.
+
+Existing unpaid, unsplit bills with no payments can be adjusted under `bills.discount.apply`.
+
+**Reason:** Changing store settings should not retroactively alter an amount already applied to an
+open order.
+
+**Enforced by:** `main/services/charges.ts` retains applied snapshots for inactive or missing
+definitions; order and bill mutation routes use that resolver. `GET /api/settings/charges` is
+available to staff with `settings.view`, `orders.create`, or `bills.discount.apply`; changing fee
+definitions still requires Settings management permission. `frontend/src/store/cart.ts` clears
+waiver and opt-in choices when loading another order.
+
+**How to verify:**
+
+```sh
+npm run test:charges-engine
+npm run test:held-orders
+npm run test:e2e:browser -- --grep "changing charge decisions after a failed order"
+```
+
+**Change policy:** changing how existing orders retain or recalculate applied charges needs an
+explicit product decision.
+
+---
+
 ## Refunds and Staff Approval PINs
 
 **Rule:** The initial owner creates and confirms a separate 4 to 6 digit Staff Approval PIN during
@@ -264,14 +298,28 @@ tables (`supplies`, `supply_movements`) with a signed ledger, separate from prod
    delivery is logged still goes through the POS. Negative balances are flagged in the UI for
    physical count reconciliation. There is no clamp and no 409.
 2. **Depletion happens at order creation and at item append**, when `recipe_snapshot`, an immutable
-   JSON copy of the scaled recipe components, is written to `order_items`.
-3. **Restoration is keyed off the snapshot, never the current recipe.** Cancelling a pending item
-   or an order restores exactly what the snapshot recorded, even if the recipe was edited since.
+   JSON copy of the scaled recipe components, is written to `order_items`. The scale is
+   `ingredient quantity x ordered quantity x portion / yield_quantity`, where the portion is the
+   ordered variant's `recipe_multiplier`: 1 is one base recipe portion, 0.5 half, 2 double. Parent
+   sales without a variant use a portion of 1, and the portion is scaled from the resolved catalog
+   variant, never from the order payload.
+3. **Restoration is keyed off the snapshot, never the current recipe or portion.** Cancelling a
+   pending item or an order restores exactly what the snapshot recorded, even if the recipe or the
+   variant's portion was edited since. Cancelling a half-portion sale therefore returns half of
+   every ingredient even after the variant was switched to double.
 4. **Void after preparation is physical waste.** Items voided while in progress, ready, or
    completed restore neither supplies nor product stock. Only a `pending` cancel restores.
 5. **Refunds never restore supplies**, matching product inventory behaviour.
 6. **Product stock tracking and recipe depletion are independent** and may both be active on the
-   same product.
+   same product. A variant scales them with two different fields: `recipe_multiplier` scales the
+   product's own ingredient recipe, while `inventory_deduction_quantity` scales the linked product
+   stock pool (`inventory_product_id`). Neither substitutes for the other, and both may move once
+   per sale.
+7. **A portion without a recipe has no effect.** A variant may store a portion while its product has
+   no active recipe. Sales without an active recipe create no recipe snapshot; the portion applies
+   to later sales after a recipe becomes active. Portions must be positive finite numbers; catalog
+   writes and database imports reject invalid supplied values, and recipe snapshot creation rejects
+   an invalid portion before depletion.
 
 **Reason:** POS availability during a stockout matters more than ledger neatness. A store that
 cannot sell because flour has not been counted in yet is worse than a negative row to reconcile
@@ -282,18 +330,24 @@ later. Snapshots keep historical cancellations correct under recipe edits, mirro
 `buildRecipeSnapshot()` and `applyRecipeSnapshot()` in `main/services/recipes.ts`; the order
 creation, item append, item cancel and item restore paths in `main/routes/orders.ts`. Restore acts
 only on a `cancelled` item, re-deducts its inventory and recipe components, and returns it to
-`pending`; a `voided` item is never restored.
+`pending`; a `voided` item is never restored. The portion comes from
+`resolveOrderItemVariant()` in `main/services/product-variants.ts`, the same server-side resolution
+that prices the line, and `buildRecipeSnapshot()` refuses a non-positive or non-finite portion
+before depletion. The migration gives existing variants a default portion of 1 in
+`product_variants.recipe_multiplier`.
 
 **How to verify:**
 
 ```sh
 npm run test:recipe-order-lifecycle   # deplete, restore, void-no-restore, snapshot immutability
 npm run test:supplies-service         # negative stock, ledger, pagination
+npm run test:product-variants-orders  # half / whole / double portions across create, append, void
 ```
 
 **Change policy:** allowing negative stock and snapshot-keyed restoration are the load-bearing
-parts. Clamping stock or restoring from the live recipe would break historical correctness, so
-either needs explicit confirmation.
+parts. Clamping stock or restoring from the live recipe or portion would break historical
+correctness, so either needs explicit confirmation. `inventory_deduction_quantity` keeps its
+linked-product meaning; scaling the ingredient recipe with it would merge two independent pools.
 
 ---
 
@@ -308,8 +362,10 @@ Two consequences follow, and they are separate decisions:
 1. **The delivery slip prints the customer's full phone number and delivery address whenever
    either of the two number settings allows it.** A courier who cannot call the customer, or
    cannot find the house, is the failure this document exists to prevent.
-2. **The receipt keeps masking the customer number**, shortening it to its last four digits. This
-   is privacy hygiene for a page the customer carries away, not an access control.
+2. **Receipt phone masking depends on the renderer.** The backend thermal and browser-HTML paths
+   print the full number. The frontend receipt encoder masks it by default, shortening it to the
+   last four digits. This is privacy hygiene for a page the customer carries away, not an access
+   control.
 
 A delivery document shows the number when **either** setting allows it. `bill_delivery_show
 _customer_phone_always` ships **on**, so out of the box a delivery order and its courier slip show
@@ -323,9 +379,8 @@ The Printers settings panel, under Bill Content, states this beside the toggle i
 and the warning is always present rather than appearing only once the merchant has turned the
 number off.
 
-**Reason:** the masking is inconsistent by construction and never was a boundary. The
-backend-native receipt path and the browser-HTML path both print the full number today, and
-`GET /api/customers` returns every customer's `phone` **and** `address` to any role holding
+**Reason:** masking is inconsistent by construction and never was a boundary. `GET /api/customers`
+returns every customer's `phone` **and** `address` to any role holding
 `customers.view`, whose shipped defaults include `cashier` and `server`. An ordinary cashier can
 therefore already read every customer phone number and address in the shop on one screen, and
 `printing.execute` ships to the same roles. Adding a permission to the slip would close one door
@@ -350,7 +405,7 @@ gated on the same `printing.execute` permission as every other print.
 **How to verify:**
 
 ```sh
-npm run test:delivery-slip   # both settings allow it, receipt still masks, no shared default
+npm run test:delivery-slip   # slip settings and frontend receipt masking stay separate
 ```
 
 A legacy customer address written before the length boundary existed can be any length. The slip

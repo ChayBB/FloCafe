@@ -35,6 +35,7 @@ const { printerRoutes } = require('../main/routes/printers');
 const { kitchenStationRoutes } = require('../main/routes/kitchen-stations');
 const { printReceipt, printReceiptDetailed } = require('../main/printers/thermal');
 const { cloudSync } = require('../main/services/cloud-sync');
+const { printerService } = require('../frontend/src/lib/printer/PrinterService');
 
 let passed = 0;
 let failed = 0;
@@ -50,8 +51,10 @@ function assert(condition: boolean, message: string) {
 }
 
 function isNativeAbiMismatch(error: any): boolean {
-  return error?.code === 'ERR_DLOPEN_FAILED'
-    && String(error?.message || '').includes('NODE_MODULE_VERSION');
+  return (
+    error?.code === 'ERR_DLOPEN_FAILED' &&
+    String(error?.message || '').includes('NODE_MODULE_VERSION')
+  );
 }
 
 try {
@@ -66,15 +69,29 @@ try {
 
 // requirePermission() resolves effective permissions from a real users row
 // keyed by req.user.userId — the token/claim alone is not authoritative.
-getDatabase().prepare(
-  `INSERT OR IGNORE INTO users (id, name, email, password, role, is_active, created_at, updated_at)
-   VALUES ('owner-1', 'Owner', 'owner@flo.local', 'unused', 'owner', 1, ?, ?)`
-).run(now(), now());
+getDatabase()
+  .prepare(
+    `INSERT OR IGNORE INTO users (id, name, email, password, role, is_active, created_at, updated_at)
+   VALUES ('owner-1', 'Owner', 'owner@flo.local', 'unused', 'owner', 1, ?, ?)`,
+  )
+  .run(now(), now());
+
+getDatabase()
+  .prepare(
+    `INSERT OR IGNORE INTO users (id, name, email, password, role, is_active, created_at, updated_at)
+   VALUES ('server-1', 'Server', 'server@flo.local', 'unused', 'server', 1, ?, ?)`,
+  )
+  .run(now(), now());
 
 const app = express();
 app.use(express.json());
+let currentUserId = 'owner-1';
 app.use((req: any, _res: any, next: any) => {
-  req.user = { userId: 'owner-1', email: 'owner@flo.local', role: 'owner' };
+  req.user = {
+    userId: currentUserId,
+    email: currentUserId === 'server-1' ? 'server@flo.local' : 'owner@flo.local',
+    role: currentUserId === 'server-1' ? 'server' : 'owner',
+  };
   next();
 });
 app.use('/api/printers', printerRoutes);
@@ -83,17 +100,65 @@ app.use('/api/kitchen-stations', kitchenStationRoutes);
 const db = getDatabase();
 // Regional settings come from signup, never a fallback; seed one
 // explicitly so resolveRegionalSnapshot() resolves.
-db.prepare(`INSERT INTO settings (key, value, updated_at) VALUES ('country', 'IN', ?) ON CONFLICT(key) DO UPDATE SET value='IN', updated_at=excluded.updated_at`).run(now());
-db.prepare(`INSERT INTO settings (key, value, updated_at) VALUES ('currency', 'INR', ?) ON CONFLICT(key) DO UPDATE SET value='INR', updated_at=excluded.updated_at`).run(now());
-db.prepare(`INSERT INTO settings (key, value, updated_at) VALUES ('timezone', 'Asia/Kolkata', ?) ON CONFLICT(key) DO UPDATE SET value='Asia/Kolkata', updated_at=excluded.updated_at`).run(now());
+db.prepare(
+  `INSERT INTO settings (key, value, updated_at) VALUES ('country', 'IN', ?) ON CONFLICT(key) DO UPDATE SET value='IN', updated_at=excluded.updated_at`,
+).run(now());
+db.prepare(
+  `INSERT INTO settings (key, value, updated_at) VALUES ('currency', 'INR', ?) ON CONFLICT(key) DO UPDATE SET value='INR', updated_at=excluded.updated_at`,
+).run(now());
+db.prepare(
+  `INSERT INTO settings (key, value, updated_at) VALUES ('timezone', 'Asia/Kolkata', ?) ON CONFLICT(key) DO UPDATE SET value='Asia/Kolkata', updated_at=excluded.updated_at`,
+).run(now());
 
 function defaultCount(): number {
-  return (db.prepare('SELECT COUNT(*) AS c FROM printers WHERE is_default = 1').get() as { c: number }).c;
+  return (
+    db.prepare('SELECT COUNT(*) AS c FROM printers WHERE is_default = 1').get() as { c: number }
+  ).c;
 }
 
 function defaultId(): string | undefined {
-  const row = db.prepare('SELECT id FROM printers WHERE is_default = 1 LIMIT 1').get() as { id: string } | undefined;
+  const row = db.prepare('SELECT id FROM printers WHERE is_default = 1 LIMIT 1').get() as
+    | { id: string }
+    | undefined;
   return row?.id;
+}
+
+function makeWebUsbTestDevice(productName: string, vendorId: number) {
+  const sent: number[][] = [];
+  const configuration = {
+    interfaces: [
+      {
+        interfaceNumber: 0,
+        alternates: [
+          {
+            interfaceClass: 0x07,
+            endpoints: [{ type: 'bulk', direction: 'out', endpointNumber: 1 }],
+          },
+        ],
+      },
+    ],
+  };
+  const device: any = {
+    vendorId,
+    productId: 1,
+    productName,
+    manufacturerName: 'Test',
+    serialNumber: String(vendorId),
+    configuration: null,
+    configurations: [configuration],
+    open: async () => {},
+    close: async () => {},
+    selectConfiguration: async () => {
+      device.configuration = configuration;
+    },
+    claimInterface: async () => {},
+    releaseInterface: async () => {},
+    transferOut: async (_endpoint: number, data: ArrayBuffer) => {
+      sent.push(Array.from(new Uint8Array(data)));
+      return { status: 'ok' };
+    },
+  };
+  return { device, sent };
 }
 
 async function runTests() {
@@ -103,7 +168,9 @@ async function runTests() {
   // ── Test 1: first printer becomes the default automatically ────────────
   console.log('\nTest 1: first printer becomes default');
   {
-    const res = await request(app).post('/api/printers').send({ name: 'Kitchen Printer', connection_type: 'usb' });
+    const res = await request(app)
+      .post('/api/printers')
+      .send({ name: 'Kitchen Printer', connection_type: 'usb' });
     assert(res.status === 201, `creating the first printer returns 201 (got ${res.status})`);
     assert(res.body.printer?.is_default === 1, 'the first printer is automatically the default');
     assert(res.body.printer?.cash_drawer_pulse_enabled === 0, 'cash drawer pulse defaults off');
@@ -113,20 +180,37 @@ async function runTests() {
   // ── Test 2: creating a second default clears the previous default ───────
   console.log('\nTest 2: a second default replaces the first');
   {
-    const res = await request(app).post('/api/printers').send({ name: 'Receipt Printer', connection_type: 'usb', is_default: true, cash_drawer_pulse_enabled: true });
+    const res = await request(app).post('/api/printers').send({
+      name: 'Receipt Printer',
+      connection_type: 'usb',
+      is_default: true,
+      cash_drawer_pulse_enabled: true,
+    });
     assert(res.status === 201, `creating a second printer returns 201 (got ${res.status})`);
     assert(res.body.printer?.is_default === 1, 'the explicitly-default printer is default');
-    assert(res.body.printer?.cash_drawer_pulse_enabled === 1, 'cash drawer pulse can be enabled on create');
-    assert(defaultCount() === 1, 'exactly one default printer remains after a new default is created');
+    assert(
+      res.body.printer?.cash_drawer_pulse_enabled === 1,
+      'cash drawer pulse can be enabled on create',
+    );
+    assert(
+      defaultCount() === 1,
+      'exactly one default printer remains after a new default is created',
+    );
   }
 
   // ── Test 2b: concurrent default changes leave exactly one default ───────
   console.log('\nTest 2b: concurrent default changes leave exactly one default');
   {
-    const ids = (db.prepare('SELECT id FROM printers ORDER BY name').all() as { id: string }[]).map((r) => r.id);
-    await Promise.all(ids.map((id) =>
-      request(app).post(`/api/printers/${id}/set-default`).then((r: any) => r.status),
-    ));
+    const ids = (db.prepare('SELECT id FROM printers ORDER BY name').all() as { id: string }[]).map(
+      (r) => r.id,
+    );
+    await Promise.all(
+      ids.map((id) =>
+        request(app)
+          .post(`/api/printers/${id}/set-default`)
+          .then((r: any) => r.status),
+      ),
+    );
     assert(defaultCount() === 1, 'concurrent set-default requests leave exactly one default');
   }
 
@@ -134,19 +218,34 @@ async function runTests() {
   console.log('\nTest 3: PUT validates connection_type and port');
   {
     const printerId = defaultId();
-    const badType = await request(app).put(`/api/printers/${printerId}`).send({ connection_type: 'bluetooth' });
+    const badType = await request(app)
+      .put(`/api/printers/${printerId}`)
+      .send({ connection_type: 'bluetooth' });
     assert(badType.status === 400, `invalid connection_type returns 400 (got ${badType.status})`);
 
     for (const badPort of [0, 65536, -1, 1.5, '9100']) {
       const res = await request(app).put(`/api/printers/${printerId}`).send({ port: badPort });
-      assert(res.status === 400, `invalid port ${JSON.stringify(badPort)} returns 400 (got ${res.status})`);
+      assert(
+        res.status === 400,
+        `invalid port ${JSON.stringify(badPort)} returns 400 (got ${res.status})`,
+      );
     }
 
-    const badDefault = await request(app).put(`/api/printers/${printerId}`).send({ is_default: 'yes' });
-    assert(badDefault.status === 400, `non-boolean is_default returns 400 (got ${badDefault.status})`);
+    const badDefault = await request(app)
+      .put(`/api/printers/${printerId}`)
+      .send({ is_default: 'yes' });
+    assert(
+      badDefault.status === 400,
+      `non-boolean is_default returns 400 (got ${badDefault.status})`,
+    );
 
-    const badDrawerPulse = await request(app).put(`/api/printers/${printerId}`).send({ cash_drawer_pulse_enabled: 'yes' });
-    assert(badDrawerPulse.status === 400, `non-boolean cash_drawer_pulse_enabled returns 400 (got ${badDrawerPulse.status})`);
+    const badDrawerPulse = await request(app)
+      .put(`/api/printers/${printerId}`)
+      .send({ cash_drawer_pulse_enabled: 'yes' });
+    assert(
+      badDrawerPulse.status === 400,
+      `non-boolean cash_drawer_pulse_enabled returns 400 (got ${badDrawerPulse.status})`,
+    );
   }
 
   // ── Test 4: PUT keeps omitted fields, applies explicit values ───────────
@@ -155,30 +254,48 @@ async function runTests() {
     const printerId = defaultId();
     await request(app).put(`/api/printers/${printerId}`).send({ cash_drawer_pulse_enabled: true });
     const before = db.prepare('SELECT * FROM printers WHERE id = ?').get(printerId) as any;
-    const res = await request(app).put(`/api/printers/${printerId}`).send({ name: 'Renamed Printer' });
+    const res = await request(app)
+      .put(`/api/printers/${printerId}`)
+      .send({ name: 'Renamed Printer' });
     assert(res.status === 200, `updating only the name returns 200 (got ${res.status})`);
     const after = db.prepare('SELECT * FROM printers WHERE id = ?').get(printerId) as any;
     assert(after.name === 'Renamed Printer', 'the explicit name is applied');
-    assert(after.connection_type === before.connection_type, 'omitted connection_type keeps the existing value');
+    assert(
+      after.connection_type === before.connection_type,
+      'omitted connection_type keeps the existing value',
+    );
     assert(after.port === before.port, 'omitted port keeps the existing value');
-    assert(after.cash_drawer_pulse_enabled === 1, 'omitted cash drawer pulse keeps the existing value');
+    assert(
+      after.cash_drawer_pulse_enabled === 1,
+      'omitted cash drawer pulse keeps the existing value',
+    );
 
     const clearIp = await request(app).put(`/api/printers/${printerId}`).send({ ip_address: null });
     assert(clearIp.status === 200, `explicit null ip_address is accepted (got ${clearIp.status})`);
     const afterClear = db.prepare('SELECT * FROM printers WHERE id = ?').get(printerId) as any;
     assert(afterClear.ip_address === null, 'explicit null ip_address clears the stored value');
 
-    const disablePulse = await request(app).put(`/api/printers/${printerId}`).send({ cash_drawer_pulse_enabled: false });
-    assert(disablePulse.status === 200, `explicit false cash drawer pulse is accepted (got ${disablePulse.status})`);
+    const disablePulse = await request(app)
+      .put(`/api/printers/${printerId}`)
+      .send({ cash_drawer_pulse_enabled: false });
+    assert(
+      disablePulse.status === 200,
+      `explicit false cash drawer pulse is accepted (got ${disablePulse.status})`,
+    );
     const afterDisable = db.prepare('SELECT * FROM printers WHERE id = ?').get(printerId) as any;
-    assert(afterDisable.cash_drawer_pulse_enabled === 0, 'explicit false disables cash drawer pulse');
+    assert(
+      afterDisable.cash_drawer_pulse_enabled === 0,
+      'explicit false disables cash drawer pulse',
+    );
   }
 
   // ── Test 5: unsetting the default picks a replacement ───────────────────
   console.log('\nTest 5: unsetting the default picks a replacement');
   {
     const currentDefault = defaultId();
-    const res = await request(app).put(`/api/printers/${currentDefault}`).send({ is_default: false });
+    const res = await request(app)
+      .put(`/api/printers/${currentDefault}`)
+      .send({ is_default: false });
     assert(res.status === 200, `unsetting the default returns 200 (got ${res.status})`);
     assert(defaultCount() === 1, 'a replacement default is chosen');
     assert(defaultId() !== currentDefault, 'the replacement is a different printer');
@@ -200,29 +317,59 @@ async function runTests() {
     const onlyDefault = defaultId();
     assert(onlyDefault !== undefined, 'one printer remains and is default');
     const refused = await request(app).delete(`/api/printers/${onlyDefault}`);
-    assert(refused.status === 409, `deleting the only default printer is refused (got ${refused.status})`);
+    assert(
+      refused.status === 409,
+      `deleting the only default printer is refused (got ${refused.status})`,
+    );
   }
 
   // ── Test 7: kitchen stations validate printer identifiers ───────────────
   console.log('\nTest 7: kitchen stations validate printer identifiers');
   {
     const printerId = defaultId();
-    const emptyCreate = await request(app).post('/api/kitchen-stations').send({ name: 'Grill', printer_id: '' });
-    assert(emptyCreate.status === 400, `create with empty printer_id returns 400 (got ${emptyCreate.status})`);
+    const emptyCreate = await request(app)
+      .post('/api/kitchen-stations')
+      .send({ name: 'Grill', printer_id: '' });
+    assert(
+      emptyCreate.status === 400,
+      `create with empty printer_id returns 400 (got ${emptyCreate.status})`,
+    );
 
-    const missingCreate = await request(app).post('/api/kitchen-stations').send({ name: 'Grill', printer_id: 'missing-printer' });
-    assert(missingCreate.status === 400, `create with unknown printer_id returns 400 (got ${missingCreate.status})`);
+    const missingCreate = await request(app)
+      .post('/api/kitchen-stations')
+      .send({ name: 'Grill', printer_id: 'missing-printer' });
+    assert(
+      missingCreate.status === 400,
+      `create with unknown printer_id returns 400 (got ${missingCreate.status})`,
+    );
 
-    const okCreate = await request(app).post('/api/kitchen-stations').send({ name: 'Grill', printer_id: printerId });
-    assert(okCreate.status === 201, `create with a valid printer_id returns 201 (got ${okCreate.status})`);
+    const okCreate = await request(app)
+      .post('/api/kitchen-stations')
+      .send({ name: 'Grill', printer_id: printerId });
+    assert(
+      okCreate.status === 201,
+      `create with a valid printer_id returns 201 (got ${okCreate.status})`,
+    );
     const stationId = okCreate.body.kitchenStation.id;
 
-    const emptyUpdate = await request(app).put(`/api/kitchen-stations/${stationId}`).send({ printer_id: '' });
-    assert(emptyUpdate.status === 400, `update with empty printer_id returns 400 (got ${emptyUpdate.status})`);
+    const emptyUpdate = await request(app)
+      .put(`/api/kitchen-stations/${stationId}`)
+      .send({ printer_id: '' });
+    assert(
+      emptyUpdate.status === 400,
+      `update with empty printer_id returns 400 (got ${emptyUpdate.status})`,
+    );
 
-    const clearUpdate = await request(app).put(`/api/kitchen-stations/${stationId}`).send({ printer_id: null });
-    assert(clearUpdate.status === 200, `update with explicit null printer_id clears the assignment (got ${clearUpdate.status})`);
-    const cleared = db.prepare('SELECT printer_id FROM kitchen_stations WHERE id = ?').get(stationId) as any;
+    const clearUpdate = await request(app)
+      .put(`/api/kitchen-stations/${stationId}`)
+      .send({ printer_id: null });
+    assert(
+      clearUpdate.status === 200,
+      `update with explicit null printer_id clears the assignment (got ${clearUpdate.status})`,
+    );
+    const cleared = db
+      .prepare('SELECT printer_id FROM kitchen_stations WHERE id = ?')
+      .get(stationId) as any;
     assert(cleared?.printer_id === null, 'the cleared station has a null printer_id');
   }
 
@@ -233,72 +380,138 @@ async function runTests() {
     db.prepare('DELETE FROM printers').run();
 
     // Create a dummy order, order item, and bill
-    const orderRes = db.prepare(
-      `INSERT INTO orders (order_number, status, type, subtotal, total, created_at, updated_at)
-       VALUES ('ORD-PREVIEW-1', 'completed', 'dine_in', 100, 100, datetime('now'), datetime('now'))`
-    ).run();
+    const orderRes = db
+      .prepare(
+        `INSERT INTO orders (order_number, status, type, subtotal, total, created_at, updated_at)
+       VALUES ('ORD-PREVIEW-1', 'completed', 'dine_in', 100, 100, datetime('now'), datetime('now'))`,
+      )
+      .run();
     const orderId = Number(orderRes.lastInsertRowid);
 
     db.prepare(
       `INSERT INTO order_items (order_id, product_id, product_name, unit_price, quantity, subtotal, total, created_at, updated_at)
-       VALUES (?, 'prod-preview-1', 'Espresso', 100, 1, 100, 100, datetime('now'), datetime('now'))`
+       VALUES (?, 'prod-preview-1', 'Espresso', 100, 1, 100, 100, datetime('now'), datetime('now'))`,
     ).run(orderId);
 
-    const billRes = db.prepare(
-      `INSERT INTO bills (bill_number, order_id, subtotal, total, balance, payment_status, created_at, updated_at)
-       VALUES ('BILL-PREVIEW-1', ?, 100, 100, 100, 'paid', datetime('now'), datetime('now'))`
-    ).run(orderId);
+    const billRes = db
+      .prepare(
+        `INSERT INTO bills (bill_number, order_id, subtotal, total, balance, payment_status, created_at, updated_at)
+       VALUES ('BILL-PREVIEW-1', ?, 100, 100, 100, 'paid', datetime('now'), datetime('now'))`,
+      )
+      .run(orderId);
     const billId = Number(billRes.lastInsertRowid);
 
     // Preview request should succeed with fallback 80mm preview format
-    const previewRes = await request(app).post('/api/printers/print-bill').send({ billId, preview: true });
-    assert(previewRes.status === 200, `preview generation with 0 printers succeeds (got ${previewRes.status})`);
-    assert(previewRes.body.columns === 42 || previewRes.body.columns === 48, `preview generation returns valid 80mm columns (got ${previewRes.body.columns})`);
-    assert(typeof previewRes.body.text === 'string' && previewRes.body.text.length > 0, 'preview contains formatted receipt text');
+    const previewRes = await request(app)
+      .post('/api/printers/print-bill')
+      .send({ billId, preview: true });
+    assert(
+      previewRes.status === 200,
+      `preview generation with 0 printers succeeds (got ${previewRes.status})`,
+    );
+    assert(
+      previewRes.body.columns === 42 || previewRes.body.columns === 48,
+      `preview generation returns valid 80mm columns (got ${previewRes.body.columns})`,
+    );
+    assert(
+      typeof previewRes.body.text === 'string' && previewRes.body.text.length > 0,
+      'preview contains formatted receipt text',
+    );
 
-    db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('currency', 'xxx', ?)").run(now());
-    const arbitraryCurrencyPreview = await request(app).post('/api/printers/print-bill').send({ billId, preview: true });
-    assert(arbitraryCurrencyPreview.status === 200, `preview accepts a syntactically valid arbitrary currency code (got ${arbitraryCurrencyPreview.status})`);
-    assert(arbitraryCurrencyPreview.body.text.includes('XXX'), 'route preview emits the arbitrary currency code as ASCII');
-    db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('currency', 'INR', ?)").run(now());
+    db.prepare(
+      "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('currency', 'xxx', ?)",
+    ).run(now());
+    const arbitraryCurrencyPreview = await request(app)
+      .post('/api/printers/print-bill')
+      .send({ billId, preview: true });
+    assert(
+      arbitraryCurrencyPreview.status === 200,
+      `preview accepts a syntactically valid arbitrary currency code (got ${arbitraryCurrencyPreview.status})`,
+    );
+    assert(
+      arbitraryCurrencyPreview.body.text.includes('XXX'),
+      'route preview emits the arbitrary currency code as ASCII',
+    );
+    db.prepare(
+      "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('currency', 'INR', ?)",
+    ).run(now());
 
     // Real hardware print request without preview should still reject with 400
-    const realPrintRes = await request(app).post('/api/printers/print-bill').send({ billId, preview: false });
-    assert(realPrintRes.status === 400, `direct hardware print with 0 printers fails with 400 (got ${realPrintRes.status})`);
-    assert(realPrintRes.body.error === 'No default printer configured. Add a printer in Settings.', 'proper error message returned');
+    const realPrintRes = await request(app)
+      .post('/api/printers/print-bill')
+      .send({ billId, preview: false });
+    assert(
+      realPrintRes.status === 400,
+      `direct hardware print with 0 printers fails with 400 (got ${realPrintRes.status})`,
+    );
+    assert(
+      realPrintRes.body.error === 'No default printer configured. Add a printer in Settings.',
+      'proper error message returned',
+    );
 
     // Direct call to printReceipt with 0 printers should fail fast without attempting dispatch
-    const directPrintRes = await printReceipt({ order_number: 'ORD-PREVIEW-1', items: [] }, { bill_number: 'BILL-PREVIEW-1' });
-    assert(directPrintRes.ok === false && directPrintRes.detail === 'No printer configured', 'direct printReceipt without printers fails fast');
+    const directPrintRes = await printReceipt(
+      { order_number: 'ORD-PREVIEW-1', items: [] },
+      { bill_number: 'BILL-PREVIEW-1' },
+    );
+    assert(
+      directPrintRes.ok === false && directPrintRes.detail === 'No printer configured',
+      'direct printReceipt without printers fails fast',
+    );
   }
 
   // ── Test 8b: print-bill synthesizes an unpaid slip from orderId alone ───
   console.log('\nTest 8b: print-bill for an order with no bill yet (tableside "punch" slip)');
   {
     // Printers table is still empty from Test 8.
-    const orderRes = db.prepare(
-      `INSERT INTO orders (order_number, status, type, subtotal, tax_amount, total, created_at, updated_at)
-       VALUES ('ORD-NOBILL-1', 'pending', 'dine_in', 200, 0, 200, datetime('now'), datetime('now'))`
-    ).run();
+    const orderRes = db
+      .prepare(
+        `INSERT INTO orders (order_number, status, type, subtotal, tax_amount, total, created_at, updated_at)
+       VALUES ('ORD-NOBILL-1', 'pending', 'dine_in', 200, 0, 200, datetime('now'), datetime('now'))`,
+      )
+      .run();
     const orderId = Number(orderRes.lastInsertRowid);
 
     db.prepare(
       `INSERT INTO order_items (order_id, product_id, product_name, unit_price, quantity, subtotal, total, created_at, updated_at)
-       VALUES (?, 'prod-nobill-1', 'Latte', 100, 2, 200, 200, datetime('now'), datetime('now'))`
+       VALUES (?, 'prod-nobill-1', 'Latte', 100, 2, 200, 200, datetime('now'), datetime('now'))`,
     ).run(orderId);
 
-    const previewRes = await request(app).post('/api/printers/print-bill').send({ orderId, preview: true });
-    assert(previewRes.status === 200, `preview for an unbilled order succeeds (got ${previewRes.status})`);
-    assert(typeof previewRes.body.text === 'string' && previewRes.body.text.includes('200'), 'preview reflects the order total (qty 2 x 100)');
+    const previewRes = await request(app)
+      .post('/api/printers/print-bill')
+      .send({ orderId, preview: true });
+    assert(
+      previewRes.status === 200,
+      `preview for an unbilled order succeeds (got ${previewRes.status})`,
+    );
+    assert(
+      typeof previewRes.body.text === 'string' && previewRes.body.text.includes('200'),
+      'preview reflects the order total (qty 2 x 100)',
+    );
 
-    const realPrintRes = await request(app).post('/api/printers/print-bill').send({ orderId, preview: false });
-    assert(realPrintRes.status === 400, `direct print for an unbilled order still requires a configured printer (got ${realPrintRes.status})`);
+    const realPrintRes = await request(app)
+      .post('/api/printers/print-bill')
+      .send({ orderId, preview: false });
+    assert(
+      realPrintRes.status === 400,
+      `direct print for an unbilled order still requires a configured printer (got ${realPrintRes.status})`,
+    );
 
-    const missingOrderRes = await request(app).post('/api/printers/print-bill').send({ orderId: 999999, preview: true });
-    assert(missingOrderRes.status === 404, `unknown orderId with no bill returns 404 (got ${missingOrderRes.status})`);
+    const missingOrderRes = await request(app)
+      .post('/api/printers/print-bill')
+      .send({ orderId: 999999, preview: true });
+    assert(
+      missingOrderRes.status === 404,
+      `unknown orderId with no bill returns 404 (got ${missingOrderRes.status})`,
+    );
 
-    const conflictingRes = await request(app).post('/api/printers/print-bill').send({ billId: 1, orderId, preview: true });
-    assert(conflictingRes.status === 400, `conflicting billId and orderId together are rejected (got ${conflictingRes.status})`);
+    const conflictingRes = await request(app)
+      .post('/api/printers/print-bill')
+      .send({ billId: 1, orderId, preview: true });
+    assert(
+      conflictingRes.status === 400,
+      `conflicting billId and orderId together are rejected (got ${conflictingRes.status})`,
+    );
   }
 
   // ── Test 9: unsupported financial rows refuse before transport ──────────
@@ -308,42 +521,64 @@ async function runTests() {
     let transportBytes = 0;
     const transportServer = net.createServer((socket) => {
       transportConnections++;
-      socket.on('data', (chunk) => { transportBytes += chunk.length; });
+      socket.on('data', (chunk) => {
+        transportBytes += chunk.length;
+      });
     });
     await new Promise<void>((resolve, reject) => {
       transportServer.once('error', reject);
       transportServer.listen(0, '127.0.0.1', () => resolve());
     });
     const transportAddress = transportServer.address();
-    const transportPort = typeof transportAddress === 'object' && transportAddress ? transportAddress.port : 0;
+    const transportPort =
+      typeof transportAddress === 'object' && transportAddress ? transportAddress.port : 0;
     const printerRes = await request(app).post('/api/printers').send({
       name: 'Safety Network Printer',
       connection_type: 'network',
       ip_address: '127.0.0.1',
       port: transportPort,
     });
-    assert(printerRes.status === 201, `safety printer fixture is created (got ${printerRes.status})`);
+    assert(
+      printerRes.status === 201,
+      `safety printer fixture is created (got ${printerRes.status})`,
+    );
 
-    const deliveryOrderRes = db.prepare(
-      `INSERT INTO orders (order_number, status, type, subtotal, total, created_at, updated_at)
-       VALUES ('ORD-UNSUPPORTED-SLIP', 'completed', 'delivery', 11, 11, datetime('now'), datetime('now'))`
-    ).run();
+    const deliveryOrderRes = db
+      .prepare(
+        `INSERT INTO orders (order_number, status, type, subtotal, total, created_at, updated_at)
+       VALUES ('ORD-UNSUPPORTED-SLIP', 'completed', 'delivery', 11, 11, datetime('now'), datetime('now'))`,
+      )
+      .run();
     const deliveryOrderId = Number(deliveryOrderRes.lastInsertRowid);
     db.prepare(
       `INSERT INTO order_items (order_id, product_id, product_name, unit_price, quantity, subtotal, total, created_at, updated_at)
-       VALUES (?, 'prod-unsupported-slip', 'Tea', 11, 1, 11, 11, datetime('now'), datetime('now'))`
+       VALUES (?, 'prod-unsupported-slip', 'Tea', 11, 1, 11, 11, datetime('now'), datetime('now'))`,
     ).run(deliveryOrderId);
     db.prepare(
       `INSERT INTO bills (bill_number, order_id, subtotal, total, paid_amount, balance, payment_status, payment_details, created_at, updated_at)
-       VALUES ('BILL-UNSUPPORTED-SLIP', ?, 11, 11, 11, 0, 'paid', ?, datetime('now'), datetime('now'))`
+       VALUES ('BILL-UNSUPPORTED-SLIP', ?, 11, 11, 11, 0, 'paid', ?, datetime('now'), datetime('now'))`,
     ).run(deliveryOrderId, JSON.stringify([{ method: 'کارت', amount: 11 }]));
 
-    const deliverySlipRes = await request(app).post('/api/printers/print-delivery-slip').send({ orderId: deliveryOrderId });
-    assert(deliverySlipRes.status === 502, `unsupported delivery-slip financial text is refused (got ${deliverySlipRes.status})`);
-    assert(deliverySlipRes.body.failure_class === 'unsupported', 'delivery-slip refusal is classified as unsupported');
-    assert(deliverySlipRes.body.detail?.startsWith('Receipt not printed: a financial row'), 'delivery-slip refusal includes the operator warning');
+    const deliverySlipRes = await request(app)
+      .post('/api/printers/print-delivery-slip')
+      .send({ orderId: deliveryOrderId });
+    assert(
+      deliverySlipRes.status === 502,
+      `unsupported delivery-slip financial text is refused (got ${deliverySlipRes.status})`,
+    );
+    assert(
+      deliverySlipRes.body.failure_class === 'unsupported',
+      'delivery-slip refusal is classified as unsupported',
+    );
+    assert(
+      deliverySlipRes.body.detail?.startsWith('Receipt not printed: a financial row'),
+      'delivery-slip refusal includes the operator warning',
+    );
     await new Promise<void>((resolve) => setImmediate(resolve));
-    assert(transportConnections === 0 && transportBytes === 0, 'unsupported delivery-slip refusal opens no transport or sends bytes');
+    assert(
+      transportConnections === 0 && transportBytes === 0,
+      'unsupported delivery-slip refusal opens no transport or sends bytes',
+    );
 
     const printArgs = [
       {
@@ -370,19 +605,246 @@ async function runTests() {
     const result = await printReceipt(...printArgs);
     assert(result.ok === false, 'unsupported financial receipt is refused');
     assert(result.failureClass === 'unsupported', 'refusal is classified as unsupported');
-    assert(result.detail?.startsWith('Receipt not printed: a financial row'), 'refusal gives an explicit operator warning');
-    assert(result.warnings?.some((warning: any) => warning.kind === 'financial'), 'refusal returns the financial warning');
+    assert(
+      result.detail?.startsWith('Receipt not printed: a financial row'),
+      'refusal gives an explicit operator warning',
+    );
+    assert(
+      result.warnings?.some((warning: any) => warning.kind === 'financial'),
+      'refusal returns the financial warning',
+    );
     await new Promise<void>((resolve) => setImmediate(resolve));
-    assert(transportConnections === 0 && transportBytes === 0, 'unsupported financial refusal opens no transport or sends bytes');
+    assert(
+      transportConnections === 0 && transportBytes === 0,
+      'unsupported financial refusal opens no transport or sends bytes',
+    );
 
-    const originalReportDiagnostic = cloudSync.reportDiagnostic;
+    const originalCaptureOperationFailure = cloudSync.captureOperationFailure;
     let diagnostic: any;
-    cloudSync.reportDiagnostic = (input: any) => { diagnostic = input; };
+    cloudSync.captureOperationFailure = (input: any) => {
+      diagnostic = input;
+    };
     const detailed = await printReceiptDetailed(...printArgs);
-    cloudSync.reportDiagnostic = originalReportDiagnostic;
-    assert(detailed.stage === 'prepare', 'unsupported financial refusal is reported at prepare stage');
-    assert(diagnostic?.message === 'Receipt not printed: unsupported financial row', 'diagnostic message omits receipt row text');
-    await new Promise<void>((resolve, reject) => transportServer.close((error) => error ? reject(error) : resolve()));
+    cloudSync.captureOperationFailure = originalCaptureOperationFailure;
+    assert(
+      detailed.stage === 'prepare',
+      'unsupported financial refusal is reported at prepare stage',
+    );
+    assert(
+      diagnostic?.capture_point === 'fc.backend.printer.receipt.queue',
+      'printer failures use the registered receipt capture point',
+    );
+    assert(
+      diagnostic?.outcome === 'not_applied',
+      'a prepare-stage printer refusal confirms no print was applied',
+    );
+    assert(
+      diagnostic?.facts?.kind === 'receipt',
+      'the capture identifies only the bounded receipt kind',
+    );
+    assert(
+      diagnostic?.facts?.failure_class === 'unsupported',
+      'the capture includes the safe printer failure class',
+    );
+    assert(
+      !JSON.stringify(diagnostic).includes('کافه'),
+      'no receipt text enters the automatic diagnostic capture',
+    );
+    await new Promise<void>((resolve, reject) =>
+      transportServer.close((error) => (error ? reject(error) : resolve())),
+    );
+  }
+
+  // ── Test 10: hardware actions (kick-drawer and test-active) ─────────────
+  console.log('\nTest 10: hardware actions (kick-drawer and test-active)');
+  {
+    const webusbRes = await request(app).post('/api/printers').send({
+      name: 'Counter WebUSB Printer',
+      connection_type: 'webusb',
+      is_default: true,
+    });
+    assert(
+      webusbRes.status === 201,
+      `creating WebUSB printer returns 201 (got ${webusbRes.status})`,
+    );
+
+    currentUserId = 'server-1';
+    const serverPrintersRes = await request(app).get('/api/printers');
+    assert(serverPrintersRes.status === 200, 'printing.execute can read default printer readiness');
+    assert(
+      Array.isArray(serverPrintersRes.body.printers) &&
+        serverPrintersRes.body.printers.length === 1 &&
+        serverPrintersRes.body.printers[0].id === webusbRes.body.printer.id &&
+        serverPrintersRes.body.printers[0].name === 'Counter WebUSB Printer' &&
+        serverPrintersRes.body.printers[0].connection_type === 'webusb' &&
+        serverPrintersRes.body.printers[0].is_default === 1 &&
+        serverPrintersRes.body.printers[0].readiness_state === 'configured' &&
+        Object.keys(serverPrintersRes.body.printers[0]).sort().join(',') ===
+          'connection_type,id,is_default,name,readiness_state',
+      'printing.execute receives only default-printer readiness fields',
+    );
+
+    const deniedKickRes = await request(app).post('/api/printers/kick-drawer');
+    assert(deniedKickRes.status === 403, 'printing.execute alone cannot kick the cash drawer');
+
+    const serverTestActiveRes = await request(app).post('/api/printers/test-active');
+    assert(serverTestActiveRes.status === 200, 'printing.execute can test the active printer');
+    assert(serverTestActiveRes.body.webusb === true, 'server test print selects WebUSB default');
+
+    currentUserId = 'owner-1';
+    const ownerPrintersRes = await request(app).get('/api/printers');
+    assert(
+      ownerPrintersRes.body.printers.length > 1,
+      'printers.manage can still read the full printer list',
+    );
+
+    const noShiftKickRes = await request(app).post('/api/printers/kick-drawer');
+    assert(
+      noShiftKickRes.status === 409 && noShiftKickRes.body.error === 'open_cash_shift_required',
+      'kick-drawer requires an open cash shift',
+    );
+    db.prepare(`
+      INSERT INTO cash_sessions (opened_by, opened_by_name, opened_at, opening_float_cents, status)
+      VALUES ('owner-1', 'Owner', ?, 0, 'open')
+    `).run(now());
+
+    const kickRes = await request(app).post('/api/printers/kick-drawer');
+    assert(
+      kickRes.status === 200,
+      `kick-drawer returns 200 for WebUSB printer (got ${kickRes.status})`,
+    );
+    assert(kickRes.body.webusb === true, 'kick-drawer reports webusb: true');
+    assert(
+      kickRes.body.printerName === 'Counter WebUSB Printer',
+      'kick-drawer identifies its selected printer',
+    );
+    assert(Array.isArray(kickRes.body.bytes), 'kick-drawer returns pulse byte array');
+    assert(
+      kickRes.body.bytes[0] === 0x1b && kickRes.body.bytes[1] === 0x70,
+      'kick-drawer returns standard ESC p bytes',
+    );
+
+    const testActiveRes = await request(app).post('/api/printers/test-active');
+    assert(
+      testActiveRes.status === 200,
+      `test-active returns 200 for WebUSB printer (got ${testActiveRes.status})`,
+    );
+    assert(testActiveRes.body.webusb === true, 'test-active reports webusb: true');
+    assert(
+      testActiveRes.body.printerName === 'Counter WebUSB Printer',
+      'test-active identifies its selected printer',
+    );
+    assert(
+      Array.isArray(testActiveRes.body.bytes) && testActiveRes.body.bytes.length > 0,
+      'test-active returns test page byte array',
+    );
+
+    const unavailableServer = net.createServer();
+    await new Promise<void>((resolve, reject) => {
+      unavailableServer.once('error', reject);
+      unavailableServer.listen(0, '127.0.0.1', resolve);
+    });
+    const unavailablePort = (unavailableServer.address() as net.AddressInfo).port;
+    await new Promise<void>((resolve, reject) => {
+      unavailableServer.close((error) => (error ? reject(error) : resolve()));
+    });
+    const networkPrinterRes = await request(app).post('/api/printers').send({
+      name: 'Unavailable local printer',
+      connection_type: 'network',
+      ip_address: '127.0.0.1',
+      port: unavailablePort,
+      is_default: true,
+    });
+    assert(networkPrinterRes.status === 201, 'unavailable network printer fixture is configured');
+
+    const failedTestPrintRes = await request(app).post('/api/printers/test-active');
+    const failedTestPrintBody = JSON.stringify(failedTestPrintRes.body);
+    assert(
+      failedTestPrintRes.status === 502 &&
+        failedTestPrintRes.body.error === 'Test print failed' &&
+        !('detail' in failedTestPrintRes.body) &&
+        !failedTestPrintBody.includes('127.0.0.1') &&
+        !failedTestPrintBody.includes(String(unavailablePort)),
+      'test-active hides network details when printing fails',
+    );
+
+    const failedKickRes = await request(app).post('/api/printers/kick-drawer');
+    const failedKickBody = JSON.stringify(failedKickRes.body);
+    assert(
+      failedKickRes.status === 502 &&
+        failedKickRes.body.error === 'Cash drawer kick failed' &&
+        !('detail' in failedKickRes.body) &&
+        !failedKickBody.includes('127.0.0.1') &&
+        !failedKickBody.includes(String(unavailablePort)),
+      'kick-drawer hides network details when pulsing fails',
+    );
+
+    db.prepare('PRAGMA ignore_check_constraints = ON').run();
+    db.prepare("UPDATE printers SET connection_type = 'serial' WHERE is_default = 1").run();
+    const unsupportedKickRes = await request(app).post('/api/printers/kick-drawer');
+    assert(
+      unsupportedKickRes.status === 400 &&
+        unsupportedKickRes.body.error === 'Unsupported printer connection type',
+      'kick-drawer returns 400 for unsupported printer connection type',
+    );
+    const unsupportedActiveRes = await request(app).post('/api/printers/test-active');
+    assert(
+      unsupportedActiveRes.status === 400 &&
+        unsupportedActiveRes.body.error === 'Unsupported printer connection type',
+      'test-active returns 400 for unsupported printer connection type',
+    );
+    db.prepare("UPDATE printers SET connection_type = 'network' WHERE is_default = 1").run();
+    db.prepare('PRAGMA ignore_check_constraints = OFF').run();
+
+    const deviceA = makeWebUsbTestDevice('Printer A', 1);
+    const deviceB = makeWebUsbTestDevice('Counter WebUSB Printer', 2);
+    const devices = [deviceA.device, deviceB.device];
+    const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: {
+        usb: {
+          getDevices: async () => devices,
+          addEventListener: () => {},
+          removeEventListener: () => {},
+        },
+      },
+    });
+
+    try {
+      await printerService.printToConfiguredDevice(
+        Uint8Array.from(testActiveRes.body.bytes),
+        testActiveRes.body.printerName,
+      );
+      assert(
+        deviceA.sent.length === 0,
+        'WebUSB test action does not write to the first granted device',
+      );
+      assert(
+        deviceB.sent.length === 1,
+        'WebUSB test action writes to the configured default device',
+      );
+
+      devices.push(makeWebUsbTestDevice('Counter WebUSB Printer', 3).device);
+      let rejectedAmbiguousDevice = false;
+      try {
+        await printerService.printToConfiguredDevice(
+          Uint8Array.from(kickRes.body.bytes),
+          kickRes.body.printerName,
+        );
+      } catch {
+        rejectedAmbiguousDevice = true;
+      }
+      assert(rejectedAmbiguousDevice, 'WebUSB action refuses an ambiguous device match');
+      assert(deviceB.sent.length === 1, 'ambiguous WebUSB match sends no drawer pulse');
+    } finally {
+      await printerService.disconnect();
+      if (originalNavigator) {
+        Object.defineProperty(globalThis, 'navigator', originalNavigator);
+      } else {
+        delete (globalThis as any).navigator;
+      }
+    }
   }
 
   console.log('\n' + '='.repeat(50));
@@ -396,7 +858,9 @@ async function runTests() {
 
 runTests().catch((error: Error) => {
   console.error(error);
-  try { closeDatabase(); } catch { }
+  try {
+    closeDatabase();
+  } catch {}
   Module._load = originalLoad;
   fs.rmSync(testDir, { recursive: true, force: true });
   process.exit(1);

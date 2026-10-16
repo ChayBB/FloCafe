@@ -1,17 +1,32 @@
 import { test, expect } from '@playwright/test';
 import { E2E_BASE_URL as BASE } from './helpers/urls';
-import { E2E_PASSWORD, getE2eToken } from './helpers/test-auth';
+import { E2E_PASSWORD, getE2eToken, readOrdersLayout, setOrdersLayout, type E2EOrdersLayout } from './helpers/test-auth';
+
+// #639 made the Orders screen default to the master/detail split view, so this
+// spec pins the classic cards grid before driving OrderCard affordances. The
+// evidence for why lives in frontend/e2e/orders-master-detail.spec.ts.
+let ordersLayoutBefore: E2EOrdersLayout = 'split';
+
+test.beforeEach(async ({ page }) => {
+  ordersLayoutBefore = await readOrdersLayout(page);
+  await setOrdersLayout(page, 'cards');
+});
+
+test.afterEach(async ({ page }) => {
+  await setOrdersLayout(page, ordersLayoutBefore);
+});
 
 test('Orders page browser printing shows unpaid collection and settled payment details', async ({ page }) => {
   const token = getE2eToken('e2e-manager', 'manager@flo.local', 'manager');
   const headers = { Authorization: `Bearer ${token}` };
-  const createDeliveryOrder = async (note: string) => {
+  const createDeliveryOrder = async (note: string, deliveryDetails: Record<string, string> = {}) => {
     const response = await page.request.post(`${BASE}/api/orders`, {
       headers,
       data: {
         type: 'delivery',
         special_instructions: note,
         delivery_address: '42 Delivery Lane',
+        ...deliveryDetails,
         items: [{ product_id: 'e2e-product', quantity: 1 }],
       },
     });
@@ -19,8 +34,11 @@ test('Orders page browser printing shows unpaid collection and settled payment d
     return (await response.json()).order as { id: number; order_number: string; total: number };
   };
 
-  const unpaidOrder = await createDeliveryOrder('Unpaid delivery note');
-  const paidOrder = await createDeliveryOrder('Paid delivery note');
+  const unpaidOrder = await createDeliveryOrder('Unpaid delivery note', {
+    expected_payment_method: 'cash',
+    delivery_note: 'Ring the side gate',
+  });
+  const paidOrder = await createDeliveryOrder('Paid delivery note', { expected_payment_method: 'cash' });
   const partialOrder = await createDeliveryOrder('Partial delivery note');
   const blockedOrder = await createDeliveryOrder('Blocked delivery note');
   const generateBill = async (orderId: number) => {
@@ -132,7 +150,9 @@ test('Orders page browser printing shows unpaid collection and settled payment d
 
   const unpaid = await printOrder(unpaidOrder.id, unpaidOrder.order_number, 'Unpaid delivery note');
   expect(unpaid.html).toMatch(/TO COLLECT: [^<]+\(Cash on Delivery\)/);
+  expect(unpaid.html).toContain('Delivery note: Ring the side gate');
   expect(unpaid.payment.status).toBe('unpaid');
+  expect(unpaid.payment.expectedMethod).toBe('cash');
 
   let releaseDelayedPayment!: () => void;
   let signalDelayedPayment!: () => void;
@@ -155,11 +175,12 @@ test('Orders page browser printing shows unpaid collection and settled payment d
   expect(paid.html).toContain('PAID: Card (Total:');
   expect(paid.html).toContain(`Amount Due: ${paid.payment.formattedAmountDue}`);
   expect(paid.html).not.toContain('TO COLLECT:');
+  expect(paid.html).not.toContain('Cash on Delivery');
   expect(paid.payment.status).toBe('paid');
 
   const partial = await printOrder(partialOrder.id, partialOrder.order_number, 'Partial delivery note');
   expect(partial.payment.amount).toBe(partiallyPaidBill.balance);
-  expect(partial.html).toContain(`TO COLLECT: ${partial.payment.formattedAmount} (Cash on Delivery)`);
+  expect(partial.html).toContain(`TO COLLECT: ${partial.payment.formattedAmount} (Expected payment: Unknown)`);
 
   const ownerHeaders = { Authorization: `Bearer ${getE2eToken()}` };
   const serverHeaders = { Authorization: `Bearer ${getE2eToken('e2e-server', 'server@flo.local', 'server')}` };

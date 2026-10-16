@@ -75,6 +75,8 @@ const LANGUAGES = readCanonicalLanguages();
  * paths under the `print.` prefix.
  */
 const PRINT_NAMESPACE_KEYS = [
+  'print.menu.title',
+  'print.menu.totalItems',
   'print.taxInvoiceTitle',
   'print.invoiceTitle',
   'print.invoiceNumber',
@@ -113,6 +115,8 @@ const PRINT_NAMESPACE_KEYS = [
   'print.deliverySlip.cashOnDelivery',
   'print.deliverySlip.amountDue',
   'print.deliverySlip.multiplePaymentMethods',
+  'print.deliverySlip.expectedPayment',
+  'print.deliverySlip.deliveryNote',
   'print.hsn',
   'print.zReport.title',
   'print.zReport.businessDate',
@@ -208,6 +212,9 @@ const BORROWED_KEYS = [
   'dashboard.countedCash',
   'dashboard.variance',
   'dashboard.ticketFooter',
+  // Delivery-slip expected-payment states.
+  'common.unknown',
+  'orders.pending',
 ];
 
 function readSharedConcepts() {

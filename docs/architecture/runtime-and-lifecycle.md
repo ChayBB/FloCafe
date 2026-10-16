@@ -95,8 +95,8 @@ Playwright and CI runs survive the restart.
 ## Window load failures
 
 A window whose document URL has become `chrome-error://` is treated as a failed load.
-`recoverFailedWindow` rebuilds the window once, guarded by `windowLoadRecoveryAttempted`. A second
-failure, or a runtime that is not healthy, requests a relaunch rather than looping.
+`recoverFailedWindow` allows one in-place rebuild while the runtime is healthy. A second failure, or
+a runtime that is not healthy, requests a relaunch rather than looping.
 
 ## Shutdown order
 
@@ -133,6 +133,13 @@ update installation or a relaunch, where the caller still needs the process aliv
 Closing the main window does not quit the app. The window `close` handler calls `preventDefault()`
 and hides the window unless quitting, so a hidden POS keeps serving. `window-all-closed` quits on
 every platform except macOS, and even then only when no window recovery is in progress.
+
+The native Playwright harness launches the real app with the POS window held hidden
+(`FLO_E2E_HIDDEN_WINDOW=1`, which the harness sets unless `FLO_E2E_SHOW_WINDOW=1`), so a local
+`npm run test:e2e:electron` does not take over the developer's desktop. The renderer still runs
+unthrottled. macOS only delivers native window-state changes and `prefers-color-scheme` updates to
+a shown window, so those tests are skipped in hidden mode; CI sets `FLO_E2E_SHOW_WINDOW=1` because
+its virtual display has no desktop to disturb.
 
 ## `node dev-server.js` diverges from the packaged app
 

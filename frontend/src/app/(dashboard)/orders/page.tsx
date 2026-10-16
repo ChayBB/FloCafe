@@ -1,7 +1,11 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import api from '@/lib/api';
+import api, {
+  captureClientOperationFailure,
+  createOperationReference,
+  operationHeaders,
+} from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
 import { Button } from '@/components/ui/button';
 import { Trash2, Printer, Percent, Banknote, Search, Plus, Loader2, Download } from 'lucide-react';
@@ -12,7 +16,8 @@ import AddonModal from '@/components/pos/AddonModal';
 import RefundModal from '@/components/orders/RefundModal';
 import { sendBillViaFlo } from '@/lib/whatsapp-share';
 import { useConfirm } from '@/hooks/use-confirm';
-import type { Table, Product, Customer, Addon } from '@/lib/types';
+import type { Table, Product, ProductVariant, Customer, Addon } from '@/lib/types';
+import { cartItemToOrderItem } from '@/lib/cart-order-item';
 import type { Order, Bill } from '@/lib/types';
 import { getCurrencySymbol, getCountryByCode } from '@/lib/countries';
 import { useCurrencyUnitAdapter } from '@/hooks/useCurrencyUnitAdapter';
@@ -46,10 +51,15 @@ import {
   type AppendAttemptStorage,
 } from '@/lib/append-attempt';
 import { preferChildScopedBill } from '@/lib/printer/tax-components';
-import { matchesOrderSearch } from '@/lib/orders-search';
+import { fetchLoadedOrderPages } from '@/lib/orders-search';
 import { tenantCan } from '@/lib/permissions';
+import { cn } from '@/lib/utils';
+import { classifyOrderRequestFailure } from '@/lib/order-attempt';
 
 import { OrderCard } from '@/components/orders/OrderCard';
+import { OrdersMasterList } from '@/components/orders/OrdersMasterList';
+import { OrderDetailPanel } from '@/components/orders/OrderDetailPanel';
+import { useOrdersLayoutPreference } from '@/hooks/useOrdersLayout';
 
 type OrdersKey = keyof AppConfig['Messages']['orders'];
 
@@ -97,8 +107,10 @@ export default function OrdersPage() {
   const heldOrdersStore = useHeldOrdersStore();
   const router = useRouter();
   const cartStore = useCartStore();
-  const { setTablesRequired, autoPrintBill, printerUseUnicode, printerArabicShaping } = usePosSettingsStore();
+  const { setTablesRequired, autoPrintBill, printerUseUnicode, printerArabicShaping } =
+    usePosSettingsStore();
   const tOrders = useTranslations('orders');
+  const tPos = useTranslations('pos');
   const tCommon = useTranslations('common');
   const tNav = useTranslations('nav');
   const tWhatsappSend = useTranslations('whatsapp.send');
@@ -127,12 +139,27 @@ export default function OrdersPage() {
   const [paymentBill, setPaymentBill] = useState<Bill | null>(null);
   const [refundModal, setRefundModal] = useState<{ order: Order; bills: Bill[] } | null>(null);
   const [tables, setTables] = useState<Table[]>([]);
-  const [kdsEnabled, setKdsEnabled] = useState(true);
+  // null until /settings/kds_enabled resolves; the WebSocket stays closed
+  // until the feature is confirmed on, because a disabled KDS refuses the
+  // upgrade with 404.
+  const [kdsEnabled, setKdsEnabled] = useState<boolean | null>(null);
   const { confirm, ConfirmDialog } = useConfirm();
   const isWhatsAppReady = useWhatsAppReady();
 
   // Consolidated filter state
   const [filters, setFilters] = useState<Filters>({ search: '', table: '', type: '', status: '' });
+  const searchRef = useRef(filters.search);
+  const previousSearchRef = useRef(filters.search);
+  const ordersFetchIdRef = useRef(0);
+  const ordersRefreshInProgressRef = useRef(false);
+  const ordersLoadMoreInProgressRef = useRef(false);
+  const ordersRefreshPendingRef = useRef(false);
+  const ordersRefreshLoadedPagesPendingRef = useRef(false);
+  const ordersRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hasLoadedOlderOrdersRef = useRef(false);
+  const loadedOrdersPageCountRef = useRef(1);
+  const [nextOrdersCursor, setNextOrdersCursor] = useState<number | null>(null);
+  const [loadingMoreOrders, setLoadingMoreOrders] = useState(false);
 
   // Consolidated cancel modal state
   const [cancelModal, setCancelModal] = useState<CancelModal | null>(null);
@@ -158,14 +185,26 @@ export default function OrdersPage() {
 
   // Other states
   const [addItemsOrder, setAddItemsOrder] = useState<Order | null>(null);
-  const [printHistory, setPrintHistory] = useState<Record<number, { id: number; print_type: string; user_name: string; printed_at: string }[]>>({});
+  const [printHistory, setPrintHistory] = useState<
+    Record<number, { id: number; print_type: string; user_name: string; printed_at: string }[]>
+  >({});
   const fetchedBillIdsRef = useRef<Set<number>>(new Set());
 
   // Add Item modal states
   const [products, setProducts] = useState<Product[]>([]);
   const [productSearch, setProductSearch] = useState('');
-  const [selectedItems, setSelectedItems] = useState<{ key: string; product_id: string; product_name: string; quantity: number; special_instructions: string; addons: Addon[] }[]>([]);
+  const [selectedItems, setSelectedItems] = useState<
+    {
+      key: string;
+      product: Product;
+      variant: ProductVariant | null;
+      quantity: number;
+      special_instructions: string;
+      addons: Addon[];
+    }[]
+  >([]);
   const [addingItems, setAddingItems] = useState(false);
+  const [appendOutcomeUnknown, setAppendOutcomeUnknown] = useState(false);
   const [addonPickerProduct, setAddonPickerProduct] = useState<Product | null>(null);
   const addItemsAttemptRef = useRef<AppendAttempt | null>(null);
   const appendAttemptStorageRef = useRef<AppendAttemptStorage | null>(null);
@@ -202,17 +241,41 @@ export default function OrdersPage() {
   const [createCustomerSearch, setCreateCustomerSearch] = useState('');
   const linkSearchRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
-  const currency = getCurrencySymbol(currentTenant?.currency || '', getCountryByCode(currentTenant?.country ?? '')?.locale);
+  const currency = getCurrencySymbol(
+    currentTenant?.currency || '',
+    getCountryByCode(currentTenant?.country ?? '')?.locale,
+  );
   const unitAdapter = useCurrencyUnitAdapter();
-  const normalizedDiscountValue = discountModal?.type === 'amount'
-    ? normalizeFixedDiscountValue(discountModal.value, unitAdapter.maxDecimals)
-    : discountModal?.value ?? 0;
+  const normalizedDiscountValue =
+    discountModal?.type === 'amount'
+      ? normalizeFixedDiscountValue(discountModal.value, unitAdapter.maxDecimals)
+      : (discountModal?.value ?? 0);
   const fmt = useFormatCurrency();
+  const { layout: ordersLayout } = useOrdersLayoutPreference();
+  // Selected order id survives refetches; it resolves against the filtered list
+  // so a selection that disappears degrades to the placeholder instead of throwing.
+  const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
   const canCancelItems = tenantCan(currentTenant, 'orders.item.cancel');
   const canRestoreItems = tenantCan(currentTenant, 'orders.item.restore');
   const canRefund = tenantCan(currentTenant, 'refunds.initiate');
 
-  if (discountModal && !isDiscountTypeAllowed(discountMode, discountModal.type)) {
+  // A tenant that disables discounts has no type left to normalize into, so an
+  // open draft dialog is closed once on entry into `none` instead of
+  // rescheduling a render-phase update forever.
+  const [reconciledDiscountMode, setReconciledDiscountMode] = useState(discountMode);
+  if (discountMode !== reconciledDiscountMode) {
+    setReconciledDiscountMode(discountMode);
+    if (discountMode === 'none') {
+      setDiscountModal(null);
+      setDiscountPin('');
+    }
+  }
+
+  if (
+    discountModal &&
+    discountMode !== 'none' &&
+    !isDiscountTypeAllowed(discountMode, discountModal.type)
+  ) {
     setDiscountModal({
       ...discountModal,
       type: defaultDiscountTypeForMode(discountMode),
@@ -224,17 +287,115 @@ export default function OrdersPage() {
   const fetchPrintHistory = async (billId: number) => {
     try {
       const { data } = await api.get(`/bills/${billId}/print-history`);
-      setPrintHistory(prev => ({ ...prev, [billId]: data.prints || [] }));
+      setPrintHistory((prev) => ({ ...prev, [billId]: data.prints || [] }));
     } catch {
       // Ignore error
     }
   };
 
-  const fetchOrders = async (): Promise<boolean> => {
+  const fetchOrders = async (
+    cursor?: number,
+    {
+      rateLimitedRefresh = false,
+      refreshLoadedPages = false,
+    }: { rateLimitedRefresh?: boolean; refreshLoadedPages?: boolean } = {},
+  ): Promise<boolean> => {
+    if (
+      cursor === undefined &&
+      (ordersLoadMoreInProgressRef.current || ordersRefreshInProgressRef.current)
+    ) {
+      ordersRefreshPendingRef.current = true;
+      ordersRefreshLoadedPagesPendingRef.current ||= refreshLoadedPages;
+      return true;
+    }
+    if (
+      cursor !== undefined &&
+      (ordersRefreshInProgressRef.current || ordersLoadMoreInProgressRef.current)
+    )
+      return true;
+    if (cursor === undefined && rateLimitedRefresh) {
+      if (ordersRefreshTimerRef.current !== null) {
+        ordersRefreshPendingRef.current = true;
+        ordersRefreshLoadedPagesPendingRef.current ||= refreshLoadedPages;
+        return true;
+      }
+      ordersRefreshTimerRef.current = setTimeout(() => {
+        ordersRefreshTimerRef.current = null;
+        if (!ordersRefreshPendingRef.current) return;
+        ordersRefreshPendingRef.current = false;
+        const shouldRefreshLoadedPages = ordersRefreshLoadedPagesPendingRef.current;
+        ordersRefreshLoadedPagesPendingRef.current = false;
+        fetchOrders(undefined, {
+          rateLimitedRefresh: true,
+          refreshLoadedPages: shouldRefreshLoadedPages,
+        });
+      }, 1000);
+    } else if (cursor === undefined) {
+      ordersRefreshPendingRef.current = false;
+    }
+    const fetchId = ++ordersFetchIdRef.current;
+    setLoadingMoreOrders(true);
+    if (cursor === undefined) {
+      ordersRefreshInProgressRef.current = true;
+    } else {
+      ordersLoadMoreInProgressRef.current = true;
+    }
     try {
-      const { data } = await api.get('/orders', { params: { per_page: 50 } });
-      const orders = data.orders || [];
-      setOrders(orders);
+      const search = searchRef.current.trim();
+      const orders: Order[] = [];
+      let nextCursor: number | null = null;
+      if (refreshLoadedPages) {
+        const refreshed = await fetchLoadedOrderPages(async (pageCursor) => {
+          const { data } = await api.get('/orders', {
+            params: {
+              per_page: 50,
+              ...(search ? { search } : {}),
+              ...(pageCursor !== undefined ? { before_id: pageCursor } : {}),
+            },
+          });
+          if (fetchId !== ordersFetchIdRef.current) return { orders: [], nextCursor: null };
+          return { orders: (data.orders || []) as Order[], nextCursor: data.nextCursor ?? null };
+        }, loadedOrdersPageCountRef.current);
+        orders.push(...refreshed.orders);
+        nextCursor = refreshed.nextCursor;
+      } else {
+        const { data } = await api.get('/orders', {
+          params: {
+            per_page: 50,
+            ...(search ? { search } : {}),
+            ...(cursor !== undefined ? { before_id: cursor } : {}),
+          },
+        });
+        if (fetchId !== ordersFetchIdRef.current) return true;
+        orders.push(...(data.orders || []));
+        nextCursor = data.nextCursor ?? null;
+      }
+      if (fetchId !== ordersFetchIdRef.current) return true;
+      if (refreshLoadedPages) {
+        setOrders(orders);
+        loadedOrdersPageCountRef.current = Math.max(1, Math.ceil(orders.length / 50));
+        hasLoadedOlderOrdersRef.current = orders.length > 50;
+        setNextOrdersCursor(nextCursor);
+      } else if (cursor === undefined) {
+        if (hasLoadedOlderOrdersRef.current) {
+          const refreshedOrderIds = new Set(orders.map((order) => order.id));
+          setOrders((prev) => [
+            ...orders,
+            ...prev.filter((order) => !refreshedOrderIds.has(order.id)),
+          ]);
+        } else {
+          setOrders(orders);
+          setNextOrdersCursor(nextCursor);
+          loadedOrdersPageCountRef.current = 1;
+        }
+      } else {
+        setOrders((prev) => [...prev, ...orders]);
+        if (orders.length > 0) {
+          hasLoadedOlderOrdersRef.current = true;
+          loadedOrdersPageCountRef.current++;
+        }
+        setNextOrdersCursor(nextCursor);
+      }
       // Fetch print history only for bills we haven't fetched yet
       orders.forEach((order: Order) => {
         if (order.bill?.id && !fetchedBillIdsRef.current.has(order.bill.id)) {
@@ -244,12 +405,49 @@ export default function OrdersPage() {
       });
       return true;
     } catch {
-      toast.error(tOrders('loadOrdersFailed'));
+      if (fetchId === ordersFetchIdRef.current) toast.error(tOrders('loadOrdersFailed'));
       return false;
     } finally {
-      setLoading(false);
+      if (fetchId === ordersFetchIdRef.current) {
+        if (cursor === undefined) {
+          ordersRefreshInProgressRef.current = false;
+          setLoading(false);
+        } else {
+          ordersLoadMoreInProgressRef.current = false;
+        }
+        setLoadingMoreOrders(false);
+        if (ordersRefreshPendingRef.current && ordersRefreshTimerRef.current === null) {
+          ordersRefreshPendingRef.current = false;
+          const shouldRefreshLoadedPages = ordersRefreshLoadedPagesPendingRef.current;
+          ordersRefreshLoadedPagesPendingRef.current = false;
+          fetchOrders(undefined, {
+            rateLimitedRefresh: true,
+            refreshLoadedPages: shouldRefreshLoadedPages,
+          });
+        }
+      }
     }
   };
+
+  useEffect(() => {
+    searchRef.current = filters.search;
+    if (previousSearchRef.current === filters.search) return;
+    previousSearchRef.current = filters.search;
+    ordersFetchIdRef.current++;
+    ordersRefreshInProgressRef.current = false;
+    ordersLoadMoreInProgressRef.current = false;
+    ordersRefreshPendingRef.current = false;
+    ordersRefreshLoadedPagesPendingRef.current = false;
+    hasLoadedOlderOrdersRef.current = false;
+    loadedOrdersPageCountRef.current = 1;
+    setOrders([]);
+    setNextOrdersCursor(null);
+    setLoading(true);
+    setLoadingMoreOrders(false);
+    const timeout = setTimeout(() => fetchOrders(undefined, { rateLimitedRefresh: true }), 300);
+    return () => clearTimeout(timeout);
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.search]);
 
   useEffect(() => {
     if (!activeUserId || appendRecoveryStartedUsersRef.current.has(activeUserId)) return;
@@ -262,26 +460,150 @@ export default function OrdersPage() {
     if (!pendingAttempt) return;
     appendRecoveryStartedUsersRef.current.add(activeUserId);
     addItemsAttemptRef.current = pendingAttempt;
-    api.post(`/orders/${pendingAttempt.orderId}/items`, {
-      items: pendingAttempt.items,
-      special_instructions: pendingAttempt.specialInstructions,
-    }, { headers: { 'Idempotency-Key': pendingAttempt.idempotencyKey } }).then(() => {
-      if (!clearAppendAttempt(getAppendAttemptStorage(), pendingAttempt!)) throw new Error('Unable to clear append retry state');
-      if (addItemsAttemptRef.current?.idempotencyKey !== pendingAttempt!.idempotencyKey) return;
-      addItemsAttemptRef.current = null;
-      toast.success(tOrders('itemsAdded', { count: pendingAttempt!.items.length }));
-      fetchOrders();
-    }).catch(() => {
-      toast.error(tOrders('addItemsFailed'));
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    api
+      .post(
+        `/orders/${pendingAttempt.orderId}/items`,
+        {
+          items: pendingAttempt.items,
+          special_instructions: pendingAttempt.specialInstructions,
+        },
+        {
+          headers: {
+            'Idempotency-Key': pendingAttempt.idempotencyKey,
+            ...operationHeaders(pendingAttempt.operationId),
+          },
+        },
+      )
+      .then(() => {
+        const cleared = clearAppendAttempt(getAppendAttemptStorage(), pendingAttempt!);
+        if (addItemsAttemptRef.current?.idempotencyKey !== pendingAttempt!.idempotencyKey) return;
+        addItemsAttemptRef.current = null;
+        setAppendOutcomeUnknown(false);
+        toast.success(
+          cleared
+            ? tOrders('itemsAdded', { count: pendingAttempt!.items.length })
+            : `${tOrders('itemsAdded', { count: pendingAttempt!.items.length })} ${tPos('appendCompleteCleanupFailed')}`,
+        );
+        if (!cleared && pendingAttempt!.operationId)
+          void captureClientOperationFailure({
+            operation: 'order.append',
+            phase: 'retry_cleanup',
+            correlationId: pendingAttempt!.operationId,
+          });
+        fetchOrders(undefined, { refreshLoadedPages: true });
+      })
+      .catch((error) => {
+        const failure = classifyOrderRequestFailure(error, {
+          operation: 'order.append',
+          correlationId: pendingAttempt!.operationId || '',
+        });
+        if (failure.trusted && failure.outcome === 'not_applied') {
+          const cleared = clearAppendAttempt(getAppendAttemptStorage(), pendingAttempt!);
+          if (cleared) addItemsAttemptRef.current = null;
+          setAppendOutcomeUnknown(!cleared);
+          toast.error(`${tPos('operationNotSaved')} ${tPos('operationCorrectAndRetry')}`);
+        } else {
+          setAppendOutcomeUnknown(true);
+          toast.error(
+            failure.trusted && failure.outcome === 'applied'
+              ? `${tPos('operationMayHaveCompleted')} ${tPos('appendCompleteCheckOrders')}`
+              : `${tPos('appendOutcomeUnknown')} ${tPos('appendCompleteCheckOrders')}`,
+          );
+        }
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeUserId]);
 
   useEffect(() => {
-    api.get('/settings/kds_enabled')
-      .then((res) => setKdsEnabled(res.data?.setting?.value !== 'false'))
-      .catch(() => setKdsEnabled(true));
+    api
+      .get('/settings/kds_enabled')
+      .then((res) => {
+        const value = res.data?.setting?.value;
+        setKdsEnabled(value === 'true' ? true : value === 'false' ? false : null);
+      })
+      .catch(() => setKdsEnabled(null));
   }, []);
+
+  // Live KDS push while the feature is on. The 10-second polling interval in
+  // the effect below is the fallback when the socket is unavailable.
+  useEffect(() => {
+    if (kdsEnabled !== true) return;
+    let active = true;
+    let ws: globalThis.WebSocket | null = null;
+    let reconnectTimeout: NodeJS.Timeout | null = null;
+
+    const connectWS = () => {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}/kds`;
+
+      try {
+        ws = new WebSocket(wsUrl);
+
+        ws.onopen = () => {
+          const token = localStorage.getItem('token');
+          if (token) {
+            ws?.send(JSON.stringify({ type: 'auth', token }));
+          }
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (
+              data.type === 'order_updated' ||
+              data.type === 'orders' ||
+              data.type === 'initial_data'
+            ) {
+              // Another terminal just changed an order this page has loaded, so
+              // the already-visible pages are refreshed, not only page one.
+              fetchOrders(undefined, { rateLimitedRefresh: true, refreshLoadedPages: true });
+            }
+          } catch {
+            // Ignore parse errors
+          }
+        };
+
+        ws.onclose = (event) => {
+          if (/kds is disabled/i.test(event.reason)) {
+            setKdsEnabled(false);
+            return;
+          }
+          reconnectTimeout = setTimeout(() => {
+            api
+              .get('/settings/kds_enabled')
+              .then(({ data }) => {
+                if (!active) return;
+                const value = data?.setting?.value;
+                if (value === 'true') connectWS();
+                else setKdsEnabled(value === 'false' ? false : null);
+              })
+              .catch(() => {
+                if (active) setKdsEnabled(null);
+              });
+          }, 3000);
+        };
+
+        ws.onerror = () => {
+          ws?.close();
+        };
+      } catch {
+        // WS not supported
+      }
+    };
+
+    connectWS();
+
+    return () => {
+      active = false;
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      if (ws) {
+        ws.onclose = null;
+        ws.close();
+      }
+    };
+
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [kdsEnabled]);
 
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 30000);
@@ -303,12 +625,14 @@ export default function OrdersPage() {
 
       if (isTablesRequired) {
         heldOrdersStore.fetchHeldOrders();
-        api.get('/tables')
+        api
+          .get('/tables')
           .then((res) => setTables(res.data.tables || []))
           .catch(() => {});
       }
 
-      api.get('/settings/discount')
+      api
+        .get('/settings/discount')
         .then((res) => {
           setDiscountMode(normalizeDiscountMode(res.data.discount_mode));
           setDiscountRequiresApproval(!!res.data.discount_requires_approval);
@@ -318,62 +642,23 @@ export default function OrdersPage() {
 
     initPage();
 
-    // 10-second backup polling interval (WebSocket handles real-time updates)
-    const interval = setInterval(fetchOrders, 10000);
-
-    // Live WebSocket connection to trigger immediate updates
-    let ws: globalThis.WebSocket | null = null;
-    let reconnectTimeout: NodeJS.Timeout | null = null;
-
-    const connectWS = () => {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}/kds`;
-      
-      try {
-        ws = new WebSocket(wsUrl);
-
-        ws.onopen = () => {
-          const token = localStorage.getItem('token');
-          if (token) {
-            ws?.send(JSON.stringify({ type: 'auth', token }));
-          }
-        };
-
-        ws.onmessage = (event) => {
-          try {
-            const data = JSON.parse(event.data);
-            if (data.type === 'order_updated' || data.type === 'orders' || data.type === 'initial_data') {
-              fetchOrders();
-            }
-          } catch {
-            // Ignore parse errors
-          }
-        };
-
-        ws.onclose = () => {
-          reconnectTimeout = setTimeout(connectWS, 3000);
-        };
-
-        ws.onerror = () => {
-          ws?.close();
-        };
-      } catch {
-        // WS not supported
-      }
-    };
-
-    connectWS();
+    // 10-second backup polling interval (WebSocket handles real-time updates).
+    // It is also the only trigger when the socket is unavailable, so it carries
+    // the same loaded-page refresh as the live push.
+    const interval = setInterval(
+      () => fetchOrders(undefined, { rateLimitedRefresh: true, refreshLoadedPages: true }),
+      10000,
+    );
 
     return () => {
       clearInterval(interval);
-      if (reconnectTimeout) clearTimeout(reconnectTimeout);
-      if (ws) {
-        ws.onclose = null;
-        ws.close();
-      }
+      if (ordersRefreshTimerRef.current !== null) clearTimeout(ordersRefreshTimerRef.current);
+      ordersRefreshTimerRef.current = null;
+      ordersRefreshPendingRef.current = false;
+      ordersRefreshLoadedPagesPendingRef.current = false;
     };
-     
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [setTablesRequired]);
 
   const paymentStatusOf = (order: Order): 'paid' | 'partial' | 'unpaid' | null => {
@@ -388,18 +673,17 @@ export default function OrdersPage() {
 
     // Check for active POS cart items to avoid accidental loss of progress
     if (cartStore.items.length > 0) {
-      const proceed = await confirm(
-        tOrders('cartClearConfirm')
-      );
+      const proceed = await confirm(tOrders('cartClearConfirm'));
       if (!proceed) return;
     }
 
     cartStore.clearCart();
     cartStore.setCustomer(order.customer);
 
-    const posOrderType = (order.type === 'dine_in' || order.type === 'takeaway' || order.type === 'delivery')
-      ? order.type
-      : 'takeaway';
+    const posOrderType =
+      order.type === 'dine_in' || order.type === 'takeaway' || order.type === 'delivery'
+        ? order.type
+        : 'takeaway';
     cartStore.setOrderType(posOrderType);
 
     if (posOrderType === 'dine_in' && order.table_id) {
@@ -423,7 +707,7 @@ export default function OrdersPage() {
     linkSearchRef.current = setTimeout(async () => {
       try {
         const { data } = await api.get(`/customers-search?q=${encodeURIComponent(query)}`);
-        setLinkCustomerResults(Array.isArray(data) ? data : (data.customers || []));
+        setLinkCustomerResults(Array.isArray(data) ? data : data.customers || []);
       } catch {
         setLinkCustomerResults([]);
       }
@@ -438,7 +722,7 @@ export default function OrdersPage() {
       setLinkCustomerOrderId(null);
       setLinkCustomerSearch('');
       setLinkCustomerResults([]);
-      fetchOrders();
+      fetchOrders(undefined, { refreshLoadedPages: true });
     } catch {
       toast.error(tOrders('linkCustomerFailed'));
     } finally {
@@ -450,7 +734,10 @@ export default function OrdersPage() {
   const isOrderActive = (order: Order) => {
     if (order.status === 'cancelled') return false;
     if (order.status === 'completed') {
-      return kdsEnabled && (order.items || []).some((item) => !['served', 'cancelled'].includes(item.status));
+      return (
+        kdsEnabled === true &&
+        (order.items || []).some((item) => !['served', 'cancelled'].includes(item.status))
+      );
     }
     return true;
   };
@@ -459,12 +746,9 @@ export default function OrdersPage() {
     // Tab filter
     if (tabFilter === 'active' && !isOrderActive(order)) return false;
     // Filter unpaid orders using resolved payment status since bills are generated at checkout.
-    if (tabFilter === 'unpaid' && !['unpaid', 'partial'].includes(paymentStatusOf(order) || '')) return false;
-
-    // Search by order number, customer name, or phone
-    if (filters.search && !matchesOrderSearch(order, filters.search)) {
+    if (tabFilter === 'unpaid' && !['unpaid', 'partial'].includes(paymentStatusOf(order) || ''))
       return false;
-    }
+
     // Filter by table
     if (filters.table && String(order.table_id) !== filters.table) {
       return false;
@@ -486,22 +770,56 @@ export default function OrdersPage() {
     return true;
   });
 
+  const selectedOrder =
+    selectedOrderId == null
+      ? undefined
+      : filteredOrders.find((order) => order.id === selectedOrderId);
+
   const handleCheckout = async (orderId: number) => {
     setGeneratingBill(orderId);
+    const operationId = createOperationReference();
     try {
-      const { data } = await api.post('/bills/generate', { order_id: orderId });
+      const { data } = await api.post(
+        '/bills/generate',
+        { order_id: orderId },
+        { headers: operationHeaders(operationId) },
+      );
       setPaymentBill(data.bill);
-    } catch {
-      toast.error(tOrders('generateBillFailed'));
+    } catch (error) {
+      const failure = classifyOrderRequestFailure(error, {
+        operation: 'bill.generate',
+        correlationId: operationId || '',
+      });
+      toast.error(
+        failure.trusted && failure.outcome === 'not_applied'
+          ? `${tPos('operationNotSaved')} ${tPos('operationNotSavedNextStep')}`
+          : failure.trusted && failure.outcome === 'applied'
+            ? `${tPos('operationMayHaveCompleted')} ${tPos('operationCheckBeforeRetry')}`
+            : `${tPos('billOutcomeUnknown')} ${tPos('operationCheckBeforeRetry')}`,
+      );
+      fetchOrders(undefined, { refreshLoadedPages: true });
     } finally {
       setGeneratingBill(null);
     }
   };
 
+  const handlePayBill = async (billToPay: Bill) => {
+    try {
+      const { data } = await api.get(`/bills/${billToPay.id}`);
+      if (data?.bill) {
+        setPaymentBill(preferChildScopedBill(data.bill as Bill, billToPay.order));
+        return;
+      }
+    } catch {
+      // Fallback to existing bill if fetch fails
+    }
+    setPaymentBill(billToPay);
+  };
+
   const handlePaymentComplete = async () => {
     const bill = paymentBill; // capture before clearing state
     setPaymentBill(null);
-    fetchOrders();
+    fetchOrders(undefined, { refreshLoadedPages: true });
 
     if (bill && autoPrintBill) {
       try {
@@ -519,15 +837,19 @@ export default function OrdersPage() {
             number_digits: currentTenant?.number_digits,
             calendar: currentTenant?.calendar,
           },
-          { isReprint: false }
+          { isReprint: false },
         );
         showPrintWarningsToast(printWarnings);
         try {
           await api.post(`/bills/${bill.id}/print`, { print_type: 'receipt' });
-        } catch { /* best-effort history tracking */ }
+        } catch {
+          /* best-effort history tracking */
+        }
       } catch (err) {
         const msg = extractPrinterErrorMessage(err);
-        toast.error(formatReceiptErrorToast(msg, tOrders('receiptPrintFailedHint')));
+        toast.error(
+          `${tPos('saleCompletePrintFailed')} ${tPos('saleCompleteReprintNextStep')} ${formatReceiptErrorToast(msg, tOrders('receiptPrintFailedHint'))}`,
+        );
       }
     }
   };
@@ -556,14 +878,16 @@ export default function OrdersPage() {
           number_digits: currentTenant?.number_digits,
           calendar: currentTenant?.calendar,
         },
-        { isReprint }
+        { isReprint },
       );
       toast.success(isReprint ? tOrders('printReceiptReprint') : tOrders('printReceipt'));
       showPrintWarningsToast(printWarnings);
       try {
         await api.post(`/bills/${billId}/print`, { print_type: isReprint ? 'reprint' : 'receipt' });
         fetchPrintHistory(billId);
-      } catch { /* best-effort history tracking */ }
+      } catch {
+        /* best-effort history tracking */
+      }
     } catch (err) {
       const detail = extractPrinterErrorMessage(err);
       toast.error(formatReceiptErrorToast(detail, tOrders('printReceiptFailed')));
@@ -579,14 +903,30 @@ export default function OrdersPage() {
       return;
     }
     setGeneratingBill(order.id);
+    const operationId = createOperationReference();
     try {
-      const { data } = await api.post('/bills/generate', { order_id: order.id });
+      const { data } = await api.post(
+        '/bills/generate',
+        { order_id: order.id },
+        { headers: operationHeaders(operationId) },
+      );
       const bill = data.bill as Bill;
       setOrders((prev) => prev.map((o) => (o.id === order.id ? { ...o, bill } : o)));
-      await fetchOrders();
+      await fetchOrders(undefined, { refreshLoadedPages: true });
       setConfirmPrintBillId(bill.id);
-    } catch {
-      toast.error(tOrders('generateBillFailed'));
+    } catch (error) {
+      const failure = classifyOrderRequestFailure(error, {
+        operation: 'bill.generate',
+        correlationId: operationId || '',
+      });
+      toast.error(
+        failure.trusted && failure.outcome === 'not_applied'
+          ? `${tPos('operationNotSaved')} ${tPos('operationNotSavedNextStep')}`
+          : failure.trusted && failure.outcome === 'applied'
+            ? `${tPos('operationMayHaveCompleted')} ${tPos('operationCheckBeforeRetry')}`
+            : `${tPos('billOutcomeUnknown')} ${tPos('operationCheckBeforeRetry')}`,
+      );
+      fetchOrders(undefined, { refreshLoadedPages: true });
     } finally {
       setGeneratingBill(null);
     }
@@ -595,22 +935,19 @@ export default function OrdersPage() {
   const handlePrintDeliverySlip = async (order: Order) => {
     const customer = order.customer;
     const phone = customer?.phone
-      ? (customer.country_code && !customer.phone.startsWith(customer.country_code)
+      ? customer.country_code && !customer.phone.startsWith(customer.country_code)
         ? `${customer.country_code} ${customer.phone}`
-        : customer.phone)
+        : customer.phone
       : '';
     setPrintingSlipOrderId(order.id);
     try {
-      const warnings = await printDeliverySlip(
-        order,
-        {
-          name: customer?.name || '',
-          phone,
-          // The order's own address wins; pre-column orders take the fallback,
-          // so that is the common case rather than the rare one.
-          address: order.delivery_address || customer?.address || '',
-        },
-      );
+      const warnings = await printDeliverySlip(order, {
+        name: customer?.name || '',
+        phone,
+        // The order's own address wins; pre-column orders take the fallback,
+        // so that is the common case rather than the rare one.
+        address: order.delivery_address || customer?.address || '',
+      });
       showPrintWarningsToast(warnings);
       toast.success(tOrders('printDeliverySlip'));
       fetchOrders();
@@ -657,11 +994,19 @@ export default function OrdersPage() {
       toast.error(tOrders('onlyOwnersRemove'));
       return;
     }
-    if (!await confirm(tOrders('removeItemConfirm'), { destructive: true, confirmLabel: tCommon('remove') })) return;
+    if (
+      !(await confirm(tOrders('removeItemConfirm'), {
+        destructive: true,
+        confirmLabel: tCommon('remove'),
+      }))
+    )
+      return;
     try {
-      await api.patch(`/orders/${orderId}/items/${itemId}/cancel`, { reason: tOrders('removedByManager') });
+      await api.patch(`/orders/${orderId}/items/${itemId}/cancel`, {
+        reason: tOrders('removedByManager'),
+      });
       toast.success(tOrders('itemRemoved'));
-      fetchOrders();
+      fetchOrders(undefined, { refreshLoadedPages: true });
     } catch {
       toast.error(tOrders('removeItemFailed'));
     }
@@ -677,7 +1022,7 @@ export default function OrdersPage() {
       });
       toast.success(tOrders('itemVoided'));
       setVoidItemModal(null);
-      fetchOrders();
+      fetchOrders(undefined, { refreshLoadedPages: true });
     } catch {
       toast.error(tOrders('voidItemFailed'));
     } finally {
@@ -690,7 +1035,7 @@ export default function OrdersPage() {
     try {
       await api.patch(`/orders/${orderId}/items/${itemId}/restore`);
       toast.success(tOrders('itemRestored'));
-      fetchOrders();
+      fetchOrders(undefined, { refreshLoadedPages: true });
     } catch {
       toast.error(tOrders('restoreItemFailed'));
     }
@@ -719,7 +1064,7 @@ export default function OrdersPage() {
         { pointsEarned: order.bill.points_earned ?? 0 },
         locale,
       );
-      await fetchOrders();
+      await fetchOrders(undefined, { refreshLoadedPages: true });
     } finally {
       setSendingWaOrderId(null);
     }
@@ -728,7 +1073,11 @@ export default function OrdersPage() {
   const handleApplyDiscount = async () => {
     if (!discountModal) return;
 
-    if (discountModal.type === 'amount' && discountModal.value > 0 && normalizedDiscountValue <= 0) {
+    if (
+      discountModal.type === 'amount' &&
+      discountModal.value > 0 &&
+      normalizedDiscountValue <= 0
+    ) {
       toast.error(tOrders('discountFailed'));
       return;
     }
@@ -743,17 +1092,46 @@ export default function OrdersPage() {
       return;
     }
 
+    const operationId = createOperationReference();
     try {
-      await api.patch(`/orders/${discountModal.order.id}/discount`, {
-        discount_type: discountModal.type,
-        discount_value: normalizedDiscountValue,
-        discount_reason: discountModal.reason || undefined,
-        override_pin: discountRequiresApproval && normalizedDiscountValue > 0 ? discountPin : undefined,
-      });
+      await api.patch(
+        `/orders/${discountModal.order.id}/discount`,
+        {
+          discount_type: discountModal.type,
+          discount_value: normalizedDiscountValue,
+          discount_reason: discountModal.reason || undefined,
+          override_pin:
+            discountRequiresApproval && normalizedDiscountValue > 0 ? discountPin : undefined,
+        },
+        { headers: operationHeaders(operationId) },
+      );
       toast.success(tOrders('discountApplied'));
-      fetchOrders();
-    } catch {
-      toast.error(tOrders('discountFailed'));
+      fetchOrders(undefined, { refreshLoadedPages: true });
+    } catch (error) {
+      const failure = classifyOrderRequestFailure(error, {
+        operation: 'order.discount',
+        correlationId: operationId || '',
+      });
+      const discountMessages: Record<string, string> = {
+        invalid_type: tPos('discountInvalidType'),
+        invalid_value: tPos('discountInvalidValue'),
+        disabled: tPos('discountDisabled'),
+        type_disabled: tPos('discountTypeDisabled'),
+        limit_exceeded: tPos('discountLimitExceeded'),
+        order_not_discountable: tPos('orderNotDiscountable'),
+        bill_not_discountable: tPos('billNotDiscountable'),
+        split_check: tPos('splitCheckDiscountUnavailable'),
+        refunded: tPos('refundedDiscountUnavailable'),
+        paid: tPos('paidDiscountUnavailable'),
+      };
+      toast.error(
+        failure.trusted && failure.outcome === 'not_applied'
+          ? `${failure.displayCode ? discountMessages[failure.displayCode] : tPos('operationNotSaved')} ${tPos('operationCorrectAndRetry')}`
+          : failure.trusted && failure.outcome === 'applied'
+            ? `${tPos('operationMayHaveCompleted')} ${tPos('operationCheckBeforeRetry')}`
+            : `${tPos('discountOutcomeUnknown')} ${tPos('operationCheckBeforeRetry')}`,
+      );
+      fetchOrders(undefined, { refreshLoadedPages: true });
     } finally {
       setDiscountModal(null);
       setDiscountPin('');
@@ -762,12 +1140,17 @@ export default function OrdersPage() {
 
   const handleConvertToTakeaway = async (order: Order) => {
     const tableNote = order.table ? tOrders('freeTableSuffix', { name: order.table.name }) : '';
-    if (!await confirm(tOrders('convertToTakeawayConfirm', { number: order.order_number, tableNote }))) return;
+    if (
+      !(await confirm(
+        tOrders('convertToTakeawayConfirm', { number: order.order_number, tableNote }),
+      ))
+    )
+      return;
     setConvertingOrderId(order.id);
     try {
       await api.patch(`/orders/${order.id}/convert-to-takeaway`);
       toast.success(tOrders('orderConvertedTakeaway'));
-      fetchOrders();
+      fetchOrders(undefined, { refreshLoadedPages: true });
     } catch {
       toast.error(tOrders('convertOrderFailed'));
     } finally {
@@ -783,93 +1166,169 @@ export default function OrdersPage() {
 
   useEffect(() => {
     if (!addItemsOrder) return;
-    api.get('/products', { params: { per_page: 200 } })
+    api
+      .get('/products', { params: { per_page: 200 } })
       .then(({ data }) => setProducts(data.products || []))
       .catch(() => toast.error(tOrders('menuLoadFailed')));
   }, [addItemsOrder, tOrders]);
 
   const handleAddItemToSelection = (product: Product) => {
-    if ((product.addon_groups || []).length > 0) {
+    if ((product.addon_groups || []).length > 0 || (product.variants || []).length > 0) {
       setAddonPickerProduct(product);
       return;
     }
-    setSelectedItems(prev => {
-      const existing = prev.find(i => i.product_id === product.id && i.addons.length === 0);
+    setSelectedItems((prev) => {
+      const existing = prev.find(
+        (i) => i.product.id === product.id && !i.variant && i.addons.length === 0,
+      );
       if (existing) {
-        return prev.map(i => i === existing ? { ...i, quantity: i.quantity + 1 } : i);
+        return prev.map((i) => (i === existing ? { ...i, quantity: i.quantity + 1 } : i));
       }
-      const key = typeof globalThis.crypto?.randomUUID === 'function'
-        ? globalThis.crypto.randomUUID()
-        : `item-${prev.length}-${Math.random().toString(36).slice(2)}`;
-      return [...prev, { key, product_id: product.id, product_name: product.name, quantity: 1, special_instructions: '', addons: [] }];
+      const key =
+        typeof globalThis.crypto?.randomUUID === 'function'
+          ? globalThis.crypto.randomUUID()
+          : `item-${prev.length}-${Math.random().toString(36).slice(2)}`;
+      return [
+        ...prev,
+        { key, product, variant: null, quantity: 1, special_instructions: '', addons: [] },
+      ];
     });
   };
 
-  const handleAddonPickerAdd = (product: Product, quantity: number, addons: Addon[], instructions: string) => {
-    setSelectedItems(prev => {
-      const key = typeof globalThis.crypto?.randomUUID === 'function'
-        ? globalThis.crypto.randomUUID()
-        : `item-${prev.length}-${Math.random().toString(36).slice(2)}`;
-      return [...prev, {
-        key,
-        product_id: product.id,
-        product_name: product.name,
-        quantity,
-        special_instructions: instructions,
-        addons,
-      }];
+  const handleAddonPickerAdd = (
+    product: Product,
+    quantity: number,
+    addons: Addon[],
+    instructions: string,
+    variant: ProductVariant | null,
+  ) => {
+    setSelectedItems((prev) => {
+      const key =
+        typeof globalThis.crypto?.randomUUID === 'function'
+          ? globalThis.crypto.randomUUID()
+          : `item-${prev.length}-${Math.random().toString(36).slice(2)}`;
+      return [
+        ...prev,
+        {
+          key,
+          product,
+          variant,
+          quantity,
+          special_instructions: instructions,
+          addons,
+        },
+      ];
     });
     setAddonPickerProduct(null);
   };
 
   const handleRemoveFromSelection = (key: string) => {
-    setSelectedItems(prev => prev.filter(i => i.key !== key));
+    setSelectedItems((prev) => prev.filter((i) => i.key !== key));
   };
 
   const handleUpdateSelectionQty = (key: string, quantity: number) => {
     if (quantity < 1) return;
-    setSelectedItems(prev => prev.map(i => i.key === key ? { ...i, quantity } : i));
+    setSelectedItems((prev) => prev.map((i) => (i.key === key ? { ...i, quantity } : i)));
   };
 
   const handleUpdateSelectionNotes = (key: string, notes: string) => {
-    setSelectedItems(prev => prev.map(i => i.key === key ? { ...i, special_instructions: notes } : i));
+    setSelectedItems((prev) =>
+      prev.map((i) => (i.key === key ? { ...i, special_instructions: notes } : i)),
+    );
   };
 
   const handleSubmitAddItems = async () => {
-    if (!addItemsOrder || selectedItems.length === 0) return;
+    if (!addItemsOrder || selectedItems.length === 0 || appendOutcomeUnknown) return;
     setAddingItems(true);
+    const operationId = createOperationReference();
+    let attempt: AppendAttempt | null = null;
+    let requestSubmitted = false;
     try {
-      const items = selectedItems.map(i => ({
-        product_id: i.product_id,
-        quantity: i.quantity,
-        special_instructions: i.special_instructions || undefined,
-        addons: i.addons.length > 0
-          ? i.addons.map((a) => ({ id: a.id, name: a.name, price: a.price, quantity: a.quantity || 1 }))
-          : undefined,
-      }));
+      const items = selectedItems.map((i) => cartItemToOrderItem(i));
       const fingerprint = buildAppendItemsFingerprint(addItemsOrder.id, items);
       const storage = getAppendAttemptStorage();
-      const attempt = getOrCreateAppendAttempt(storage, {
+      attempt = getOrCreateAppendAttempt(storage, {
         userId: activeUserId || '',
         orderId: addItemsOrder.id,
         fingerprint,
-        createKey: () => typeof globalThis.crypto?.randomUUID === 'function'
-          ? globalThis.crypto.randomUUID()
-          : `items-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        createKey: () =>
+          typeof globalThis.crypto?.randomUUID === 'function'
+            ? globalThis.crypto.randomUUID()
+            : `items-${Date.now()}-${Math.random().toString(36).slice(2)}`,
         items,
         orderNumber: addItemsOrder.order_number,
+        operationId: operationId || undefined,
       });
       addItemsAttemptRef.current = attempt;
-      await api.post(`/orders/${addItemsOrder.id}/items`, {
-        items,
-      }, { headers: { 'Idempotency-Key': attempt.idempotencyKey } });
-      if (!clearAppendAttempt(storage, attempt)) throw new Error('Unable to clear append retry state');
+      requestSubmitted = true;
+      await api.post(
+        `/orders/${addItemsOrder.id}/items`,
+        {
+          items,
+        },
+        {
+          headers: {
+            'Idempotency-Key': attempt.idempotencyKey,
+            ...operationHeaders(attempt.operationId),
+          },
+        },
+      );
+      const cleared = clearAppendAttempt(storage, attempt);
       addItemsAttemptRef.current = null;
-      toast.success(tOrders('itemsAdded', { count: selectedItems.length }));
+      setAppendOutcomeUnknown(false);
+      toast.success(
+        cleared
+          ? tOrders('itemsAdded', { count: selectedItems.length })
+          : `${tOrders('itemsAdded', { count: selectedItems.length })} ${tPos('appendCompleteCleanupFailed')}`,
+      );
+      if (!cleared && attempt.operationId)
+        void captureClientOperationFailure({
+          operation: 'order.append',
+          phase: 'retry_cleanup',
+          correlationId: attempt.operationId,
+        });
       openAddItemsModal(null);
-      fetchOrders();
-    } catch {
-      toast.error(tOrders('addItemsFailed'));
+      fetchOrders(undefined, { refreshLoadedPages: true });
+    } catch (error) {
+      if (requestSubmitted && attempt) {
+        const failure = classifyOrderRequestFailure(error, {
+          operation: 'order.append',
+          correlationId: attempt.operationId || '',
+        });
+        if (failure.trusted && failure.outcome === 'not_applied') {
+          const cleared = clearAppendAttempt(getAppendAttemptStorage(), attempt);
+          if (cleared) addItemsAttemptRef.current = null;
+          setAppendOutcomeUnknown(!cleared);
+          toast.error(`${tPos('operationNotSaved')} ${tPos('operationCorrectAndRetry')}`);
+        } else {
+          setAppendOutcomeUnknown(true);
+          toast.error(
+            failure.trusted && failure.outcome === 'applied'
+              ? `${tPos('operationMayHaveCompleted')} ${tPos('appendCompleteCheckOrders')}`
+              : `${tPos('appendOutcomeUnknown')} ${tPos('appendCompleteCheckOrders')}`,
+          );
+        }
+      } else {
+        if (
+          error instanceof Error &&
+          /^(Unable to persist append retry state|Unable to verify append retry state|Unable to complete legacy append retry migration)$/.test(
+            error.message,
+          ) &&
+          operationId
+        ) {
+          void captureClientOperationFailure({
+            operation: 'order.append',
+            phase: 'retry_storage',
+            correlationId: operationId,
+          });
+        }
+        setAppendOutcomeUnknown(false);
+        toast.error(
+          error instanceof Error && error.message === 'A previous append attempt is still pending'
+            ? `${tPos('appendOutcomeUnknown')} ${tPos('appendCompleteCheckOrders')}`
+            : tOrders('addItemsFailed'),
+        );
+      }
     } finally {
       setAddingItems(false);
     }
@@ -887,7 +1346,7 @@ export default function OrdersPage() {
         override_pin: cancelModal.overridePin || undefined,
       });
       toast.success(tOrders('orderCancelled'));
-      fetchOrders();
+      fetchOrders(undefined, { refreshLoadedPages: true });
     } catch {
       toast.error(tOrders('cancelOrderFailed'));
     } finally {
@@ -910,10 +1369,12 @@ export default function OrdersPage() {
     }
   };
 
+  // Every layout anchors its content to the page height so the title, status
+  // tabs and filters stay on screen while the order content scrolls below them.
   return (
-    <div className="space-y-4">
+    <div className="h-full min-h-0 flex flex-col gap-4">
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-4 shrink-0">
         <h1 className="text-2xl font-bold text-foreground">{tNav('orders')}</h1>
         <div className="flex gap-2">
           {(['all', 'active', 'unpaid', 'held'] as FilterType[]).map((f) => (
@@ -933,7 +1394,7 @@ export default function OrdersPage() {
       </div>
 
       {/* Filter Bar */}
-      <div className="flex flex-wrap items-center gap-3 mb-4">
+      <div className="flex flex-wrap items-center gap-3 mb-4 shrink-0">
         {/* Search by order number, customer name, or phone */}
         <div className="relative flex-1 min-w-[200px]">
           <Search size={16} className="absolute start-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -941,7 +1402,7 @@ export default function OrdersPage() {
             type="text"
             placeholder={tOrders('search')}
             value={filters.search}
-            onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
+            onChange={(e) => setFilters((prev) => ({ ...prev, search: e.target.value }))}
             className="w-full ps-9 pe-3 py-2 border border-border bg-card rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand"
           />
         </div>
@@ -949,7 +1410,7 @@ export default function OrdersPage() {
         {/* Table filter */}
         <select
           value={filters.table}
-          onChange={(e) => setFilters(prev => ({ ...prev, table: e.target.value }))}
+          onChange={(e) => setFilters((prev) => ({ ...prev, table: e.target.value }))}
           className="px-3 py-2 border border-border bg-card rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand"
         >
           <option value="">{tOrders('allTables')}</option>
@@ -963,7 +1424,7 @@ export default function OrdersPage() {
         {/* Type filter */}
         <select
           value={filters.type}
-          onChange={(e) => setFilters(prev => ({ ...prev, type: e.target.value }))}
+          onChange={(e) => setFilters((prev) => ({ ...prev, type: e.target.value }))}
           className="px-3 py-2 border border-border bg-card rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand"
         >
           <option value="">{tOrders('allTypes')}</option>
@@ -976,7 +1437,7 @@ export default function OrdersPage() {
         {/* Status filter */}
         <select
           value={filters.status}
-          onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
+          onChange={(e) => setFilters((prev) => ({ ...prev, status: e.target.value }))}
           className="px-3 py-2 border border-border bg-card rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand"
         >
           <option value="">{tOrders('allStatuses')}</option>
@@ -997,35 +1458,58 @@ export default function OrdersPage() {
             <p>{tOrders('heldEmpty')}</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-4 content-start items-start auto-rows-max">
+          <div className="flex-1 min-h-0 overflow-y-auto grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-4 content-start items-start auto-rows-max">
             {Object.values(heldOrdersStore.orders).map((heldOrder) => (
-              <div key={heldOrder.tableId} className="bg-card rounded-xl border border-blue-200 overflow-hidden flex flex-col shadow-sm hover:shadow-md transition-shadow">
-                 <div className="p-4 border-b border-border bg-blue-50/50 flex justify-between items-center">
-                   <div>
-                     <p className="font-bold text-foreground">{tables.find(t => t.id === heldOrder.tableId)?.name || tCommon('tableFallback')}</p>
-                     <p className="text-xs text-muted-foreground">{formatTime(heldOrder.heldAt)}</p>
-                   </div>
-                   <span className="bg-blue-100 text-blue-700 text-xs px-2 py-1 rounded-full font-bold tracking-wide">{tOrders('held')}</span>
-                 </div>
-                 <div className="p-4 flex-1">
-                   {heldOrder.items.map((item, idx) => (
-                     <div key={idx} className="flex justify-between text-sm py-1 text-foreground">
-                       <span>{item.quantity}x {item.product.name}</span>
-                     </div>
-                   ))}
-                   {heldOrder.orderNotes && (
-                     <div className="mt-3 text-sm italic text-muted-foreground bg-muted p-2 rounded-lg">
-                       &quot;{heldOrder.orderNotes}&quot;
-                     </div>
-                   )}
-                 </div>
-                 <div className="p-4 bg-muted border-t border-border flex gap-2">
-                    <Button onClick={async () => {
+              <div
+                key={heldOrder.tableId}
+                className="bg-card rounded-xl border border-blue-200 overflow-hidden flex flex-col shadow-sm hover:shadow-md transition-shadow"
+              >
+                <div className="p-4 border-b border-border bg-blue-50/50 flex justify-between items-center">
+                  <div>
+                    <p className="font-bold text-foreground">
+                      {tables.find((t) => t.id === heldOrder.tableId)?.name ||
+                        tCommon('tableFallback')}
+                    </p>
+                    <p className="text-xs text-muted-foreground">{formatTime(heldOrder.heldAt)}</p>
+                  </div>
+                  <span className="bg-blue-100 text-blue-700 text-xs px-2 py-1 rounded-full font-bold tracking-wide">
+                    {tOrders('held')}
+                  </span>
+                </div>
+                <div className="p-4 flex-1">
+                  {heldOrder.items.map((item, idx) => (
+                    <div key={idx} className="flex justify-between text-sm py-1 text-foreground">
+                      <span>
+                        {item.quantity}x {item.product.name}
+                      </span>
+                    </div>
+                  ))}
+                  {heldOrder.orderNotes && (
+                    <div className="mt-3 text-sm italic text-muted-foreground bg-muted p-2 rounded-lg">
+                      &quot;{heldOrder.orderNotes}&quot;
+                    </div>
+                  )}
+                </div>
+                <div className="p-4 bg-muted border-t border-border flex gap-2">
+                  <Button
+                    onClick={async () => {
                       try {
                         const held = await heldOrdersStore.restoreOrder(heldOrder.tableId);
                         if (held) {
-                          cartStore.loadItems(held.items, heldOrder.tableId, held.customerId, held.guestCount, held.orderNotes, held.id);
+                          // Settle the target type first: a real type change clears
+                          // the charge selections, so installing them afterwards is
+                          // what preserves the resumed cart's waivers and opt-ins.
                           cartStore.setOrderType('dine_in');
+                          cartStore.loadItems(
+                            held.items,
+                            heldOrder.tableId,
+                            held.customerId,
+                            held.guestCount,
+                            held.orderNotes,
+                            held.id,
+                            held.waivedChargeIds,
+                            held.optedInChargeIds,
+                          );
                           router.push('/pos');
                         } else {
                           await heldOrdersStore.fetchHeldOrders();
@@ -1034,11 +1518,20 @@ export default function OrdersPage() {
                       } catch {
                         toast.error(tOrders('resumeFailed'));
                       }
-                    }} variant="default" className="flex-1 bg-brand hover:bg-brand/90 text-white">{tOrders('resumeInPos')}</Button>
-                    <Button onClick={async () => {
+                    }}
+                    variant="default"
+                    className="flex-1 bg-brand hover:bg-brand/90 text-white"
+                  >
+                    {tOrders('resumeInPos')}
+                  </Button>
+                  <Button
+                    onClick={async () => {
                       if (await confirm(tOrders('deleteHeldConfirm'), { destructive: true })) {
                         try {
-                          const deleted = await heldOrdersStore.removeHeldOrder(heldOrder.tableId, heldOrder.id);
+                          const deleted = await heldOrdersStore.removeHeldOrder(
+                            heldOrder.tableId,
+                            heldOrder.id,
+                          );
                           if (deleted) {
                             toast.success(tOrders('heldOrderRemoved'));
                           } else {
@@ -1049,8 +1542,13 @@ export default function OrdersPage() {
                           toast.error(tOrders('removeHeldOrderFailed'));
                         }
                       }
-                    }} variant="outline" className="flex-1 text-red-600 hover:text-red-700 hover:bg-red-50">{tOrders('delete')}</Button>
-                 </div>
+                    }}
+                    variant="outline"
+                    className="flex-1 text-red-600 hover:text-red-700 hover:bg-red-50"
+                  >
+                    {tOrders('delete')}
+                  </Button>
+                </div>
               </div>
             ))}
           </div>
@@ -1063,8 +1561,93 @@ export default function OrdersPage() {
         <div className="flex items-center justify-center py-24 text-gray-400">
           <p>{tOrders('empty')}</p>
         </div>
+      ) : ordersLayout === 'split' ? (
+        <div className="flex-1 min-h-0 flex gap-4">
+          {/* Master pane — a fixed reading column on desktop, full width below md. */}
+          <div
+            className={cn(
+              selectedOrder ? 'hidden md:flex' : 'flex',
+              'w-full md:w-[360px] lg:w-[400px] xl:w-[440px] min-w-0 flex-col rounded-xl border border-border bg-card overflow-hidden',
+            )}
+          >
+            <OrdersMasterList
+              orders={filteredOrders}
+              selectedOrderId={selectedOrderId}
+              onSelect={setSelectedOrderId}
+              now={now}
+            />
+          </div>
+
+          {/* Detail pane — fills the remaining row width on desktop, full width with back nav below md. */}
+          <div
+            className={cn(selectedOrder ? 'flex' : 'hidden md:flex', 'w-full md:flex-1 min-w-0')}
+          >
+            <OrderDetailPanel
+              order={selectedOrder ?? null}
+              onBack={() => setSelectedOrderId(null)}
+              now={now}
+              canCancelItems={canCancelItems}
+              canRestoreItems={canRestoreItems}
+              canRefund={canRefund}
+              isWhatsAppReady={isWhatsAppReady}
+              printHistory={printHistory}
+              generatingBillId={generatingBill}
+              printingBillId={printingBillId}
+              printingSlipOrderId={printingSlipOrderId}
+              sendingWaOrderId={sendingWaOrderId}
+              cancellingOrderId={cancellingOrderId}
+              convertingOrderId={convertingOrderId}
+              isLinkingCustomer={
+                selectedOrderId !== null && linkCustomerOrderId === selectedOrderId
+              }
+              linkCustomerSearch={linkCustomerSearch}
+              linkCustomerResults={linkCustomerResults}
+              linkingCustomer={linkingCustomer}
+              onCheckout={handleCheckout}
+              onPayBill={handlePayBill}
+              onAddItems={openAddItemsModal}
+              onRefund={(ord, bills) => setRefundModal({ order: ord, bills })}
+              onConvertToTakeaway={handleConvertToTakeaway}
+              onCancelOrder={(ord) =>
+                setCancelModal({ order: ord, reason: '', freeTable: true, overridePin: '' })
+              }
+              onPrint={(billId) => setConfirmPrintBillId(billId)}
+              onPrintOrder={
+                tenantCan(currentTenant, 'bills.generate') ? handlePrintOrder : undefined
+              }
+              onPrintDeliverySlip={handlePrintDeliverySlip}
+              onSendWhatsApp={handleSendViaFlo}
+              onLinkCustomer={(orderId) => {
+                setLinkCustomerOrderId(orderId);
+                setLinkCustomerSearch('');
+                setLinkCustomerResults([]);
+              }}
+              onCancelLinkCustomer={() => {
+                setLinkCustomerOrderId(null);
+                setLinkCustomerSearch('');
+                setLinkCustomerResults([]);
+              }}
+              onSearchCustomer={(query) => {
+                setLinkCustomerSearch(query);
+                searchCustomersForLink(query);
+              }}
+              onSelectCustomer={handleLinkCustomer}
+              onCreateCustomer={(orderId, search) => {
+                setCreateCustomerSearch(search);
+                setCreateCustomerOrderId(orderId);
+              }}
+              onCreateNewOrderForCustomer={handleCreateNewOrderForCustomer}
+              onDownloadPrintPreview={handleDownloadPrintPreview}
+              onDeleteItem={deleteItem}
+              onVoidItem={(orderId, itemId, productName) =>
+                setVoidItemModal({ orderId, itemId, productName, overridePin: '' })
+              }
+              onRestoreItem={restoreItem}
+            />
+          </div>
+        </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-4 content-start items-start auto-rows-max">
+        <div className="flex-1 min-h-0 overflow-y-auto grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-4 content-start items-start auto-rows-max">
           {filteredOrders.map((order) => (
             <OrderCard
               key={order.id}
@@ -1090,9 +1673,13 @@ export default function OrdersPage() {
               onAddItems={openAddItemsModal}
               onRefund={(ord, bills) => setRefundModal({ order: ord, bills })}
               onConvertToTakeaway={handleConvertToTakeaway}
-              onCancelOrder={(ord) => setCancelModal({ order: ord, reason: '', freeTable: true, overridePin: '' })}
+              onCancelOrder={(ord) =>
+                setCancelModal({ order: ord, reason: '', freeTable: true, overridePin: '' })
+              }
               onPrint={(billId) => setConfirmPrintBillId(billId)}
-              onPrintOrder={tenantCan(currentTenant, 'bills.generate') ? handlePrintOrder : undefined}
+              onPrintOrder={
+                tenantCan(currentTenant, 'bills.generate') ? handlePrintOrder : undefined
+              }
               onSendWhatsApp={handleSendViaFlo}
               onLinkCustomer={(orderId) => {
                 setLinkCustomerOrderId(orderId);
@@ -1124,15 +1711,39 @@ export default function OrdersPage() {
           ))}
         </div>
       )}
+      {tabFilter !== 'held' && !loading && nextOrdersCursor !== null && (
+        <div className="shrink-0 text-center py-3 border-t border-border">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => fetchOrders(nextOrdersCursor)}
+            disabled={loadingMoreOrders}
+          >
+            {loadingMoreOrders ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              tCommon('loadMore')
+            )}
+          </Button>
+        </div>
+      )}
 
       {/* Payment Modal */}
       {paymentBill && (
         <PaymentModal
+          key={paymentBill.id}
           bill={paymentBill}
           currency={currency}
           onClose={() => setPaymentBill(null)}
           onPaid={handlePaymentComplete}
           onBillUpdate={(updated) => setPaymentBill(updated)}
+          onSplit={(departingBill) => {
+            fetchOrders(undefined, { refreshLoadedPages: true });
+            // Synchronously clear paymentBill so the remainder check cannot be paid
+            // during the departing bill's fetch window.
+            setPaymentBill(null);
+            if (departingBill) void handlePayBill(departingBill);
+          }}
         />
       )}
 
@@ -1142,7 +1753,10 @@ export default function OrdersPage() {
           order={refundModal.order}
           bills={refundModal.bills}
           onClose={() => setRefundModal(null)}
-          onRefunded={() => { setRefundModal(null); fetchOrders(); }}
+          onRefunded={() => {
+            setRefundModal(null);
+            fetchOrders(undefined, { refreshLoadedPages: true });
+          }}
         />
       )}
 
@@ -1151,7 +1765,9 @@ export default function OrdersPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-card rounded-xl shadow-xl p-6 w-full max-w-sm mx-4">
             <h2 className="text-lg font-bold text-foreground mb-2">
-              {(printHistory[confirmPrintBillId]?.length ?? 0) > 0 ? tOrders('reprintReceiptTitle') : tOrders('printReceiptTitle')}
+              {(printHistory[confirmPrintBillId]?.length ?? 0) > 0
+                ? tOrders('reprintReceiptTitle')
+                : tOrders('printReceiptTitle')}
             </h2>
             <p className="text-sm text-muted-foreground mb-6">
               {(printHistory[confirmPrintBillId]?.length ?? 0) > 0
@@ -1159,11 +1775,7 @@ export default function OrdersPage() {
                 : tOrders('printReceiptConfirm')}
             </p>
             <div className="flex justify-end gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setConfirmPrintBillId(null)}
-              >
+              <Button variant="outline" size="sm" onClick={() => setConfirmPrintBillId(null)}>
                 {tCommon('cancel')}
               </Button>
               <Button
@@ -1175,9 +1787,11 @@ export default function OrdersPage() {
                 aria-label={tOrders('downloadPrintPreview')}
                 className="w-9 px-0"
               >
-                {previewingBillId === confirmPrintBillId
-                  ? <Loader2 size={14} className="animate-spin" />
-                  : <Download size={14} />}
+                {previewingBillId === confirmPrintBillId ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <Download size={14} />
+                )}
               </Button>
               <Button
                 size="sm"
@@ -1200,14 +1814,19 @@ export default function OrdersPage() {
       {cancelModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-card rounded-xl shadow-xl p-6 w-full max-w-sm mx-4">
-            <h2 className="text-lg font-bold text-foreground mb-4">{tOrders('cancel')} #<Ltr>{cancelModal.order.order_number}</Ltr></h2>
+            <h2 className="text-lg font-bold text-foreground mb-4">
+              {tOrders('cancel')} #<Ltr>{cancelModal.order.order_number}</Ltr>
+            </h2>
             <p className="text-sm text-muted-foreground -mt-2 mb-4">
               {tOrders('cancelOrderStatusHint')}
             </p>
 
             <div className="space-y-4">
               <div>
-                <label htmlFor="cancelReason" className="block text-sm font-medium text-foreground mb-1">
+                <label
+                  htmlFor="cancelReason"
+                  className="block text-sm font-medium text-foreground mb-1"
+                >
                   {tCommon('reasonOptional')}
                 </label>
                 <input
@@ -1235,9 +1854,15 @@ export default function OrdersPage() {
                 </div>
               )}
 
-              {(cancelModal.order.status !== 'pending' || cancelModal.order.items?.some((i) => ['preparing', 'ready', 'served', 'completed'].includes(i.status))) && (
+              {(cancelModal.order.status !== 'pending' ||
+                cancelModal.order.items?.some((i) =>
+                  ['preparing', 'ready', 'served', 'completed'].includes(i.status),
+                )) && (
                 <div>
-                  <label htmlFor="overridePin" className="block text-sm font-medium text-foreground mb-1">
+                  <label
+                    htmlFor="overridePin"
+                    className="block text-sm font-medium text-foreground mb-1"
+                  >
                     {tOrders('overridePinLabel')}
                   </label>
                   <input
@@ -1245,7 +1870,7 @@ export default function OrdersPage() {
                     type="password"
                     value={cancelModal.overridePin}
                     onChange={(e) => updateCancelModal({ overridePin: e.target.value })}
-placeholder={tOrders('managerPin')}
+                    placeholder={tOrders('managerPin')}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
                   />
                 </div>
@@ -1253,11 +1878,7 @@ placeholder={tOrders('managerPin')}
             </div>
 
             <div className="flex justify-end gap-2 mt-6">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setCancelModal(null)}
-              >
+              <Button variant="outline" size="sm" onClick={() => setCancelModal(null)}>
                 {tCommon('cancel')}
               </Button>
               <Button
@@ -1266,7 +1887,9 @@ placeholder={tOrders('managerPin')}
                 disabled={cancellingOrderId === cancelModal.order.id}
                 className="bg-red-600 hover:bg-red-700 text-white"
               >
-                {cancellingOrderId === cancelModal.order.id ? tOrders('cancelling') : tOrders('confirmCancel')}
+                {cancellingOrderId === cancelModal.order.id
+                  ? tOrders('cancelling')
+                  : tOrders('confirmCancel')}
               </Button>
             </div>
           </div>
@@ -1278,10 +1901,15 @@ placeholder={tOrders('managerPin')}
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-card rounded-xl shadow-xl p-6 w-full max-w-sm mx-4">
             <h2 className="text-lg font-bold text-foreground mb-1">{tOrders('voidItem')}</h2>
-            <p className="text-sm text-muted-foreground mb-4">{tOrders('voidItemConfirm', { name: voidItemModal.productName })}</p>
+            <p className="text-sm text-muted-foreground mb-4">
+              {tOrders('voidItemConfirm', { name: voidItemModal.productName })}
+            </p>
 
             <div>
-              <label htmlFor="voidOverridePin" className="block text-sm font-medium text-foreground mb-1">
+              <label
+                htmlFor="voidOverridePin"
+                className="block text-sm font-medium text-foreground mb-1"
+              >
                 {tOrders('overridePinLabel')}
               </label>
               <input
@@ -1289,18 +1917,16 @@ placeholder={tOrders('managerPin')}
                 type="password"
                 autoFocus
                 value={voidItemModal.overridePin}
-                onChange={(e) => setVoidItemModal({ ...voidItemModal, overridePin: e.target.value })}
+                onChange={(e) =>
+                  setVoidItemModal({ ...voidItemModal, overridePin: e.target.value })
+                }
                 placeholder={tOrders('managerPin')}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
               />
             </div>
 
             <div className="flex justify-end gap-2 mt-6">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setVoidItemModal(null)}
-              >
+              <Button variant="outline" size="sm" onClick={() => setVoidItemModal(null)}>
                 {tCommon('cancel')}
               </Button>
               <Button
@@ -1320,7 +1946,9 @@ placeholder={tOrders('managerPin')}
       {discountModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-card rounded-xl shadow-xl p-6 w-full max-w-sm mx-4">
-            <h2 className="text-lg font-bold text-foreground mb-4">{tOrders('applyDiscountTitle', { number: discountModal.order.order_number })}</h2>
+            <h2 className="text-lg font-bold text-foreground mb-4">
+              {tOrders('applyDiscountTitle', { number: discountModal.order.order_number })}
+            </h2>
 
             <div className="space-y-4">
               {/* Discount Type Toggle */}
@@ -1356,7 +1984,9 @@ placeholder={tOrders('managerPin')}
               {/* Discount Value */}
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1">
-                  {discountModal.type === 'percentage' ? tOrders('discountPercentageLabel') : tOrders('discountAmountLabel')}
+                  {discountModal.type === 'percentage'
+                    ? tOrders('discountPercentageLabel')
+                    : tOrders('discountAmountLabel')}
                 </label>
                 <div className="relative">
                   <span className="absolute start-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">
@@ -1365,11 +1995,15 @@ placeholder={tOrders('managerPin')}
                   <input
                     type="number"
                     min={0}
-                    max={discountModal.type === 'percentage' ? 100 : Number(discountModal.order.total)}
+                    max={
+                      discountModal.type === 'percentage' ? 100 : Number(discountModal.order.total)
+                    }
                     step={getDiscountInputStep(unitAdapter.maxDecimals, discountModal.type)}
                     value={discountModal.value || ''}
                     onChange={(e) => updateDiscountModal({ value: Number(e.target.value) })}
-                    placeholder={discountModal.type === 'percentage' ? '0' : unitAdapter.formatInput(0)}
+                    placeholder={
+                      discountModal.type === 'percentage' ? '0' : unitAdapter.formatInput(0)
+                    }
                     className="w-full ps-8 pe-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                   />
                 </div>
@@ -1393,24 +2027,31 @@ placeholder={tOrders('managerPin')}
               <div className="bg-muted rounded-lg p-3 space-y-1.5">
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">{tCommon('subtotal')}</span>
-                  <span className="text-foreground">{fmt(Number(discountModal.order.subtotal))}</span>
+                  <span className="text-foreground">
+                    {fmt(Number(discountModal.order.subtotal))}
+                  </span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">{tCommon('tax')}</span>
-                  <span className="text-foreground">{fmt(Number(discountModal.order.tax_amount || 0))}</span>
+                  <span className="text-foreground">
+                    {fmt(Number(discountModal.order.tax_amount || 0))}
+                  </span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-purple-600">
                     {tCommon('discount')}
                     {discountModal.type === 'percentage' && discountModal.value > 0 && (
-                      <span className="text-gray-400 ms-1">{tOrders('percentOnSubtotal', { value: discountModal.value })}</span>
+                      <span className="text-gray-400 ms-1">
+                        {tOrders('percentOnSubtotal', { value: discountModal.value })}
+                      </span>
                     )}
                   </span>
                   <span className="text-purple-600">
-                    -{fmt(
+                    -
+                    {fmt(
                       discountModal.type === 'percentage'
-                        ? Number(discountModal.order.subtotal) * discountModal.value / 100
-                        : normalizedDiscountValue
+                        ? (Number(discountModal.order.subtotal) * discountModal.value) / 100
+                        : normalizedDiscountValue,
                     )}
                   </span>
                 </div>
@@ -1419,8 +2060,11 @@ placeholder={tOrders('managerPin')}
                   <span className="text-foreground">
                     {fmt(
                       discountModal.type === 'percentage'
-                        ? Number(discountModal.order.subtotal) * (1 - discountModal.value / 100) + Number(discountModal.order.tax_amount || 0)
-                        : Number(discountModal.order.subtotal) - normalizedDiscountValue + Number(discountModal.order.tax_amount || 0)
+                        ? Number(discountModal.order.subtotal) * (1 - discountModal.value / 100) +
+                            Number(discountModal.order.tax_amount || 0)
+                        : Number(discountModal.order.subtotal) -
+                            normalizedDiscountValue +
+                            Number(discountModal.order.tax_amount || 0),
                     )}
                   </span>
                 </div>
@@ -1429,24 +2073,22 @@ placeholder={tOrders('managerPin')}
 
             {discountRequiresApproval && discountModal.value > 0 && (
               <div className="mt-4">
-                <label className="block text-sm font-medium text-foreground mb-1">{tOrders('managerPinLabel')}</label>
+                <label className="block text-sm font-medium text-foreground mb-1">
+                  {tOrders('managerPinLabel')}
+                </label>
                 <input
                   type="password"
                   value={discountPin}
                   onChange={(e) => setDiscountPin(e.target.value)}
-placeholder={tOrders('managerPin')}
-                maxLength={6}
+                  placeholder={tOrders('managerPin')}
+                  maxLength={6}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                 />
               </div>
             )}
 
             <div className="flex justify-end gap-2 mt-6">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setDiscountModal(null)}
-              >
+              <Button variant="outline" size="sm" onClick={() => setDiscountModal(null)}>
                 {tCommon('cancel')}
               </Button>
               <Button
@@ -1467,11 +2109,24 @@ placeholder={tOrders('managerPin')}
       {addItemsOrder && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-card rounded-xl shadow-xl p-6 w-full max-w-lg mx-4 max-h-[80vh] flex flex-col">
-            <h2 className="text-lg font-bold text-foreground mb-4">{tOrders('addItems')} #<Ltr>{addItemsOrder.order_number}</Ltr></h2>
+            <h2 className="text-lg font-bold text-foreground mb-4">
+              {tOrders('addItems')} #<Ltr>{addItemsOrder.order_number}</Ltr>
+            </h2>
+            {appendOutcomeUnknown && (
+              <p
+                role="alert"
+                className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-800/40 dark:bg-amber-950/40 dark:text-amber-100"
+              >
+                {tPos('appendOutcomeUnknown')} {tPos('appendCompleteCheckOrders')}
+              </p>
+            )}
 
             {/* Search */}
             <div className="relative mb-3">
-              <Search size={16} className="absolute start-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <Search
+                size={16}
+                className="absolute start-3 top-1/2 -translate-y-1/2 text-gray-400"
+              />
               <input
                 type="text"
                 placeholder={tOrders('searchMenu')}
@@ -1484,7 +2139,10 @@ placeholder={tOrders('managerPin')}
             {/* Product list */}
             <div className="flex-1 overflow-y-auto border border-border rounded-lg mb-3 max-h-48">
               {products
-                .filter(p => !productSearch || p.name.toLowerCase().includes(productSearch.toLowerCase()))
+                .filter(
+                  (p) =>
+                    !productSearch || p.name.toLowerCase().includes(productSearch.toLowerCase()),
+                )
                 .map((product: Product) => (
                   <button
                     key={product.id}
@@ -1494,26 +2152,37 @@ placeholder={tOrders('managerPin')}
                     <div>
                       <span className="text-sm font-medium text-foreground">{product.name}</span>
                       {product.price && (
-                        <span className="text-xs text-muted-foreground ms-2">{fmt(Number(product.price))}</span>
+                        <span className="text-xs text-muted-foreground ms-2">
+                          {fmt(Number(product.price))}
+                        </span>
                       )}
                     </div>
                     <Plus size={14} className="text-green-500" />
                   </button>
-                ))
-              }
-              {products.filter(p => !productSearch || p.name.toLowerCase().includes(productSearch.toLowerCase())).length === 0 && (
-                <div className="px-3 py-4 text-sm text-gray-400 text-center">{tOrders('noItemsFound')}</div>
+                ))}
+              {products.filter(
+                (p) => !productSearch || p.name.toLowerCase().includes(productSearch.toLowerCase()),
+              ).length === 0 && (
+                <div className="px-3 py-4 text-sm text-gray-400 text-center">
+                  {tOrders('noItemsFound')}
+                </div>
               )}
             </div>
 
             {/* Selected items */}
             {selectedItems.length > 0 && (
               <div className="space-y-2 mb-3">
-                <p className="text-xs font-medium text-muted-foreground uppercase">{tOrders('selectedItems')}</p>
-                {selectedItems.map(item => (
+                <p className="text-xs font-medium text-muted-foreground uppercase">
+                  {tOrders('selectedItems')}
+                </p>
+                {selectedItems.map((item) => (
                   <div key={item.key} className="flex items-center gap-2 bg-muted rounded-lg p-2">
                     <div className="flex-1 min-w-0">
-                      <span className="text-sm font-medium text-foreground truncate block">{item.product_name}</span>
+                      <span className="text-sm font-medium text-foreground truncate block">
+                        {item.variant
+                          ? `${item.product.name} (${item.variant.name})`
+                          : item.product.name}
+                      </span>
                       {item.addons.length > 0 && (
                         <span className="text-xs text-muted-foreground truncate block">
                           {item.addons.map((a) => a.name).join(', ')}
@@ -1524,7 +2193,9 @@ placeholder={tOrders('managerPin')}
                         placeholder={tOrders('notesOptional')}
                         value={item.special_instructions}
                         maxLength={100}
-                        onChange={(e) => handleUpdateSelectionNotes(item.key, e.target.value.slice(0, 100))}
+                        onChange={(e) =>
+                          handleUpdateSelectionNotes(item.key, e.target.value.slice(0, 100))
+                        }
                         className="w-full text-xs text-muted-foreground bg-transparent border-0 p-0 focus:outline-none placeholder:text-gray-300"
                       />
                     </div>
@@ -1532,12 +2203,16 @@ placeholder={tOrders('managerPin')}
                       <button
                         onClick={() => handleUpdateSelectionQty(item.key, item.quantity - 1)}
                         className="w-6 h-6 rounded bg-gray-200 text-muted-foreground text-xs hover:bg-gray-300"
-                      >-</button>
+                      >
+                        -
+                      </button>
                       <span className="w-6 text-center text-sm font-medium">{item.quantity}</span>
                       <button
                         onClick={() => handleUpdateSelectionQty(item.key, item.quantity + 1)}
                         className="w-6 h-6 rounded bg-gray-200 text-muted-foreground text-xs hover:bg-gray-300"
-                      >+</button>
+                      >
+                        +
+                      </button>
                     </div>
                     <button
                       onClick={() => handleRemoveFromSelection(item.key)}
@@ -1552,21 +2227,19 @@ placeholder={tOrders('managerPin')}
 
             {/* Actions */}
             <div className="flex justify-end gap-2 pt-2 border-t border-border">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => openAddItemsModal(null)}
-              >
+              <Button variant="outline" size="sm" onClick={() => openAddItemsModal(null)}>
                 {tCommon('cancel')}
               </Button>
               <Button
                 size="sm"
                 onClick={handleSubmitAddItems}
-                disabled={selectedItems.length === 0 || addingItems}
+                disabled={selectedItems.length === 0 || addingItems || appendOutcomeUnknown}
                 className="bg-green-600 hover:bg-green-700 text-white"
               >
                 <Plus size={14} className="me-1.5" />
-                {addingItems ? tOrders('adding') : tOrders('addItemsCount', { count: selectedItems.length })}
+                {addingItems
+                  ? tOrders('adding')
+                  : tOrders('addItemsCount', { count: selectedItems.length })}
               </Button>
             </div>
           </div>
@@ -1576,6 +2249,7 @@ placeholder={tOrders('managerPin')}
         <AddonModal
           product={addonPickerProduct}
           currency={currency}
+          onlinePlatformSelected={Boolean(addItemsOrder?.online_platform)}
           onAdd={handleAddonPickerAdd}
           onClose={() => setAddonPickerProduct(null)}
         />

@@ -4,6 +4,7 @@ import { getDatabase, now, withTxn } from '../db';
 import { requirePermission } from '../services/authorization';
 import { randomUUID } from 'crypto';
 import { validateItemNotes, validateOrderNotes, validateProductQuantity } from './orders-validation';
+import { CHARGE_ID_PATTERN, MAX_CHARGE_DEFINITIONS, MAX_CHARGE_ID_LENGTH } from '../../shared/charges';
 
 const router = Router();
 const heldOrderReadRateLimit = expressRateLimit({ windowMs: 60 * 1000, limit: 120, standardHeaders: true, legacyHeaders: false });
@@ -19,12 +20,17 @@ interface HeldOrderRow {
   customer_id: string | null;
   guest_count: number;
   order_notes: string | null;
+  waived_charge_ids: unknown;
+  opted_in_charge_ids: unknown;
   created_at: string;
   updated_at: string;
 }
 
 const MAX_HELD_ORDER_ITEMS = 100;
 const MAX_IDENTIFIER_LENGTH = 128;
+// Cart line ids are bounded digests (frontend/src/lib/cart-identity.ts), so this
+// only guards against a client sending an oversized identifier.
+const MAX_CART_LINE_ID_LENGTH = 2048;
 
 function isRecord(value: unknown): value is Record<string, any> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -36,7 +42,7 @@ function isValidIdentifier(value: unknown): value is string | number {
 }
 
 function validateHeldOrderItem(item: unknown, db: any): void {
-  if (!isRecord(item) || typeof item.id !== 'string' || item.id.length === 0 || item.id.length > MAX_IDENTIFIER_LENGTH) {
+  if (!isRecord(item) || typeof item.id !== 'string' || item.id.length === 0 || item.id.length > MAX_CART_LINE_ID_LENGTH) {
     throw new Error('Each held-order item must have a valid id');
   }
   if (!isRecord(item.product) || !isValidIdentifier(item.product.id)) {
@@ -61,12 +67,45 @@ function validateHeldOrderItem(item: unknown, db: any): void {
   validateItemNotes(db, item.special_instructions);
 }
 
+/**
+ * Charge choices are identifiers only: the engine stays authoritative about
+ * which of them apply, so an id whose definition disappears while a cart sits
+ * held is still stored rather than silently dropped.
+ */
+function sanitizeChargeSelection(value: unknown, field: string): string[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) throw new Error(`${field} must be an array of charge ids`);
+  if (value.length > MAX_CHARGE_DEFINITIONS) {
+    throw new Error(`${field} must contain at most ${MAX_CHARGE_DEFINITIONS} charge ids`);
+  }
+  const ids: string[] = [];
+  for (const candidate of value) {
+    if (typeof candidate !== 'string' || candidate.length === 0 || candidate.length > MAX_CHARGE_ID_LENGTH
+      || !CHARGE_ID_PATTERN.test(candidate)) {
+      throw new Error(`${field} must contain valid charge ids`);
+    }
+    if (!ids.includes(candidate)) ids.push(candidate);
+  }
+  return ids;
+}
+
+/** A selection stored by an older or damaged build degrades to "no choices". */
+function parseStoredChargeSelection(raw: unknown): string[] {
+  try {
+    return sanitizeChargeSelection(typeof raw === 'string' ? JSON.parse(raw) : raw, 'stored charge selection');
+  } catch {
+    return [];
+  }
+}
+
 function validateHeldOrderInput(body: any, db: any): {
   tableId: string;
   items: unknown[];
   customerId: string | number | null;
   guestCount: number;
   orderNotes: string;
+  waivedChargeIds: string[];
+  optedInChargeIds: string[];
 } {
   if (!isRecord(body)) {
     throw new Error('Request body must be an object');
@@ -95,6 +134,8 @@ function validateHeldOrderInput(body: any, db: any): {
     customerId: customerId ?? null,
     guestCount: guestCount ?? 1,
     orderNotes: orderNotes ?? '',
+    waivedChargeIds: sanitizeChargeSelection(body.waivedChargeIds, 'waivedChargeIds'),
+    optedInChargeIds: sanitizeChargeSelection(body.optedInChargeIds, 'optedInChargeIds'),
   };
 }
 
@@ -111,6 +152,8 @@ function parseStoredHeldOrder(row: HeldOrderRow): Record<string, unknown> | null
       customerId: row.customer_id,
       guestCount: Number.isSafeInteger(row.guest_count) && row.guest_count > 0 ? row.guest_count : 1,
       orderNotes: row.order_notes || '',
+      waivedChargeIds: parseStoredChargeSelection(row.waived_charge_ids),
+      optedInChargeIds: parseStoredChargeSelection(row.opted_in_charge_ids),
       heldAt: row.created_at,
     };
   } catch {
@@ -148,7 +191,9 @@ router.post('/', heldOrderWriteRateLimit, requirePermission('held-orders.manage'
     } catch (error: any) {
       return res.status(400).json({ error: error.message });
     }
-    const { tableId, items, customerId, guestCount, orderNotes } = input;
+    const { tableId, items, customerId, guestCount, orderNotes, waivedChargeIds, optedInChargeIds } = input;
+    const serializedWaivedChargeIds = JSON.stringify(waivedChargeIds);
+    const serializedOptedInChargeIds = JSON.stringify(optedInChargeIds);
     let heldOrderId = '';
     
     withTxn(() => {
@@ -158,14 +203,16 @@ router.post('/', heldOrderWriteRateLimit, requirePermission('held-orders.manage'
       if (existing) {
         db.prepare(`
           UPDATE held_orders
-          SET id = ?, items = ?, customer_id = ?, guest_count = ?, order_notes = ?, updated_at = ?
+          SET id = ?, items = ?, customer_id = ?, guest_count = ?, order_notes = ?,
+              waived_charge_ids = ?, opted_in_charge_ids = ?, updated_at = ?
           WHERE id = ?
-        `).run(heldOrderId, JSON.stringify(items), customerId || null, guestCount || 1, orderNotes || '', now(), existing.id);
+        `).run(heldOrderId, JSON.stringify(items), customerId || null, guestCount || 1, orderNotes || '', serializedWaivedChargeIds, serializedOptedInChargeIds, now(), existing.id);
       } else {
         db.prepare(`
-          INSERT INTO held_orders (id, table_id, items, customer_id, guest_count, order_notes, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(heldOrderId, tableId, JSON.stringify(items), customerId || null, guestCount || 1, orderNotes || '', now(), now());
+          INSERT INTO held_orders (id, table_id, items, customer_id, guest_count, order_notes,
+                                   waived_charge_ids, opted_in_charge_ids, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(heldOrderId, tableId, JSON.stringify(items), customerId || null, guestCount || 1, orderNotes || '', serializedWaivedChargeIds, serializedOptedInChargeIds, now(), now());
       }
 
       db.prepare('UPDATE tables SET status = ?, updated_at = ? WHERE id = ?').run(TABLE_STATUS_HELD, now(), tableId);

@@ -1,12 +1,26 @@
 'use client';
 
 import { useState } from 'react';
+import { useEffect } from 'react';
 import {
-  ShoppingCart, UtensilsCrossed, Package, Truck, Globe,
-  Plus, Minus, Trash2, Pause, MapPin, SquarePen,
+  ShoppingCart,
+  UtensilsCrossed,
+  Package,
+  Truck,
+  Globe,
+  Plus,
+  Minus,
+  Trash2,
+  Pause,
+  MapPin,
+  SquarePen,
   Users,
+  Wallet,
+  StickyNote,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import api from '@/lib/api';
+import type { CustomPaymentMethod } from '@/lib/payment-methods';
 import { useCartStore } from '@/store/cart';
 import { useHeldOrdersStore } from '@/store/held-orders';
 import { useAuthStore } from '@/store/auth';
@@ -16,6 +30,10 @@ import toast from 'react-hot-toast';
 import type { Table, Order, OrderItem, CartItem } from '@/lib/types';
 import { useFormatCurrency } from '@/hooks/useFormatCurrency';
 import { fractionalQuantityStep, roundToQuantityPrecision } from '@/lib/utils';
+import { cartVariantUnitPrice } from '@/lib/cart-price';
+import { calculateAppliedCharges } from '@/lib/charges';
+import { chargesForOrderType, useChargesStore } from '@/store/charges';
+import { getCurrencyFractionDigits } from '@countries';
 
 interface Props {
   tables: Table[];
@@ -83,7 +101,12 @@ function ItemQuantityControl({
         >
           <Minus size={16} />
         </button>
-        <span className="w-6 text-center text-base font-semibold tabular-nums">{item.quantity}</span>
+        <span
+          data-testid="cart-item-qty"
+          className="w-6 text-center text-base font-semibold tabular-nums"
+        >
+          {item.quantity}
+        </span>
         <button
           onClick={() => stepBy(1)}
           className="touch-target rounded-full bg-muted transition-colors hover:bg-muted/70 active:bg-muted/70"
@@ -129,16 +152,67 @@ function ItemQuantityControl({
   );
 }
 
-export default function CartPanel({ tables, submitting, onPlaceOrder, onEditItem, variant = 'sidebar', existingOrder }: Props) {
+export default function CartPanel({
+  tables,
+  submitting,
+  onPlaceOrder,
+  onEditItem,
+  variant = 'sidebar',
+  existingOrder,
+}: Props) {
   const cart = useCartStore();
   const heldOrders = useHeldOrdersStore();
   const { currentTenant } = useAuthStore();
   const billingType = usePosSettingsStore((s) => s.billingType);
   const t = useTranslations('pos');
   const tCommon = useTranslations('common');
+  const tOrders = useTranslations('orders');
+  const tSettings = useTranslations('settings');
   const isRestaurant = (currentTenant?.business_type ?? 'restaurant') === 'restaurant';
   const fmt = useFormatCurrency();
-  const canHold = isRestaurant && cart.orderType === 'dine_in' && cart.tableId && cart.items.length > 0 && billingType === 'postpaid';
+  const canHold =
+    isRestaurant &&
+    cart.orderType === 'dine_in' &&
+    cart.tableId &&
+    cart.items.length > 0 &&
+    billingType === 'postpaid';
+
+  const isDeliveryOrder = cart.orderType === 'delivery';
+  const [customPaymentMethods, setCustomPaymentMethods] = useState<CustomPaymentMethod[]>([]);
+  useEffect(() => {
+    if (!isDeliveryOrder) return;
+    api
+      .get('/payment-methods')
+      .then((res) => setCustomPaymentMethods(res.data.payment_methods || []))
+      .catch(() => setCustomPaymentMethods([]));
+  }, [isDeliveryOrder]);
+
+  const charges = useChargesStore((s) => s.charges);
+  const loadCharges = useChargesStore((s) => s.load);
+  useEffect(() => {
+    void loadCharges();
+  }, [loadCharges]);
+
+  // Preview only: the backend recomputes and persists the authoritative amounts.
+  const applicableCharges = chargesForOrderType(charges, cart.orderType);
+  const appliedCharges = calculateAppliedCharges({
+    definitions: applicableCharges,
+    orderType: cart.orderType,
+    subtotal: cart.subtotal(),
+    discountAmount: 0,
+    waivedIds: cart.waivedChargeIds,
+    optedInIds: cart.optedInChargeIds,
+    currencyDecimals: getCurrencyFractionDigits(currentTenant?.currency || ''),
+  });
+  const chargeTotal = appliedCharges.reduce(
+    (sum, charge) => sum + (charge.waived ? 0 : charge.amount),
+    0,
+  );
+  // A charge the merchant left off by default is never applied until the cashier
+  // adds it, so it has to be listed here or there is no way to add it.
+  const addableCharges = applicableCharges.filter(
+    (charge) => !charge.is_default_active && !cart.optedInChargeIds.has(charge.id),
+  );
 
   const handleHold = async () => {
     if (!cart.tableId) {
@@ -151,7 +225,15 @@ export default function CartPanel({ tables, submitting, onPlaceOrder, onEditItem
     }
     const tableName = tables.find((t) => t.id === cart.tableId)?.name || cart.tableId;
     try {
-      await heldOrders.holdOrder(cart.tableId, cart.items, cart.customerId, cart.guestCount, cart.orderNotes);
+      await heldOrders.holdOrder(
+        cart.tableId,
+        cart.items,
+        cart.customerId,
+        cart.guestCount,
+        cart.orderNotes,
+        [...cart.waivedChargeIds],
+        [...cart.optedInChargeIds],
+      );
       cart.clearCart();
       toast.success(t('orderHeldFor', { table: tableName }));
     } catch (error) {
@@ -159,8 +241,11 @@ export default function CartPanel({ tables, submitting, onPlaceOrder, onEditItem
       // English server string to a cashier. But swallowing it entirely left no
       // way to find out why a hold failed, from the UI or the logs, so the
       // reason goes to the console where it can be read.
-      console.error('[POS] Hold order failed:', (error as { response?: { status?: number; data?: unknown } })?.response?.status,
-        (error as { response?: { data?: unknown } })?.response?.data ?? error);
+      console.error(
+        '[POS] Hold order failed:',
+        (error as { response?: { status?: number; data?: unknown } })?.response?.status,
+        (error as { response?: { data?: unknown } })?.response?.data ?? error,
+      );
       toast.error(t('holdOrderFailed'));
     }
   };
@@ -168,11 +253,14 @@ export default function CartPanel({ tables, submitting, onPlaceOrder, onEditItem
   const isDrawer = variant === 'drawer';
 
   return (
-    <div className={
-      isDrawer
-        ? 'flex flex-col w-full'
-        : 'w-full h-full bg-card rounded-xl border border-border dark:border-border flex flex-col shadow-sm'
-    }>
+    <div
+      data-testid="cart-shell"
+      className={
+        isDrawer
+          ? 'flex flex-col w-full'
+          : 'pos-cart-shell w-full h-full bg-card rounded-xl border border-border dark:border-border flex flex-col shadow-sm'
+      }
+    >
       {/* Order Type */}
       <div className="p-4 border-b border-border dark:border-border space-y-2">
         <div className="flex gap-1 bg-muted rounded-lg p-1">
@@ -181,7 +269,14 @@ export default function CartPanel({ tables, submitting, onPlaceOrder, onEditItem
             .map((type) => {
               const Icon = orderTypeIcons[type];
               const showIcon = type !== 'dine_in' && type !== 'online';
-              const label = type === 'dine_in' ? t('orderTypeDineIn') : type === 'takeaway' ? t('orderTypeTakeaway') : type === 'delivery' ? t('orderTypeDelivery') : t('orderTypeOnline');
+              const label =
+                type === 'dine_in'
+                  ? t('orderTypeDineIn')
+                  : type === 'takeaway'
+                    ? t('orderTypeTakeaway')
+                    : type === 'delivery'
+                      ? t('orderTypeDelivery')
+                      : t('orderTypeOnline');
               return (
                 <button
                   key={type}
@@ -201,11 +296,39 @@ export default function CartPanel({ tables, submitting, onPlaceOrder, onEditItem
 
         {cart.orderType === 'dine_in' && (
           <div className="flex items-center justify-between rounded-lg border border-border bg-card px-3 py-2">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground"><Users size={15} /><span>{t('pax')}</span></div>
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Users size={15} />
+              <span>{t('pax')}</span>
+            </div>
             <div className="flex items-center gap-2">
-              <button type="button" aria-label={t('decreasePax')} onClick={() => cart.setGuestCount(Math.max(1, cart.guestCount - 1))} className="touch-target rounded-full bg-muted"><Minus size={15} /></button>
-              <input aria-label={t('pax')} inputMode="numeric" type="number" min="1" max="99" value={cart.guestCount} onChange={(e) => cart.setGuestCount(Math.min(99, Math.max(1, Number(e.target.value) || 1)))} className="w-12 text-center text-base font-semibold border-0 outline-none bg-transparent" />
-              <button type="button" aria-label={t('increasePax')} onClick={() => cart.setGuestCount(Math.min(99, cart.guestCount + 1))} className="touch-target rounded-full bg-muted"><Plus size={15} /></button>
+              <button
+                type="button"
+                aria-label={t('decreasePax')}
+                onClick={() => cart.setGuestCount(Math.max(1, cart.guestCount - 1))}
+                className="touch-target rounded-full bg-muted"
+              >
+                <Minus size={15} />
+              </button>
+              <input
+                aria-label={t('pax')}
+                inputMode="numeric"
+                type="number"
+                min="1"
+                max="99"
+                value={cart.guestCount}
+                onChange={(e) =>
+                  cart.setGuestCount(Math.min(99, Math.max(1, Number(e.target.value) || 1)))
+                }
+                className="w-12 text-center text-base font-semibold border-0 outline-none bg-transparent"
+              />
+              <button
+                type="button"
+                aria-label={t('increasePax')}
+                onClick={() => cart.setGuestCount(Math.min(99, cart.guestCount + 1))}
+                className="touch-target rounded-full bg-muted"
+              >
+                <Plus size={15} />
+              </button>
             </div>
           </div>
         )}
@@ -222,6 +345,76 @@ export default function CartPanel({ tables, submitting, onPlaceOrder, onEditItem
               className="flex-1 min-h-11 px-3 py-2 text-sm border border-border bg-card rounded-lg focus:ring-2 focus:ring-brand focus:border-brand outline-none"
             />
           </div>
+        )}
+
+        {/* Expected collection and courier note: recorded with the order, never a payment */}
+        {isDeliveryOrder && (
+          <>
+            <label className="flex items-center gap-2">
+              <Wallet size={14} className="text-muted-foreground shrink-0" />
+              <span className="text-sm text-muted-foreground">{t('expectedPayment')}</span>
+              <select
+                value={
+                  cart.expectedPaymentMethodId !== null
+                    ? `custom:${cart.expectedPaymentMethodId}`
+                    : cart.expectedPaymentMethod
+                }
+                onChange={(e) => {
+                  const selected = e.target.value;
+                  // A configured method travels by identity, so a method named
+                  // "Pending" or "Unknown" cannot be read back as a sentinel.
+                  const customId = selected.startsWith('custom:')
+                    ? Number(selected.slice('custom:'.length))
+                    : null;
+                  if (customId !== null) {
+                    const method = customPaymentMethods.find(
+                      (candidate) => candidate.id === customId,
+                    );
+                    if (method) {
+                      cart.setExpectedPaymentMethod(method.name, method.id);
+                      return;
+                    }
+                    if (customId === cart.expectedPaymentMethodId) return;
+                  }
+                  cart.setExpectedPaymentMethod(selected, null);
+                }}
+                className="flex-1 min-w-0 min-h-11 px-3 py-2 text-sm border border-border bg-card rounded-lg focus:ring-2 focus:ring-brand focus:border-brand outline-none"
+              >
+                <option value="">{tCommon('unknown')}</option>
+                <option value="pending">{tOrders('pending')}</option>
+                <option value="cash">{t('methodCash')}</option>
+                <option value="card">{t('methodCard')}</option>
+                {customPaymentMethods.length > 0 && (
+                  <optgroup label={tSettings('paymentMethods')}>
+                    {customPaymentMethods.map((method) => (
+                      <option key={method.id} value={`custom:${method.id}`}>
+                        {method.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {cart.expectedPaymentMethodId !== null &&
+                  !customPaymentMethods.some(
+                    (method) => method.id === cart.expectedPaymentMethodId,
+                  ) && (
+                    <option value={`custom:${cart.expectedPaymentMethodId}`}>
+                      {cart.expectedPaymentMethod || tCommon('unknown')}
+                    </option>
+                  )}
+              </select>
+            </label>
+            <div className="flex items-center gap-2">
+              <StickyNote size={14} className="text-muted-foreground shrink-0" />
+              <input
+                type="text"
+                value={cart.deliveryNote}
+                onChange={(e) => cart.setDeliveryNote(e.target.value.slice(0, 200))}
+                placeholder={t('deliveryNotePlaceholder')}
+                maxLength={200}
+                className="flex-1 min-h-11 px-3 py-2 text-sm border border-border bg-card rounded-lg focus:ring-2 focus:ring-brand focus:border-brand outline-none"
+              />
+            </div>
+          </>
         )}
 
         {/* Online platform + external order id — shown inline when online is selected */}
@@ -249,34 +442,61 @@ export default function CartPanel({ tables, submitting, onPlaceOrder, onEditItem
       </div>
 
       {/* Cart Items */}
-      <div className={isDrawer ? 'overflow-y-auto p-4 max-h-[40vh]' : 'flex-1 overflow-y-auto p-4'}>
+      {/* min-h-0 overrides the content-based automatic minimum size, so a long
+          cart scrolls its rows instead of pushing the totals and checkout out. */}
+      <div
+        data-testid="cart-items-scroll"
+        className={
+          isDrawer
+            ? 'overflow-y-auto p-4 max-h-[40vh]'
+            : 'pos-cart-items flex-1 min-h-0 overflow-y-auto p-4'
+        }
+      >
         {/* Previously ordered items (add-items mode) */}
-        {existingOrder && existingOrder.items && existingOrder.items.filter((i: OrderItem) => i.status !== 'cancelled').length > 0 && (
-          <div className="mb-3 pb-3 border-b border-dashed border-border">
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">{t('alreadyOrdered')}</p>
-            <div className="space-y-1.5">
-              {existingOrder.items.filter((i: OrderItem) => i.status !== 'cancelled').map((item: OrderItem) => (
-                <div key={item.id} className="flex justify-between items-center">
-                  <span className="text-xs text-muted-foreground">{item.quantity}× {item.product_name}</span>
-                  <span className="text-xs text-muted-foreground">{fmt(Number(item.total))}</span>
-                </div>
-              ))}
+        {existingOrder &&
+          existingOrder.items &&
+          existingOrder.items.filter((i: OrderItem) => i.status !== 'cancelled').length > 0 && (
+            <div className="mb-3 pb-3 border-b border-dashed border-border">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                {t('alreadyOrdered')}
+              </p>
+              <div className="space-y-1.5">
+                {existingOrder.items
+                  .filter((i: OrderItem) => i.status !== 'cancelled')
+                  .map((item: OrderItem) => (
+                    <div key={item.id} className="flex justify-between items-center">
+                      <span className="text-xs text-muted-foreground">
+                        {item.quantity}× {item.product_name}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {fmt(Number(item.total))}
+                      </span>
+                    </div>
+                  ))}
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
         {cart.items.length === 0 ? (
-          <div className={`flex flex-col items-center justify-center text-muted-foreground ${existingOrder ? 'py-4' : isDrawer ? 'py-8' : 'h-full'}`}>
+          <div
+            className={`flex flex-col items-center justify-center text-muted-foreground ${existingOrder ? 'py-4' : isDrawer ? 'py-8' : 'h-full'}`}
+          >
             <ShoppingCart size={existingOrder ? 24 : 40} />
             <p className="mt-2 text-sm">{existingOrder ? t('addNewItemsAbove') : t('cartEmpty')}</p>
           </div>
         ) : (
           <div className="space-y-3">
             {cart.items.map((item) => (
-              <div key={item.id} className="border-b border-border/60 pb-3 last:border-b-0 last:pb-0">
+              <div
+                key={item.id}
+                data-testid="cart-item"
+                className="border-b border-border/60 pb-3 last:border-b-0 last:pb-0"
+              >
                 <div className="flex items-start gap-2">
                   <p className="min-w-0 flex-1 break-words text-sm font-medium leading-snug text-foreground">
-                    {item.product.name}
+                    {item.variant
+                      ? `${item.product.name} (${item.variant.name})`
+                      : item.product.name}
                   </p>
                   <button
                     onClick={() => cart.removeItem(item.id)}
@@ -291,18 +511,27 @@ export default function CartPanel({ tables, submitting, onPlaceOrder, onEditItem
                     <div className="mt-0.5">
                       {item.addons.map((a) => (
                         <p key={a.id} className="break-words text-xs text-muted-foreground">
-                          + {a.name}{(a.quantity || 1) > 1 ? ` ×${a.quantity}` : ''} {Number(a.price) > 0 && `(${fmt(Number(a.price) * (a.quantity || 1))})`}
+                          + {a.name}
+                          {(a.quantity || 1) > 1 ? ` ×${a.quantity}` : ''}{' '}
+                          {Number(a.price) > 0 && `(${fmt(Number(a.price) * (a.quantity || 1))})`}
                         </p>
                       ))}
                     </div>
                   )}
                   {item.special_instructions && (
-                    <p className="text-xs text-muted-foreground italic mt-0.5 break-words">{item.special_instructions}</p>
+                    <p className="text-xs text-muted-foreground italic mt-0.5 break-words">
+                      {item.special_instructions}
+                    </p>
                   )}
                 </div>
                 <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2">
                   <p className="text-sm text-muted-foreground">
-                    {fmt(Number(item.product.price))}
+                    {fmt(
+                      cartVariantUnitPrice(
+                        item,
+                        cart.orderType === 'online' && cart.onlinePlatform.trim().length > 0,
+                      ),
+                    )}
                   </p>
                   <div className="flex items-center gap-1.5">
                     {onEditItem && (
@@ -324,7 +553,7 @@ export default function CartPanel({ tables, submitting, onPlaceOrder, onEditItem
       </div>
 
       {/* Cart Footer */}
-      <div className="p-4 border-t border-border dark:border-border">
+      <div data-testid="cart-footer" className="p-4 border-t border-border dark:border-border">
         {/* Order Notes */}
         {cart.items.length > 0 && (
           <div className="mb-3">
@@ -336,7 +565,9 @@ export default function CartPanel({ tables, submitting, onPlaceOrder, onEditItem
               maxLength={200}
               className="w-full min-h-20 px-3 py-2 text-sm border border-border bg-card rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand"
             />
-            <p className="text-xs text-muted-foreground text-end mt-0.5">{cart.orderNotes.length}/200</p>
+            <p className="text-xs text-muted-foreground text-end mt-0.5">
+              {cart.orderNotes.length}/200
+            </p>
           </div>
         )}
         <div className="flex justify-between mb-1 text-sm">
@@ -345,14 +576,84 @@ export default function CartPanel({ tables, submitting, onPlaceOrder, onEditItem
         </div>
         <div className="flex justify-between mb-4 text-lg">
           <span className="font-semibold text-foreground">{t('subtotal')}</span>
-          <span className="font-bold text-brand">
-            {fmt(cart.subtotal())}
-          </span>
+          <span className="font-bold text-brand">{fmt(cart.subtotal())}</span>
         </div>
+        {(appliedCharges.length > 0 || addableCharges.length > 0) && (
+          <div className="mb-4 space-y-1" data-testid="cart-charges">
+            {appliedCharges.map((charge) => {
+              const definition = applicableCharges.find((c) => c.id === charge.id);
+              const isOptional = definition?.is_optional ?? false;
+              return (
+                <div key={charge.id} className="flex items-center justify-between gap-2 text-sm">
+                  <span
+                    className={
+                      charge.waived ? 'text-muted-foreground line-through' : 'text-muted-foreground'
+                    }
+                  >
+                    {charge.name}
+                  </span>
+                  <span className="flex items-center gap-2">
+                    <span
+                      className={
+                        charge.waived ? 'text-muted-foreground line-through' : 'font-medium'
+                      }
+                    >
+                      {fmt(charge.amount)}
+                    </span>
+                    {isOptional && (
+                      <button
+                        type="button"
+                        onClick={() => cart.toggleWaiveCharge(charge.id)}
+                        aria-pressed={charge.waived}
+                        className="text-xs px-2 py-0.5 rounded border border-border text-muted-foreground hover:text-foreground"
+                      >
+                        {charge.waived ? t('applyCharge') : t('waiveCharge')}
+                      </button>
+                    )}
+                    {!definition?.is_default_active && (
+                      <button
+                        type="button"
+                        onClick={() => cart.toggleOptedInCharge(charge.id)}
+                        aria-pressed={!cart.optedInChargeIds.has(charge.id)}
+                        className="text-xs px-2 py-0.5 rounded border border-border text-muted-foreground hover:text-foreground"
+                      >
+                        {cart.optedInChargeIds.has(charge.id) ? t('removeCharge') : t('addCharge')}
+                      </button>
+                    )}
+                  </span>
+                </div>
+              );
+            })}
+            {addableCharges.map((charge) => (
+              <div key={charge.id} className="flex items-center justify-between gap-2 text-sm">
+                <span className="text-muted-foreground">{charge.name}</span>
+                <button
+                  type="button"
+                  onClick={() => cart.toggleOptedInCharge(charge.id)}
+                  className="text-xs px-2 py-0.5 rounded border border-border text-muted-foreground hover:text-foreground"
+                >
+                  {t('addCharge')}
+                </button>
+              </div>
+            ))}
+            {appliedCharges.length > 0 && (
+              <div className="flex justify-between text-sm font-medium">
+                <span>{t('chargesTotal')}</span>
+                <span>{fmt(chargeTotal)}</span>
+              </div>
+            )}
+          </div>
+        )}
         <div className="flex gap-2">
           {canHold && (
             <Button variant="outline" onClick={handleHold} className="flex-1">
               <Pause size={14} className="me-1" /> {t('holdButton')}
+              <span
+                aria-hidden="true"
+                className="hidden sm:inline-flex ms-1 px-1 py-0.2 rounded border border-border text-[10px] font-mono text-muted-foreground"
+              >
+                F8
+              </span>
             </Button>
           )}
           <Button
@@ -362,6 +663,14 @@ export default function CartPanel({ tables, submitting, onPlaceOrder, onEditItem
             size="lg"
           >
             {submitting ? t('placing') : t('placeOrderButton')}
+            {!submitting && (
+              <span
+                aria-hidden="true"
+                className="hidden sm:inline-flex ms-1.5 px-1.5 py-0.5 rounded bg-white/20 text-[10px] font-mono font-medium"
+              >
+                Space
+              </span>
+            )}
           </Button>
         </div>
       </div>

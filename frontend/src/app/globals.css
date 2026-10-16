@@ -69,13 +69,44 @@ input[type="number"] {
   appearance: textfield;
 }
 
-.touch-target {
-  min-height: 44px;
-  min-width: 44px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  touch-action: manipulation;
+@layer components {
+  .touch-target {
+    min-height: 44px;
+    min-width: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    touch-action: manipulation;
+  }
+}
+
+/* Short viewports: the cart column becomes the single scroll owner, so order
+ * type, totals and checkout stay reachable however long the item list is. */
+@media (max-height: 680px) {
+  .pos-cart-shell {
+    overflow-y: auto;
+  }
+
+  .pos-cart-shell > * {
+    flex: 0 0 auto;
+  }
+
+  .pos-cart-items {
+    flex: 1 0 auto;
+    min-height: 7.5rem;
+    overflow-y: visible;
+  }
+}
+
+/* Short viewports: management pages drop their bounded list windows so pinned
+ * headers and tabs cannot leave their records in an unusable strip. */
+@media (max-height: 560px) {
+  .dashboard-scroll-shell,
+  .dashboard-scroll-frame,
+  .dashboard-scroll-pane {
+    display: block;
+    height: auto;
+  }
 }
 
 /* Desktop title bar: native-overlay mode supplies the caption buttons through

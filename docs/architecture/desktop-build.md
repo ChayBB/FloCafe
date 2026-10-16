@@ -54,10 +54,10 @@ server serves the exported frontend from the same origin it serves `/api` on.
 
 `main/server.ts` mounts the API routers first and serves static files afterwards, so `/api/*` is
 never captured by the static fallback. The catch-all route for application pages is
-`app.get(/^(?!\/api|\/kds).*$/, ...)`: it deliberately excludes both the API prefix and the KDS
-WebSocket path. `resolveStaticPage` maps a route to its own exported `index.html` and refuses to
-build a path that would escape the export directory; unknown or unsafe paths fall back to the root
-page.
+`app.get(/^(?!\/api(?:\/|$)|\/kds(?:\/|$)).*$/, ...)`: it deliberately excludes both the API prefix
+and the KDS WebSocket path. `resolveStaticPage` maps a route to its own exported `index.html` and
+refuses to build a path that would escape the export directory; unknown or unsafe paths fall back to
+the root page.
 
 On Windows a middleware rewrites dotted `__next.` chunk requests, because Windows path handling
 does not preserve the nesting the export emits elsewhere.
@@ -66,8 +66,8 @@ does not preserve the nesting the export emits elsewhere.
 
 IPC is a narrow native surface, not a second data plane. The renderer reaches native capability
 through `main/preload.ts`, which exposes a `contextBridge` object. The window set is small: window
-controls, window state, opening the KDS window, update status, database initialization, and the
-theme handshake.
+controls, window state, opening the KDS window, update status, database initialization, the theme
+handshake, and native PDF export.
 
 The main window is created with `contextIsolation: true`, `nodeIntegration: false`, and
 `sandbox: false`. `sandbox: false` is a deliberate choice recorded in
@@ -76,8 +76,9 @@ drive-by cleanup.
 
 ## The native title bar
 
-The main window is 1400x900 with a minimum of 1024x768, is created hidden, and is shown only once
-its renderer reports ready (see the readiness contract below).
+The main window defaults to 1400x900 with a minimum of 1024x768, persists its window state between
+launches, is created hidden, and is shown only once its renderer reports ready (see the readiness
+contract below).
 
 ### Mode resolution
 

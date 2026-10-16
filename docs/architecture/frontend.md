@@ -198,6 +198,10 @@ call behind it will succeed, and a renderer that hides one is not a security con
 
 Route gating lives in `AuthGuard`:
 
+- `AuthGuard` and the dashboard layout strip trailing slashes from `usePathname()` (preserving
+  root `/`) before comparing routes. This keeps permission gates for `/staff` and `/settings` and
+  POS/KDS/settings scroll-shell selection consistent with the desktop export's `trailingSlash`
+  setting (see the [build-time fork](desktop-build.md#the-build-time-fork)).
 - `getLandingPage` returns the first page in a fixed list the tenant can reach. The list is ordered,
   not role-aware: `pos.use` is checked before `dashboard.view`, and `pos.use` ships to owners, so
   an owner lands on the POS like anyone else. The list is a fallback order for whichever surfaces
@@ -207,9 +211,9 @@ Route gating lives in `AuthGuard`:
   aggregates several permissions. Adding a route means adding it to one of those three; a route in
   none of them is behind authentication and nothing else.
 - `PUBLIC_PATHS` holds the unauthenticated surfaces: `/kds`, `/kds-standalone`,
-  `/server-standalone`, `/auth/login`, `/auth/register`, `/auth/recover`, and `/setup`. The
-  standalone KDS and Server App pages run their own session and skip the shared auth store, so
-  loading it there would clear their token.
+  `/server-standalone`, `/customer-display`, `/auth/login`, `/auth/register`, `/auth/recover`, and
+  `/setup`. The standalone KDS, Server App, and paired customer display pages run their own session
+  and skip the shared auth store, so loading it there would clear their token.
 - Once a user and tenant are resolved, the guard refreshes the auth context on window focus, every
   30 seconds, and on `flo:authorization-denied`.
 
@@ -331,9 +335,9 @@ hook because it carries the transport:
 | Store | Holds | Persistence |
 | --- | --- | --- |
 | [`auth.ts`](../../frontend/src/store/auth.ts) | `user`, `token`, `tenants`, `currentTenant`, `loading`, and the locales that failed to warm at bootstrap | token and tenant in `localStorage`; throws `StorageUnavailableError` when storage is unavailable |
-| [`cart.ts`](../../frontend/src/store/cart.ts) | cart items with their addons and instructions, order type, table, customer, guest count, delivery details, and the subtotal and item count selectors | none |
+| [`cart.ts`](../../frontend/src/store/cart.ts) | cart items with their addons, instructions and selected product variant, order type, table, customer, guest count, delivery details, and the subtotal and item count selectors | none |
 | [`held-orders.ts`](../../frontend/src/store/held-orders.ts) | suspended orders keyed by table, and the fetch, hold, restore, remove, and lookup actions over `/held-orders` | none |
-| [`pos-settings.ts`](../../frontend/src/store/pos-settings.ts) | the tenant's POS configuration, printer defaults, bill template and provenance, receipt and kitchen-ticket language policy | `persist` under the `pos-settings` key, version 4, with backend-synced fields excluded by `partialize` |
+| [`pos-settings.ts`](../../frontend/src/store/pos-settings.ts) | the tenant's POS configuration, printer defaults, bill template and provenance, receipt and kitchen-ticket language policy | `persist` under the `pos-settings` key, version 5; `partialize` excludes `whatsappEnabled`, `billLanguagePolicy`, and `kotLanguagePolicy` |
 | [`theme.ts`](../../frontend/src/store/theme.ts) | `mode` and whether this session made an explicit choice | none; `useThemeModeToggle` writes through the API and rolls the store back when the write fails |
 | [`usePrinterStore`](../../frontend/src/hooks/usePrinter.ts) | connection status, the hardware and WebUSB printer records, the print method, the last emitted bytes, and the print actions: `printBill`, `printTaxBill`, `printKot`, `printDeliverySlip` | `persist` |
 
@@ -384,6 +388,10 @@ bill summary rather than from the kernel's `DeliverySlipDocument`. That model an
 `shared/print/document.ts` and are consumed by the backend renderer
 [`main/printers/document-delivery-slip.ts`](../../main/printers/document-delivery-slip.ts), so the
 rule that a renderer consumes a document does not hold for the WebUSB and browser slip paths.
+The projection carries the order and delivery notes, and the summary from
+`GET /api/printers/delivery-slip-payment/:orderId` carries the expected collection method, which
+all three paths word through `deliverySlipExpectedPaymentText` in `shared/print/document.ts`. The
+cart records both delivery details beside the delivery address, and only for delivery orders.
 
 The action is reachable on an unpaid delivery order, because that is the workflow: the courier
 leaves before the customer settles. `OrderCard` renders it outside the payment branches, limited to
@@ -449,6 +457,22 @@ Adding a locale is a scripted procedure with its own verification commands, docu
 [Adding a language](../guides/adding-a-language.md). `npm run i18n:check` is the gate: leaf parity
 against `en.json`, the derived print-label table, and a `tsc` pass over the frontend.
 
+## Customer display
+
+`/customer-display` is a signed-in order-status board. It polls `GET /orders` and shows active
+orders in a Preparing column (`pending`, `preparing`) and a Ready column (`ready`). It re-reads
+`GET /settings/customer-display` on every poll, so changes made in Settings > Kitchen Display apply
+without reloading the board. The tenant-wide config sets which statuses show, the refresh interval,
+and whether the last-updated time is shown. The same settings card shows the display URL with copy
+and open actions. Strings come from the `customerDisplay` message namespace.
+
+An owner or manager can also pair a standalone device (a TV or tablet browser) from the same card.
+Pairing creates a token and shows a `/customer-display/#token=...` link once. The board moves the
+token from the URL fragment into `localStorage` and polls `GET /api/customer-display/feed` with it
+instead of using a staff session, so it needs no login and can read nothing but order numbers and
+statuses. When the feed answers `401` (the token was revoked), the board clears the stored token and
+shows an unpaired screen.
+
 ## Tech stack
 
 | Layer | Technology |
@@ -482,7 +506,7 @@ frontend/src/
 │   │   ├── order-history-demo/  orders/  pos/  print-test/  products/
 │   │   ├── settings/  staff/  support/  tables/  whatsapp/
 │   ├── auth/                   login, register, recover
-│   ├── customer-display/       Customer-facing second display
+│   ├── customer-display/       Customer-facing order-status board
 │   ├── kds-standalone/         Standalone KDS, served by the :3002 base port
 │   ├── server-standalone/      Standalone Server App, on the :3003 base port
 │   └── setup/                  First-run setup wizard
@@ -502,15 +526,15 @@ frontend/src/
 │   │   PrintersSettingsTab, SettingsTabShell, TaxConfigurationPanel,
 │   │   Toggle, WhatsAppEnableCard
 │   ├── support/                The support hub: SupportTicketForm, DiagnosticsPanel
-│   ├── tables/                 Floorplan editor, table turnover badge
+│   ├── tables/                 Floorplan editor, table move modal, table turnover badge
 │   ├── ui/                     shadcn/ui primitives
-│   └── updates/                Update install guard dialog
+│   └── updates/                Update download prompt and install guard dialog
 ├── hooks/                      Printer, KDS, theme, update, cash, and formatting hooks
 ├── lib/
 │   ├── i18n/                   Language registry, loader, and the 24 message files
 │   ├── printer/                Encoders, document builders, warnings, WebUSB bridge,
 │   │                           and the delivery-slip encoder and browser renderer
-│   ├── updates/                Beta channel and restart-and-install helpers
+│   ├── updates/                Beta channel, auto-check, and restart-and-install helpers
 │   ├── api.ts                  The shared axios client for the authenticated pages
 │   ├── api-error.ts            Localized text for a backend error
 │   └── permissions.ts          tenantCan
@@ -533,3 +557,23 @@ frontend/src/
 
 `npm run build:frontend` is the check that catches a server-side construct: it is the only build
 that switches the export target on, so run it rather than a bare `next dev`.
+
+### Lint engine
+
+Oxlint lints both scopes, pinned to an exact version in each `package.json`. `npm run lint:backend`
+runs `main/` and `shared/` against the root `.oxlintrc.json`; `npm run lint` adds the renderer
+against `frontend/.oxlintrc.json`. Both configs switch every Oxlint category off and name each rule
+with its severity, so a rule runs only because the config lists it. Explicit `any` is a warning
+under `main/` and an error under `shared/`, which is also where the pure-kernel import boundary is
+enforced at error severity.
+
+Renderer declarations are linted except `next-env.d.ts` and
+`src/types/receipt-printer-encoder.d.ts`. Oxlint reports a false `TS(2309)` for that ambient module
+declaration ending in `export =`, which `tsc` accepts. `@next/next/no-img-element` stays off because
+the static export cannot use `next/image`. React and React Hooks rules run directly as native Oxlint
+rules without a JS plugin bridge.
+
+`npm run lint:budget` reads the Oxlint JSON report for each scope and fails on an error-severity
+diagnostic, on a run whose report it cannot read, and on warnings above
+`scripts/ci/lint-budget.json`. Those limits are ceilings that ratchet down manually as warnings are
+fixed incidentally, not targets to spend.

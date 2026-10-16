@@ -63,7 +63,15 @@ vocabulary is `business-header`, `document-meta`, `customer`, `item-table`, `tax
 `delivery-slip-payment`, then `delivery-slip-items`. The payment block shows the paid method(s) and
 total with zero due, or the selected bill balance(s) as amount due. Refund status stays visible and
 does not hide a refund-marked bill's positive stored balance; when no bill exists, the slip falls
-back to the order total. It is a **separate kind, not a receipt
+back to the order total. An unpaid balance also names the order's `expected_payment_method`: Cash on
+Delivery for cash, otherwise the method, Pending, or Unknown when none was recorded. It is an
+expectation, never a payment, and a paid slip shows the captured method instead. When the order
+carries an `expected_payment_method_id`, the stored name is the historical snapshot of a configured
+method and prints literally instead of resolving through a builtin or sentinel label, so a configured
+method named Pending or Unknown keeps its own meaning on the slip even when the method is later
+renamed or deactivated. The notes block
+carries the courier-only `delivery_note` beside the order note; neither the delivery note nor the
+expected method is printed on a kitchen ticket or receipt. It is a **separate kind, not a receipt
 template**, and that is load-bearing. It carries the delivery address and the full customer number
 when the caller's visibility rule permits it. The API route and browser/WebUSB hook include the
 number when either `bill_delivery_show_customer_phone_always` or `bill_show_customer_phone` is on,
@@ -167,6 +175,16 @@ override only when the merchant document actually changed the text, otherwise it
 browser concept's own catalog entry. A browser-print label is not a string hardcoded in the
 renderer.
 
+### Receipt logos
+
+The business settings `receipt_logo` and `receipt_logo_raster` carry the browser image and the
+precomputed thermal data; `bill_show_logo` controls whether a bill renderer includes the logo.
+`processReceiptLogoFile()` uses a browser canvas to resize wide images to at most 576 pixels,
+composite transparency on white, and generate packed 1-bit raster variants for 384- and 576-dot
+printers. Browser bills center the image above the business header. The classic ESC/POS renderer and
+frontend receipt encoders select a raster variant for the paper width and emit it with `GS v 0`.
+Kitchen tickets do not use the bill logo setting.
+
 ## Transports
 
 | Transport | Mechanism |
@@ -258,6 +276,24 @@ KOT path applies it, so an item that has left the kitchen does not reappear on a
 - `frontend/src/lib/printer/print-document.ts`, the browser KOT normalizer
 - `frontend/src/lib/printer/kot-web-print.ts`, the browser KOT HTML path
 - `frontend/src/lib/printer/kot-encoder.ts`, the browser KOT encoder
+
+## Menu catalog printing
+
+A product with active variants prints one sale row per active variant, in the catalog's variant
+order, named `Parent (Variant)` at the variant's own price, so the menu never advertises the
+parent's unsellable price. A product with no active variants keeps its single parent row. A
+variant that links to a recipe ingredient is not gated by its own pool, and `includeOutOfStock`
+decides whether a sold-out variant row is emitted; the printed item count counts emitted rows on
+every destination.
+
+Products and POS expose a filtered menu print dialog with optional descriptions and effective
+add-on groups. The dialog can send ESC/POS to a selected receipt printer and roll width, open the
+system print dialog for A4 or Letter paper, or save a structured PDF. In Electron, the PDF uses the
+`save-html-as-pdf` IPC capability; in a browser it uses the system print dialog's Save as PDF
+option. `main/printers/document-menu.ts` builds the thermal menu; `printMenuDocument` uses the
+profile-owned raster path for unsupported text. A failed receipt print can fall back to
+`frontend/src/lib/printer/menu-web-print.ts` with the selected A4 or Letter page size. Operator
+steps are in the [printer setup guide](../printers.md#menu-printing).
 
 ## Raster printing
 

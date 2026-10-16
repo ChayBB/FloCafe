@@ -43,6 +43,9 @@ fs.copyFileSync(FIXTURE, upgradeDbPath);
 const FixtureDatabase = require('better-sqlite3');
 const fixtureDb = new FixtureDatabase(upgradeDbPath);
 const legacyTaxBreakdown = JSON.stringify([{ title: 'Legacy Tax', rate: 5, amount: 5 }]);
+const legacyHeldItems = JSON.stringify([
+  { id: 'line-legacy-1', product: { id: 'p-latte', name: 'Latte', price: 150 }, quantity: 2, addons: [], special_instructions: 'oat' },
+]);
 const legacyOrder = fixtureDb.prepare(`
   INSERT INTO orders (order_number, subtotal, tax_amount, tax_breakdown, total)
   VALUES ('ORD-LEGACY-TAX', 100, 5, ?, 105)
@@ -99,20 +102,82 @@ function main() {
   console.log('='.repeat(60));
 
   const {
-    initDatabase, getDatabase, closeDatabase, getCurrentSchemaVersion, buildIdealSchemaDb,
+    initDatabase, getDatabase, closeDatabase, getCurrentSchemaVersion, buildIdealSchemaDb, MIGRATIONS,
   } = require('../main/db');
   const { runHealthCheck } = require('../main/services/schema-health');
 
   // ── The real chain, against a real old install, must not throw ──────────
+  // The charge snapshot migration is no longer the registry tail: later feature
+  // migrations land after it. Truncate the chain at that migration rather than
+  // at the end, so this still proves it applies cleanly to a v98 store.
+  const chargeMigrationIndex = MIGRATIONS.findIndex(
+    (migration: any) => migration.name === 'add_charges_breakdown_and_custom_charges_setting',
+  );
+  assert.ok(chargeMigrationIndex > 0, 'the charge snapshot migration is registered');
+  assert.equal(MIGRATIONS[chargeMigrationIndex].version, 99, 'the charge snapshot migration is v99');
+  const migrationsFromCharges = MIGRATIONS.splice(chargeMigrationIndex);
   try {
-    initDatabase();
-  } catch (error: any) {
-    if (isNativeAbiMismatch(error)) {
-      console.log('   ⚠ Skipping: better-sqlite3 is not built for this shell Node ABI.');
-      process.exit(77);
+    try {
+      initDatabase();
+    } catch (error: any) {
+      if (isNativeAbiMismatch(error)) {
+        console.log('   ⚠ Skipping: better-sqlite3 is not built for this shell Node ABI.');
+        process.exit(77);
+      }
+      throw new Error(`migrating a real old install (v1.5.0 era) crashed: ${error.message}`);
     }
-    throw new Error(`migrating a real old install (v1.5.0 era) crashed: ${error.message}`);
+    assert.equal(getCurrentSchemaVersion(), 98, 'the old install reaches v98 before the charge snapshot migration');
+    const beforeChargeSnapshot = getDatabase();
+    const orderColumns = beforeChargeSnapshot.prepare('PRAGMA table_info(orders)').all().map((column: any) => column.name);
+    const billColumns = beforeChargeSnapshot.prepare('PRAGMA table_info(bills)').all().map((column: any) => column.name);
+    assert.equal(orderColumns.includes('charges_breakdown'), false, 'v98 orders do not yet have charge snapshots');
+    assert.equal(billColumns.includes('charges_breakdown'), false, 'v98 bills do not yet have charge snapshots');
+
+    const legacyTotal = 120;
+    beforeChargeSnapshot.prepare(`
+      UPDATE orders SET service_charge = 12, packaging_charge = 3, total = ? WHERE id = ?
+    `).run(legacyTotal, legacyOrder.lastInsertRowid);
+    const paymentDetails = JSON.parse((beforeChargeSnapshot.prepare(
+      `SELECT payment_details FROM bills WHERE id = ?`,
+    ).get(legacyBill.lastInsertRowid) as { payment_details: string }).payment_details);
+    paymentDetails.amount = legacyTotal;
+    beforeChargeSnapshot.prepare(`
+      UPDATE bills
+      SET service_charge = 12, packaging_charge = 3, total = ?, payment_details = ?
+      WHERE id = ?
+    `).run(legacyTotal, JSON.stringify(paymentDetails), legacyBill.lastInsertRowid);
+
+    const existingChargeSetting = JSON.stringify([{
+      id: 'upgrade-fee',
+      name: 'Upgrade fee',
+      type: 'fixed',
+      value: 4,
+      calculation_basis: 'gross',
+      order_types: ['dine_in'],
+      is_optional: false,
+      is_default_active: true,
+      is_active: true,
+    }]);
+    beforeChargeSnapshot.prepare(`
+      INSERT INTO settings (key, value, updated_at) VALUES ('custom_charges', ?, '2026-08-01 12:00:00')
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+    `).run(existingChargeSetting);
+
+    // A cart held before charge selections were persisted: it must keep its
+    // customer, notes, items, and identity across the column-add migration.
+    beforeChargeSnapshot.prepare(`
+      INSERT OR IGNORE INTO customers (id, name, phone, created_at, updated_at)
+      VALUES ('cust-legacy-hold', 'Legacy Hold Customer', '+10000000001', '2026-07-01 09:00:00', '2026-07-01 09:00:00')
+    `).run();
+    beforeChargeSnapshot.prepare(`
+      INSERT INTO held_orders (id, table_id, items, customer_id, guest_count, order_notes, created_at, updated_at)
+      VALUES ('hold-legacy-1', 'tbl-legacy-4', ?, 'cust-legacy-hold', 4, 'Extra napkins', '2026-07-01 09:05:00', '2026-07-01 09:05:00')
+    `).run(legacyHeldItems);
+  } finally {
+    closeDatabase();
+    MIGRATIONS.push(...migrationsFromCharges);
   }
+  initDatabase();
   console.log('   ✓ an old (pre-migration-array) install migrates through to the latest schema without crashing');
 
   const db = getDatabase();
@@ -135,6 +200,13 @@ function main() {
   assert.ok(tableColumns.includes('reservation_customer_id'), 'reservation customer association exists after upgrading an old install');
   assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = 'clear_table_reservation_customer_on_status_change'").get(),
     'reservation customer cleanup trigger exists after upgrading an old install');
+  const idealHeldColumns = ideal.prepare('PRAGMA table_info(held_orders)').all() as { name: string; notnull: number; dflt_value: string }[];
+  for (const column of ['waived_charge_ids', 'opted_in_charge_ids'] as const) {
+    const definition = idealHeldColumns.find((candidate) => candidate.name === column);
+    assert.ok(definition, `a fresh install declares held_orders.${column}`);
+    assert.equal(definition!.notnull, 1, `fresh held_orders.${column} is NOT NULL`);
+    assert.equal(definition!.dflt_value, "'[]'", `fresh held_orders.${column} defaults to an empty selection list`);
+  }
   ideal.close();
   assert.equal(
     (db.prepare("SELECT value FROM settings WHERE key = 'split_checks_enabled'").get() as { value: string }).value,
@@ -179,6 +251,11 @@ function main() {
     [isoOrderRow.created_at, isoOrderRow.updated_at, isoOrderRow.cooking_started_at, isoOrderRow.ready_at],
     ['2026-07-01 10:00:00', '2026-07-01 10:00:00', '2026-07-01 10:05:00', '2026-07-01 10:12:00'],
     'v45 normalizes legacy ISO order timestamps to the space form (second precision)',
+  );
+  assert.deepEqual(
+    { ...db.prepare(`SELECT expected_payment_method, delivery_note FROM orders WHERE order_number = 'ORD-ISO-TS'`).get() as object },
+    { expected_payment_method: null, delivery_note: null },
+    'v103 keeps existing orders, reading as an unknown expected method with no courier note',
   );
   const isoBillRow = db.prepare(
     `SELECT created_at, updated_at, paid_at FROM bills WHERE bill_number = 'INV-ISO-TS'`
@@ -268,10 +345,12 @@ function main() {
   assert.deepEqual(legacyTax.tax_breakdown, []);
   console.log('   ✓ an upgraded product with stale legacy tax_type/tax_rate charges no tax until categorized');
   const preservedOrder = db.prepare(`
-    SELECT tax_amount, tax_breakdown, tax_snapshot FROM orders WHERE order_number = 'ORD-LEGACY-TAX'
+    SELECT tax_amount, tax_breakdown, tax_snapshot, service_charge, packaging_charge, total, charges_breakdown
+    FROM orders WHERE order_number = 'ORD-LEGACY-TAX'
   `).get() as any;
   const preservedBill = db.prepare(`
-    SELECT tax_amount, tax_breakdown, tax_snapshot FROM bills WHERE bill_number = 'INV-LEGACY-TAX'
+    SELECT tax_amount, tax_breakdown, tax_snapshot, service_charge, packaging_charge, total, charges_breakdown
+    FROM bills WHERE bill_number = 'INV-LEGACY-TAX'
   `).get() as any;
   assert.deepEqual(
     { tax_amount: preservedOrder.tax_amount, tax_breakdown: preservedOrder.tax_breakdown },
@@ -283,6 +362,37 @@ function main() {
   );
   assert.equal(preservedOrder.tax_snapshot, null);
   assert.equal(preservedBill.tax_snapshot, null);
+  for (const [row, name] of [[preservedOrder, 'order'], [preservedBill, 'bill']] as const) {
+    assert.deepEqual(
+      {
+        service_charge: row.service_charge,
+        packaging_charge: row.packaging_charge,
+        total: row.total,
+        charges_breakdown: row.charges_breakdown,
+      },
+      { service_charge: 12, packaging_charge: 3, total: 120, charges_breakdown: null },
+      `v99 preserves the legacy ${name} total and manual charge columns`,
+    );
+  }
+  const preservedChargeSetting = db.prepare(
+    `SELECT value FROM settings WHERE key = 'custom_charges'`,
+  ).get() as { value: string };
+  assert.deepEqual(
+    JSON.parse(preservedChargeSetting.value),
+    [{
+      id: 'upgrade-fee',
+      name: 'Upgrade fee',
+      type: 'fixed',
+      value: 4,
+      calculation_basis: 'gross',
+      order_types: ['dine_in'],
+      is_optional: false,
+      is_default_active: true,
+      is_active: true,
+    }],
+    'v99 preserves an existing configured charge',
+  );
+  console.log('   ✓ v99 preserves legacy order/bill totals, manual charge columns, and configured charge settings');
   console.log('   ✓ existing products, orders, bills, and legacy tax breakdowns are preserved');
 
   // ── The migrated old install must match the ideal (fresh) schema exactly ─
@@ -295,6 +405,31 @@ function main() {
     assert.ok(columns.includes('cash_session_id'), `${table}.cash_session_id exists after upgrading an old install`);
   }
   console.log('   ✓ cash ownership columns exist after upgrading an old install');
+
+  // ── Held carts survive the charge-selection columns ─────────────────────
+  const heldOrderColumns = db.prepare('PRAGMA table_info(held_orders)').all()
+    .map((column: any) => column.name);
+  for (const column of ['waived_charge_ids', 'opted_in_charge_ids'] as const) {
+    assert.ok(heldOrderColumns.includes(column), `held_orders.${column} exists after upgrading an old install`);
+  }
+  const preservedHold = db.prepare(`
+    SELECT id, table_id, items, customer_id, guest_count, order_notes,
+           waived_charge_ids, opted_in_charge_ids, created_at, updated_at
+    FROM held_orders WHERE id = 'hold-legacy-1'
+  `).get() as any;
+  assert.ok(preservedHold, 'the held cart saved before the migration still exists');
+  assert.equal(preservedHold.table_id, 'tbl-legacy-4', 'the held cart keeps its table');
+  assert.equal(JSON.parse(preservedHold.items)[0].id, 'line-legacy-1', 'the held cart keeps its items');
+  assert.equal(JSON.parse(preservedHold.items)[0].special_instructions, 'oat', 'held item notes survive');
+  assert.equal(preservedHold.customer_id, 'cust-legacy-hold', 'the held cart keeps its customer');
+  assert.equal(preservedHold.guest_count, 4, 'the held cart keeps its guest count');
+  assert.equal(preservedHold.order_notes, 'Extra napkins', 'the held cart keeps its notes');
+  assert.equal(preservedHold.created_at, '2026-07-01 09:05:00', 'the held cart keeps its created timestamp');
+  assert.equal(preservedHold.updated_at, '2026-07-01 09:05:00', 'the held cart keeps its updated timestamp');
+  assert.equal(preservedHold.waived_charge_ids, '[]', 'a legacy hold defaults to no waived charges');
+  assert.equal(preservedHold.opted_in_charge_ids, '[]', 'a legacy hold defaults to no opted-in charges');
+  assert.deepEqual(db.pragma('integrity_check'), [{ integrity_check: 'ok' }], 'integrity_check passes after the held-cart migration');
+  console.log('   ✓ v105 preserves a held cart while adding defaulted charge-selection columns');
 
   // ── The columns must actually be usable, not just present ───────────────
   const customerId = db.prepare(`SELECT id FROM customers LIMIT 1`).get() as { id: string } | undefined;
@@ -371,6 +506,94 @@ function main() {
   ).get() as { value: string };
   assert.equal(diagnosticsSetting.value, 'false', 'v47 preserves an existing diagnostics opt-out');
   console.log('   ✓ reopening is idempotent and preserves an already-active country pack');
+  const reopenedHeld = getDatabase().prepare(
+    `SELECT waived_charge_ids, opted_in_charge_ids FROM held_orders WHERE id = 'hold-legacy-1'`,
+  ).get() as { waived_charge_ids: string; opted_in_charge_ids: string };
+  assert.deepEqual(
+    reopenedHeld,
+    { waived_charge_ids: '[]', opted_in_charge_ids: '[]' },
+    're-running the held-cart migration over an already-upgraded store is idempotent',
+  );
+  closeDatabase();
+
+  // ── Custom expected-method identity is additive and never guessed ───────
+  // Rewind to the schema that predates the identity column, with the historical
+  // name snapshots already on disk, and prove the migration adds only the ID.
+  const identityMigrationIndex = MIGRATIONS.findIndex(
+    (migration: any) => migration.name === 'add_order_expected_payment_method_id',
+  );
+  assert.ok(identityMigrationIndex > 0, 'the expected-method identity migration is registered');
+  assert.equal(MIGRATIONS[identityMigrationIndex].version, 106, 'the identity migration is v106');
+  assert.ok(
+    MIGRATIONS[identityMigrationIndex].name !== MIGRATIONS[identityMigrationIndex - 1].name,
+    'the identity migration follows the held-cart migration as its own registry entry',
+  );
+  initDatabase();
+  const preIdentity = getDatabase();
+  assert.equal(
+    getCurrentSchemaVersion(),
+    MIGRATIONS[MIGRATIONS.length - 1].version,
+    'the store is fully migrated before rewinding the identity column',
+  );
+  preIdentity.prepare('UPDATE orders SET expected_payment_method = ? WHERE id = ?')
+    .run('pending', legacyOrder.lastInsertRowid);
+  preIdentity.prepare('UPDATE orders SET expected_payment_method = ? WHERE id = ?')
+    .run('Store Credit', isoOrder.lastInsertRowid);
+  preIdentity.exec('ALTER TABLE orders DROP COLUMN expected_payment_method_id');
+  preIdentity.pragma('user_version = 105');
+  assert.ok(
+    !(preIdentity.prepare('PRAGMA table_info(orders)').all() as { name: string }[])
+      .some((column) => column.name === 'expected_payment_method_id'),
+    'the rewind reproduces a store that predates the identity column',
+  );
+  closeDatabase();
+  const migrationsFromIdentity = MIGRATIONS.splice(identityMigrationIndex);
+  try {
+    initDatabase();
+    assert.equal(getCurrentSchemaVersion(), 105, 'the store stops at v105 without the identity column');
+  } finally {
+    MIGRATIONS.push(...migrationsFromIdentity);
+  }
+  closeDatabase();
+  initDatabase();
+  const identityDb = getDatabase();
+  const preIdentitySnapshot = identityDb.prepare(
+    'SELECT expected_payment_method FROM orders WHERE id = ?',
+  ).get(legacyOrder.lastInsertRowid) as { expected_payment_method: string | null };
+  assert.equal(preIdentitySnapshot.expected_payment_method, 'pending',
+    'the pre-migration sentinel name is still on disk before the identity column exists');
+  const identityOrders = identityDb.prepare(
+    'SELECT order_number, expected_payment_method, expected_payment_method_id FROM orders ORDER BY id',
+  ).all() as Array<{ order_number: string; expected_payment_method: string | null; expected_payment_method_id: number | null }>;
+  const sentinelOrder = identityOrders.find((row) => row.order_number === 'ORD-LEGACY-TAX');
+  assert.equal(sentinelOrder?.expected_payment_method, 'pending',
+    'a legacy sentinel name snapshot survives the identity migration unchanged');
+  assert.equal(sentinelOrder?.expected_payment_method_id, null,
+    'the legacy `pending` string is never guessed into a custom method identity');
+  const customNameOrder = identityOrders.find((row) => row.order_number === 'ORD-ISO-TS');
+  assert.equal(customNameOrder?.expected_payment_method, 'Store Credit',
+    'a legacy custom name snapshot survives the identity migration unchanged');
+  assert.equal(customNameOrder?.expected_payment_method_id, null,
+    'a legacy custom name is not retroactively linked to a configured method row');
+  const orderColumnsAfterIdentity = identityDb.prepare('PRAGMA table_info(orders)').all() as
+    { name: string; notnull: number; dflt_value: string | null }[];
+  const identityColumn = orderColumnsAfterIdentity.find((column) => column.name === 'expected_payment_method_id');
+  assert.ok(identityColumn, 'orders.expected_payment_method_id exists after upgrading an old install');
+  assert.equal(identityColumn!.notnull, 0, 'the identity column is nullable so legacy rows stay unambiguous');
+  assert.ok(
+    identityColumn!.dflt_value === null || String(identityColumn!.dflt_value).toUpperCase() === 'NULL',
+    `the identity column has no default identity, found ${String(identityColumn!.dflt_value)}`,
+  );
+  assert.deepEqual(identityDb.pragma('integrity_check'), [{ integrity_check: 'ok' }],
+    'integrity_check passes after the identity migration');
+  const freshIdentityDb = buildIdealSchemaDb();
+  assert.ok(
+    (freshIdentityDb.prepare('PRAGMA table_info(orders)').all() as { name: string }[])
+      .some((column) => column.name === 'expected_payment_method_id'),
+    'a fresh install declares orders.expected_payment_method_id',
+  );
+  freshIdentityDb.close();
+  console.log('   ✓ v106 adds a nullable expected-method identity without reinterpreting old snapshots');
   closeDatabase();
 
   console.log('='.repeat(60));

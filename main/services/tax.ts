@@ -1,7 +1,9 @@
 import Decimal from 'decimal.js';
 import { getDatabase, getSettingValue } from '../db';
+import { resolveOrderItemVariant, variantUnitPrice } from './product-variants';
 import { getBundledCountryPack } from '../tax-packs/bundled';
 import { getCountryByCode, getCurrencyFractionDigits, getCurrencyMinorUnitFactor, resolveTenantCurrency, type TaxIdFormat } from '../countries';
+import { buildAppliedCharges, ChargeValidationError, VALID_CHARGE_ORDER_TYPES, type AppliedCharge } from './charges';
 
 export interface TenantInfo {
   country: string;
@@ -690,7 +692,24 @@ export async function calculateTaxPreview(req: any, res: any): Promise<void> {
       service_charge,
       discount_type,
       discount_value,
+      online_platform,
+      order_type,
+      waived_charge_ids,
+      opted_in_charge_ids,
     } = req.body;
+
+    const hasOrderChargeContext = order_type !== undefined
+      || waived_charge_ids !== undefined
+      || opted_in_charge_ids !== undefined;
+    if (hasOrderChargeContext && !VALID_CHARGE_ORDER_TYPES.includes(order_type)) {
+      res.status(400).json({ error: `order_type must be one of ${VALID_CHARGE_ORDER_TYPES.join(', ')}` });
+      return;
+    }
+    if ([waived_charge_ids, opted_in_charge_ids].some((list) => list !== undefined && list !== null
+      && (!Array.isArray(list) || list.some((entry) => typeof entry !== 'string')))) {
+      res.status(400).json({ error: 'waived_charge_ids and opted_in_charge_ids must be arrays of charge ids' });
+      return;
+    }
 
     if (!Array.isArray(items) || items.length === 0) {
       res.status(400).json({ error: 'Items are required' });
@@ -719,6 +738,8 @@ export async function calculateTaxPreview(req: any, res: any): Promise<void> {
     const customer = customer_id
       ? (db.prepare('SELECT * FROM customers WHERE id = ?').get(customer_id) as Customer | undefined)
       : null;
+    // Same pricing rule as order placement, including the online platform price.
+    const isOnlineOrder = typeof online_platform === 'string' && online_platform.trim().length > 0;
 
     const itemResults: any[] = [];
     const allBreakdowns: any[] = [];
@@ -737,7 +758,10 @@ export async function calculateTaxPreview(req: any, res: any): Promise<void> {
         continue;
       }
 
-      const unitPrice = parseFloat(product.price) || 0;
+      // The cashier is quoted from the same catalog lookup the order is priced
+      // from, so a variant basket cannot be quoted at the parent price.
+      const variant = resolveOrderItemVariant(db, product, itemData, isOnlineOrder);
+      const unitPrice = variant ? variantUnitPrice(variant, isOnlineOrder) : (parseFloat(product.price) || 0);
       const rawQty = Number(itemData.quantity);
       const quantity = Number.isFinite(rawQty) && rawQty > 0 ? rawQty : 1;
       const rawDisc = Number(itemData.discount_amount);
@@ -777,9 +801,9 @@ export async function calculateTaxPreview(req: any, res: any): Promise<void> {
       }
     }
 
-    const packaging = normalizeChargeAmount(packaging_charge, 'packaging');
+    let packaging = normalizeChargeAmount(packaging_charge, 'packaging');
     const delivery = normalizeChargeAmount(delivery_charge, 'delivery');
-    const service = normalizeChargeAmount(service_charge, 'service_charge');
+    let service = normalizeChargeAmount(service_charge, 'service_charge');
 
     let discountAmount = new Decimal(0);
     if (discount_type !== undefined || discount_value !== undefined) {
@@ -803,6 +827,23 @@ export async function calculateTaxPreview(req: any, res: any): Promise<void> {
         discountAmount = Decimal.min(new Decimal(parsedDiscount), subtotalDecimal);
       }
       discountAmount = discountAmount.toDecimalPlaces(decimals, Decimal.ROUND_HALF_UP);
+    }
+
+    let appliedCharges: AppliedCharge[] | undefined;
+    let otherCharges = new Decimal(0);
+    if (hasOrderChargeContext) {
+      const resolvedCharges = buildAppliedCharges({
+        currency,
+        orderType: order_type,
+        subtotal: totalSubtotal,
+        discountAmount: discountAmount.toNumber(),
+        waivedIds: waived_charge_ids ?? [],
+        optedInIds: opted_in_charge_ids ?? [],
+      });
+      if (resolvedCharges.ownsPackagingChargeColumn) packaging = resolvedCharges.columns.packaging_charge;
+      if (resolvedCharges.ownsServiceChargeColumn) service = resolvedCharges.columns.service_charge;
+      appliedCharges = resolvedCharges.charges;
+      if (resolvedCharges.configured) otherCharges = new Decimal(resolvedCharges.columns.other_charges);
     }
 
     const subtotalDecimal = new Decimal(totalSubtotal);
@@ -843,10 +884,14 @@ export async function calculateTaxPreview(req: any, res: any): Promise<void> {
       .plus(packaging)
       .plus(delivery)
       .plus(service)
+      .plus(otherCharges)
       .toDecimalPlaces(decimals, Decimal.ROUND_HALF_UP)
       .toNumber();
     const pack = getActiveCountryPack(tenantInfo.country);
     const { total, adjustment: roundOff } = applyPayableRounding(exactTotal, pack, currency);
+    if (!Number.isSafeInteger(Math.round(total * minorFactor))) {
+      throw new ChargeValidationError('Order total exceeds the supported currency precision');
+    }
 
     res.json({
       items: itemResults,
@@ -861,6 +906,7 @@ export async function calculateTaxPreview(req: any, res: any): Promise<void> {
         service_charge: service,
         round_off: roundOff,
         total,
+        ...(appliedCharges ? { charges_breakdown: appliedCharges } : {}),
       },
     });
   } catch (error: any) {

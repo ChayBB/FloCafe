@@ -5,7 +5,13 @@ import { columnsForReceiptPaperSize } from '@print/width';
 import { formatTime } from './format-date';
 import { safePrinterText as writeSafePrinterText, wrapPrinterText, type PrintWarning } from './warnings';
 import { printLabelResolver } from './print-document';
-import { clampDeliverySlipText, sanitizeDeliverySlipPaymentMethod, type DeliverySlipPrintData } from '@print/document';
+import { formatItemHeading } from './item-heading';
+import {
+  clampDeliverySlipText,
+  deliverySlipExpectedPaymentText,
+  sanitizeDeliverySlipPaymentMethod,
+  type DeliverySlipPrintData,
+} from '@print/document';
 
 export type DeliverySlipPayment = NonNullable<DeliverySlipPrintData['payment']>;
 
@@ -36,10 +42,14 @@ export interface DeliverySlipOrder {
   type?: string;
   /** Order-level courier instruction, printed once for the whole delivery. */
   special_instructions?: string | null;
+  /** Courier-only note recorded with the delivery details. */
+  delivery_note?: string | null;
 }
 
 export interface DeliverySlipItem {
   product_name: string;
+  /** Sold variant snapshot; the slip heading names the variant when present. */
+  variant_selection?: unknown;
   quantity: number;
   /** Selected add-ons, printed under the item as the kitchen ticket does. */
   addons?: Array<{ name: string; quantity?: number }>;
@@ -109,13 +119,15 @@ export function buildDeliverySlipBytes(
       safePrinterText(enc, row, warnings, false, arabicShaping, undefined, cols, language).newline();
     }
   }
-  // The order note, once for the whole delivery, wrapped like the address: a
-  // courier instruction cut mid-sentence is worse than one that runs long. A note
-  // over the budget is bounded, and the cut is stated on the paper.
-  const { text: orderNote, truncatedChars: noteTruncated } = clampDeliverySlipText((order.special_instructions ?? '').trim());
-  if (orderNote || noteTruncated > 0) {
-    if (orderNote) {
-      const labeled = `${label('print.note')}: ${orderNote}`;
+  // The delivery and order notes are printed once for the whole delivery,
+  // bounded by the shared note budget and wrapped like the delivery address.
+  for (const [noteLabel, rawNote] of [
+    [label('print.deliverySlip.deliveryNote'), order.delivery_note],
+    [label('print.note'), order.special_instructions],
+  ] as const) {
+    const { text: note, truncatedChars: noteTruncated } = clampDeliverySlipText((rawNote ?? '').trim());
+    if (note) {
+      const labeled = `${noteLabel}: ${note}`;
       for (const row of wrapPrinterText(labeled, cols)) {
         safePrinterText(enc, row, warnings, false, arabicShaping, undefined, cols, language).newline();
       }
@@ -150,7 +162,7 @@ export function buildDeliverySlipBytes(
     const summary = isPaid
       ? `${status}: ${method ? `${method} ` : ''}(${label('pos.total')}: ${payment.formattedAmount})`
       : isCollectible
-        ? `${status}: ${payment.formattedAmount} (${label('print.deliverySlip.cashOnDelivery')})`
+        ? `${status}: ${payment.formattedAmount} (${deliverySlipExpectedPaymentText(payment.expectedMethod, label, payment.expectedMethodIsCustom === true)})`
         : payment.status === 'unpaid'
           ? `${status}: ${payment.formattedAmount}`
           : status;
@@ -173,7 +185,7 @@ export function buildDeliverySlipBytes(
   for (const item of items ?? []) {
     const prefix = `${item.quantity}x  `;
     enc.bold(true);
-    safePrinterText(enc, prefix + item.product_name, warnings, false, arabicShaping, undefined, cols, language).newline();
+    safePrinterText(enc, prefix + formatItemHeading(item.product_name, item.variant_selection), warnings, false, arabicShaping, undefined, cols, language).newline();
     enc.bold(false);
     for (const addon of item.addons ?? []) {
       const suffix = addon.quantity && addon.quantity > 1 ? ` x${addon.quantity}` : '';

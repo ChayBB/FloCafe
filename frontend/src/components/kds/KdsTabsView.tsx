@@ -17,11 +17,16 @@ import {
 import { ORDER_TYPE_LABEL_KEYS, type OrderType } from '@/lib/order-types';
 import { useTranslations } from 'use-intl';
 import { Ltr } from '@/components/layout/Ltr';
+import { formatItemHeading } from '@/lib/printer/item-heading';
 
 export interface KdsTabsViewProps {
   orders: KdsOrder[];
   updating: number | null;
-  updateItemStatus: (itemId: number, status: KitchenStatus, opts?: { expectedStatus?: KitchenStatus }) => Promise<boolean>;
+  updateItemStatus: (
+    itemId: number,
+    status: KitchenStatus,
+    opts?: { expectedStatus?: KitchenStatus },
+  ) => Promise<boolean>;
 }
 
 interface ModalItem {
@@ -35,7 +40,13 @@ export function KdsTabsView({ orders, updating, updateItemStatus }: KdsTabsViewP
   const [activeTab, setActiveTab] = useState<KitchenStatus>('pending');
   const [modalItem, setModalItem] = useState<ModalItem | null>(null);
   const resolvedModalItem = modalItem
-    ? { ...modalItem, item: orders.flatMap((order) => order.items || []).find((item) => item.id === modalItem.item.id) || modalItem.item }
+    ? {
+        ...modalItem,
+        item:
+          orders
+            .flatMap((order) => order.items || [])
+            .find((item) => item.id === modalItem.item.id) || modalItem.item,
+      }
     : null;
 
   const statusLabel = (s: KitchenStatus) => t(STATUS_CONFIG[s].labelKey);
@@ -43,13 +54,17 @@ export function KdsTabsView({ orders, updating, updateItemStatus }: KdsTabsViewP
   const filteredOrders = orders
     .map((order) => ({
       ...order,
-      items: (order.items || []).filter((item) => normalizeKitchenStatus(item.status) === activeTab),
+      items: (order.items || []).filter(
+        (item) => normalizeKitchenStatus(item.status) === activeTab,
+      ),
     }))
     .filter((order) => order.items.length > 0);
 
   const orderCounts = (status: KitchenStatus): number =>
     orders.reduce(
-      (sum, order) => sum + (order.items || []).filter((item) => normalizeKitchenStatus(item.status) === status).length,
+      (sum, order) =>
+        sum +
+        (order.items || []).filter((item) => normalizeKitchenStatus(item.status) === status).length,
       0,
     );
 
@@ -87,10 +102,15 @@ export function KdsTabsView({ orders, updating, updateItemStatus }: KdsTabsViewP
             >
               <div className="flex justify-between items-center mb-3 gap-2">
                 <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
-                  <Ltr as="span" className="font-bold text-base shrink-0">#{order.order_number}</Ltr>
+                  <Ltr as="span" className="font-bold text-base shrink-0">
+                    #{order.order_number}
+                  </Ltr>
                   <Badge
                     variant="outline"
-                    className={ORDER_TYPE_BADGE_STYLES[order.type] || 'bg-muted text-foreground border-border'}
+                    className={
+                      ORDER_TYPE_BADGE_STYLES[order.type] ||
+                      'bg-muted text-foreground border-border'
+                    }
                   >
                     {ORDER_TYPE_LABEL_KEYS[order.type as OrderType]
                       ? tOrders(ORDER_TYPE_LABEL_KEYS[order.type as OrderType])
@@ -102,7 +122,9 @@ export function KdsTabsView({ orders, updating, updateItemStatus }: KdsTabsViewP
                 </div>
                 <div className="flex items-center gap-1 text-sm text-gray-400 font-mono shrink-0">
                   <Clock size={12} />
-                  <Ltr><ElapsedTime dateStr={order.created_at} /></Ltr>
+                  <Ltr>
+                    <ElapsedTime dateStr={order.created_at} />
+                  </Ltr>
                 </div>
               </div>
 
@@ -136,9 +158,13 @@ export function KdsTabsView({ orders, updating, updateItemStatus }: KdsTabsViewP
                     >
                       <div className="flex items-center gap-2">
                         <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${config.color}`} />
-                        <span className={`font-bold text-base w-6 shrink-0 ${config.text}`}>{item.quantity}×</span>
-                        <span className={`text-lg font-semibold flex-1 truncate ${isVoided ? 'text-gray-400 line-through' : 'text-foreground'}`}>
-                          {item.product_name}
+                        <span className={`font-bold text-base w-6 shrink-0 ${config.text}`}>
+                          {item.quantity}×
+                        </span>
+                        <span
+                          className={`text-lg font-semibold flex-1 truncate ${isVoided ? 'text-gray-400 line-through' : 'text-foreground'}`}
+                        >
+                          {formatItemHeading(item.product_name, item.variant_selection)}
                         </span>
                         {isVoided ? (
                           <ChevronRight size={14} className="text-gray-400 shrink-0 rtl-flip" />
@@ -146,7 +172,9 @@ export function KdsTabsView({ orders, updating, updateItemStatus }: KdsTabsViewP
                           <KdsStatusSwitch
                             status={itemStatus}
                             updating={updating === item.id}
-                            onAdvance={(next) => updateItemStatus(item.id, next, { expectedStatus: itemStatus })}
+                            onAdvance={(next) =>
+                              updateItemStatus(item.id, next, { expectedStatus: itemStatus })
+                            }
                           />
                         )}
                       </div>
@@ -157,7 +185,8 @@ export function KdsTabsView({ orders, updating, updateItemStatus }: KdsTabsViewP
                               key={`${addon.id ?? addon.name}-${i}`}
                               className="text-[10px] bg-card/70 text-blue-600 px-1.5 py-0.5 rounded border border-blue-200"
                             >
-                              + {addon.name}{(addon.quantity || 1) > 1 ? ` ×${addon.quantity}` : ''}
+                              + {addon.name}
+                              {(addon.quantity || 1) > 1 ? ` ×${addon.quantity}` : ''}
                             </span>
                           ))}
                         </div>
@@ -177,7 +206,9 @@ export function KdsTabsView({ orders, updating, updateItemStatus }: KdsTabsViewP
 
         {filteredOrders.length === 0 && (
           <div className="flex flex-col items-center justify-center py-16 text-gray-400">
-            <p className="text-lg">{t('emptyItems', { status: statusLabel(activeTab).toLowerCase() })}</p>
+            <p className="text-lg">
+              {t('emptyItems', { status: statusLabel(activeTab).toLowerCase() })}
+            </p>
             <p className="text-sm">{t('emptyHint')}</p>
           </div>
         )}
@@ -190,7 +221,9 @@ export function KdsTabsView({ orders, updating, updateItemStatus }: KdsTabsViewP
           updating={updating === resolvedModalItem.item.id}
           onClose={() => setModalItem(null)}
           onUpdateStatus={async (itemId, status) => {
-            const updated = await updateItemStatus(itemId, status, { expectedStatus: normalizeKitchenStatus(resolvedModalItem.item.status) });
+            const updated = await updateItemStatus(itemId, status, {
+              expectedStatus: normalizeKitchenStatus(resolvedModalItem.item.status),
+            });
             if (updated) setModalItem(null);
           }}
         />

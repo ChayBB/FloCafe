@@ -15,14 +15,26 @@ Module._load = function (request: string) {
 const assert = require('node:assert/strict');
 const express = require('express');
 const request = require('supertest');
-const { initDatabase, getDatabase, closeDatabase, now, getCurrencyResetImpact, resetDatabaseForCurrencyChange } = require('../main/db');
+const {
+  initDatabase,
+  getDatabase,
+  closeDatabase,
+  now,
+  getCurrencyResetImpact,
+  resetDatabaseForCurrencyChange,
+  createBackup,
+  restoreBackup,
+  validateInventoryLedgerDatabase,
+} = require('../main/db');
 const { authRoutes } = require('../main/routes/auth');
 
 async function main() {
   initDatabase();
   const db = getDatabase();
   const stamp = now();
-  const setting = db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)');
+  const setting = db.prepare(
+    'INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)',
+  );
   setting.run('country', 'IN', stamp);
   setting.run('currency', 'INR', stamp);
   setting.run('timezone', 'Asia/Kolkata', stamp);
@@ -34,17 +46,28 @@ async function main() {
   db.prepare(`INSERT INTO products (
       id, category_id, name, price, cost, stock_quantity, tax_type, tax_rate,
       tax_category_id, tax_behavior, cb_percent, is_active, created_at, updated_at
-    ) VALUES ('latte', 'cat', 'Latte', 250, 75, 12, 'exclusive', 18, 'food', 'exclusive', 5, 1, ?, ?)`)
-    .run(stamp, stamp);
+    ) VALUES ('latte', 'cat', 'Latte', 250, 75, 12, 'exclusive', 18, 'food', 'exclusive', 5, 1, ?, ?)`).run(
+    stamp,
+    stamp,
+  );
   db.prepare(`INSERT INTO addon_groups (id, name, is_active, created_at, updated_at)
     VALUES ('milk', 'Milk', 1, ?, ?)`).run(stamp, stamp);
   db.prepare(`INSERT INTO addons (
       id, addon_group_id, name, price, tax_category_id, tax_behavior,
       inherit_parent_tax_category, is_active, created_at, updated_at
-    ) VALUES ('oat', 'milk', 'Oat milk', 40, 'food', 'exclusive', 0, 1, ?, ?)`)
-    .run(stamp, stamp);
-  db.prepare("INSERT INTO addon_group_product (product_id, addon_group_id) VALUES ('latte', 'milk')").run();
-  db.prepare("INSERT INTO category_addon_groups (category_id, addon_group_id) VALUES ('cat', 'milk')").run();
+    ) VALUES ('oat', 'milk', 'Oat milk', 40, 'food', 'exclusive', 0, 1, ?, ?)`).run(stamp, stamp);
+  db.prepare(
+    "INSERT INTO addon_group_product (product_id, addon_group_id) VALUES ('latte', 'milk')",
+  ).run();
+  db.prepare(
+    "INSERT INTO category_addon_groups (category_id, addon_group_id) VALUES ('cat', 'milk')",
+  ).run();
+  db.prepare(`INSERT INTO product_variants (
+      id, product_id, name, sku, price, online_price, cost_price, stock_quantity, is_active, sort_order, created_at, updated_at
+    ) VALUES ('latte-small', 'latte', 'Small', 'LAT-S', 200, 220, 90, 3, 1, 0, ?, ?)`).run(
+    stamp,
+    stamp,
+  );
   db.pragma('foreign_keys = OFF');
   db.prepare(`INSERT INTO products (
       id, category_id, name, price, cost, stock_quantity, inventory_product_id,
@@ -53,10 +76,20 @@ async function main() {
       'exclusive', 5, 'exclusive', 1, ?, ?)`).run(stamp, stamp);
   db.prepare(`INSERT INTO addons (id, addon_group_id, name, price, is_active, created_at, updated_at)
     VALUES ('orphan-addon', 'missing-group', 'Orphan add-on', 10, 1, ?, ?)`).run(stamp, stamp);
-  db.prepare("INSERT INTO addon_group_product (product_id, addon_group_id) VALUES ('missing-product', 'milk')").run();
-  db.prepare("INSERT INTO addon_group_product (product_id, addon_group_id) VALUES ('latte', 'missing-group')").run();
-  db.prepare("INSERT INTO category_addon_groups (category_id, addon_group_id) VALUES ('missing-category', 'milk')").run();
-  db.prepare("INSERT INTO category_addon_groups (category_id, addon_group_id) VALUES ('cat', 'missing-group')").run();
+  db.prepare(
+    "INSERT INTO addon_group_product (product_id, addon_group_id) VALUES ('missing-product', 'milk')",
+  ).run();
+  db.prepare(
+    "INSERT INTO addon_group_product (product_id, addon_group_id) VALUES ('latte', 'missing-group')",
+  ).run();
+  db.prepare(
+    "INSERT INTO category_addon_groups (category_id, addon_group_id) VALUES ('missing-category', 'milk')",
+  ).run();
+  db.prepare(`INSERT INTO product_variants (id, product_id, name, price, is_active, created_at, updated_at)
+    VALUES ('orphan-variant', 'missing-product', 'Orphan variant', 10, 1, ?, ?)`).run(stamp, stamp);
+  db.prepare(
+    "INSERT INTO category_addon_groups (category_id, addon_group_id) VALUES ('cat', 'missing-group')",
+  ).run();
   db.pragma('foreign_keys = ON');
   db.prepare(`INSERT INTO customers (id, name, is_active, created_at, updated_at)
     VALUES ('customer', 'Customer', 1, ?, ?)`).run(stamp, stamp);
@@ -75,13 +108,16 @@ async function main() {
   assert.equal(fs.existsSync(result.backupPath), true, 'a recovery backup is created before reset');
 
   const fresh = getDatabase();
-  const count = (table: string) => (fresh.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number }).count;
+  const count = (table: string) =>
+    (fresh.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as { count: number }).count;
   // 'guest-ordering' is a locked system account created by migration, so it is
   // present on any migrated database including a freshly reset one. auth.ts
   // (needsSetup) and staff.ts exclude it from user counts for the same reason.
-  const staffCount = (fresh
-    .prepare("SELECT COUNT(*) AS count FROM users WHERE id <> 'guest-ordering'")
-    .get() as { count: number }).count;
+  const staffCount = (
+    fresh.prepare("SELECT COUNT(*) AS count FROM users WHERE id <> 'guest-ordering'").get() as {
+      count: number;
+    }
+  ).count;
   assert.equal(staffCount, 0, 'staff accounts are erased');
   assert.equal(count('orders'), 0, 'orders are erased');
   assert.equal(count('bills'), 0, 'invoices are erased');
@@ -91,31 +127,96 @@ async function main() {
   assert.equal(count('addon_groups'), 1, 'add-on groups are preserved');
   assert.equal(count('addons'), 1, 'add-ons are preserved');
   assert.equal(count('addon_group_product'), 1, 'menu relationships are preserved');
-  assert.equal(count('category_addon_groups'), 1, 'category add-on group relationships are preserved without orphans');
+  assert.equal(
+    count('category_addon_groups'),
+    1,
+    'category add-on group relationships are preserved without orphans',
+  );
+  assert.equal(
+    count('product_variants'),
+    1,
+    'product variants of preserved products are preserved without orphans',
+  );
   assert.deepEqual(
-    fresh.prepare("SELECT category_id, inventory_product_id FROM products WHERE id = 'orphan-product'").get(),
+    fresh
+      .prepare(
+        "SELECT product_id, name, sku, price, online_price, cost_price, stock_quantity, sort_order FROM product_variants WHERE id = 'latte-small'",
+      )
+      .get(),
+    // Prices are zeroed like the product's own price: they are denominated in
+    // the old currency. Stock is zeroed because the reset starts an empty
+    // ledger, so restored stock would have no movement history and would fail
+    // the ledger pre-check on every later restore.
+    {
+      product_id: 'latte',
+      name: 'Small',
+      sku: 'LAT-S',
+      price: 0,
+      online_price: null,
+      cost_price: null,
+      stock_quantity: 0,
+      sort_order: 0,
+    },
+    'restored variants keep their identity, zero their old-currency prices, and start at zero stock',
+  );
+  assert.deepEqual(
+    fresh
+      .prepare("SELECT category_id, inventory_product_id FROM products WHERE id = 'orphan-product'")
+      .get(),
     { category_id: null, inventory_product_id: null },
     'orphaned product references are cleared',
   );
-  assert.equal(fresh.prepare("SELECT id FROM addons WHERE id = 'orphan-addon'").get(), undefined, 'add-ons with missing groups are omitted');
+  assert.equal(
+    fresh.prepare("SELECT id FROM addons WHERE id = 'orphan-addon'").get(),
+    undefined,
+    'add-ons with missing groups are omitted',
+  );
 
-  const product = fresh.prepare(`SELECT price, cost, stock_quantity, tax_type, tax_rate,
-    tax_category_id, tax_behavior, cb_percent FROM products WHERE id = 'latte'`).get();
+  // The reset leaves an empty ledger, so the reset store must still pass the
+  // ledger pre-check that every restore and import runs.
+  assert.equal(
+    validateInventoryLedgerDatabase(fresh),
+    null,
+    'the reset store validates against the inventory ledger pre-check',
+  );
+
+  const product = fresh
+    .prepare(`SELECT price, cost, stock_quantity, tax_type, tax_rate,
+    tax_category_id, tax_behavior, cb_percent FROM products WHERE id = 'latte'`)
+    .get();
   assert.deepEqual(product, {
-    price: 0, cost: 0, stock_quantity: 0, tax_type: 'none', tax_rate: 0,
-    tax_category_id: null, tax_behavior: 'country_default', cb_percent: 0,
+    price: 0,
+    cost: 0,
+    stock_quantity: 0,
+    tax_type: 'none',
+    tax_rate: 0,
+    tax_category_id: null,
+    tax_behavior: 'country_default',
+    cb_percent: 0,
   });
-  const addon = fresh.prepare("SELECT price, tax_category_id, tax_behavior, inherit_parent_tax_category FROM addons WHERE id = 'oat'").get();
+  const addon = fresh
+    .prepare(
+      "SELECT price, tax_category_id, tax_behavior, inherit_parent_tax_category FROM addons WHERE id = 'oat'",
+    )
+    .get();
   assert.deepEqual(addon, {
-    price: 0, tax_category_id: null, tax_behavior: 'country_default', inherit_parent_tax_category: 1,
+    price: 0,
+    tax_category_id: null,
+    tax_behavior: 'country_default',
+    inherit_parent_tax_category: 1,
   });
 
   const regional = Object.fromEntries(
-    (fresh.prepare("SELECT key, value FROM settings WHERE key IN ('country', 'currency', 'timezone')").all() as { key: string; value: string }[])
-      .map((row) => [row.key, row.value]),
+    (
+      fresh
+        .prepare("SELECT key, value FROM settings WHERE key IN ('country', 'currency', 'timezone')")
+        .all() as { key: string; value: string }[]
+    ).map((row) => [row.key, row.value]),
   );
   assert.deepEqual(regional, { country: 'IN', currency: 'USD', timezone: 'Asia/Kolkata' });
-  const pending = fresh.prepare("SELECT value FROM _flo_meta WHERE key = 'currency_reset_pending'").get() as { value: string };
+  const pending = fresh
+    .prepare("SELECT value FROM _flo_meta WHERE key = 'currency_reset_pending'")
+    .get() as { value: string };
   assert.deepEqual(JSON.parse(pending.value), regional);
   assert.deepEqual(fresh.pragma('foreign_key_check'), []);
 
@@ -124,7 +225,10 @@ async function main() {
     (error: { code?: string }) => error.code === 'ERR_CURRENCY_CHANGED',
     'a stale expected currency is rejected inside the maintenance lock',
   );
-  assert.equal(fresh.prepare("SELECT value FROM settings WHERE key = 'currency'").get().value, 'USD');
+  assert.equal(
+    fresh.prepare("SELECT value FROM settings WHERE key = 'currency'").get().value,
+    'USD',
+  );
 
   const app = express();
   app.use(express.json());
@@ -146,8 +250,35 @@ async function main() {
   });
   assert.equal(setup.status, 200, `post-reset setup succeeds: ${JSON.stringify(setup.body)}`);
   assert.equal(count('products'), 2, 'post-reset setup skips demo menu seeding');
-  assert.equal(fresh.prepare("SELECT value FROM settings WHERE key = 'setup_profile'").get().value, 'empty', 'post-reset setup records the effective empty profile');
-  assert.equal(fresh.prepare("SELECT value FROM _flo_meta WHERE key = 'currency_reset_pending'").get(), undefined, 'setup clears the pending reset marker');
+  assert.equal(
+    fresh.prepare("SELECT value FROM settings WHERE key = 'setup_profile'").get().value,
+    'empty',
+    'post-reset setup records the effective empty profile',
+  );
+  assert.equal(
+    fresh.prepare("SELECT value FROM _flo_meta WHERE key = 'currency_reset_pending'").get(),
+    undefined,
+    'setup clears the pending reset marker',
+  );
+
+  // Runs last in this file: restoreBackup replaces the live connection, so the
+  // handle the assertions above read through stops being valid afterwards.
+  const postResetBackup = await createBackup();
+  const postResetRestore = restoreBackup(postResetBackup.path, true);
+  assert.equal(
+    postResetRestore.success,
+    true,
+    `a backup taken after a currency reset still restores (got ${JSON.stringify(postResetRestore)})`,
+  );
+  assert.equal(
+    (
+      getDatabase()
+        .prepare("SELECT COUNT(*) AS count FROM product_variants WHERE id = 'latte-small'")
+        .get() as { count: number }
+    ).count,
+    1,
+    'the variant survives the restore of the reset store',
+  );
 
   closeDatabase();
   Module._load = originalLoad;
@@ -157,7 +288,9 @@ async function main() {
 
 main().catch((error: unknown) => {
   console.error(error);
-  try { closeDatabase(); } catch {}
+  try {
+    closeDatabase();
+  } catch {}
   Module._load = originalLoad;
   fs.rmSync(testDir, { recursive: true, force: true });
   process.exit(1);

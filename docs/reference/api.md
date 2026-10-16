@@ -109,13 +109,19 @@ credential routes `POST /api/auth/login`, `POST /api/auth/password/change`, and
 create and modify staff credentials. `POST /api/auth/login` on `3002` and `3003` uses it too. Its default ceiling is 10 attempts per 15 minutes, overridable
 with `FLO_AUTH_RATE_LIMIT_MAX`.
 
-Per-resource limiters named in the tables below (for example the order read and write limiters) are
-`express-rate-limit` instances declared in their own route file. They apply to every caller
-including LAN addresses.
+Per-resource limiters named in the tables below are `express-rate-limit` instances declared in
+their own route file. Unless noted otherwise, they apply to every caller including LAN addresses.
+In [`main/routes/orders.ts`](../../main/routes/orders.ts), `orderWriteRateLimit` and
+`orderItemCancelRateLimit` remain separate 60-requests-per-minute buckets (configurable via
+`FLO_ORDER_WRITE_RATE_LIMIT_MAX` when set to a positive integer) and exempt authenticated callers
+connecting from private, loopback, or Tailscale socket addresses (`isAllowedPrivateIp` on
+`req.socket.remoteAddress`, ignoring caller-supplied forwarding headers), while still rate-limiting
+public or unauthenticated traffic and returning `{ error: "Too many requests, please try again later." }`
+on `429`.
 
 ## Main API (`:3001`)
 
-`registerRoutes` in [`main/routes/index.ts`](../../main/routes/index.ts) mounts 36 routers under 37
+`registerRoutes` in [`main/routes/index.ts`](../../main/routes/index.ts) mounts 38 routers under 39
 paths. `staffRoutes` is the same router mounted at both `/api/staff` and `/api/users`, so the two
 prefixes expose an identical surface. Seven further endpoints are registered inline on `app` in that
 same file, outside any router, and are listed under
@@ -170,7 +176,7 @@ Router: `main/routes/addon-groups.ts`. Full path: `/api/addon-groups`.
 | --- | --- | --- | --- | --- |
 | `GET` | `/` | any authenticated role + addon-group read limiter | none | `{ addon_groups: [ ... ] }` with add-ons attached. |
 | `GET` | `/:id` | any authenticated role + addon-group read limiter | path: `id` | Single group with add-ons. |
-| `POST` | `/` | `ROLE_ACCESS.ownerManager` + addon-group write limiter | body: `name`, `description`, `is_required`, `min_selection`, `max_selection`, `allow_multiple_quantities`, `sort_order`, `addons` | `201` with the created group. |
+| `POST` | `/` | `ROLE_ACCESS.ownerManager` + addon-group write limiter | body: `name`, `description`, `is_required`, `min_selection`, `max_selection`, `allow_multiple_quantities`, `sort_order`, `is_active`, `addons` | `201` with the created group. |
 | `PUT` | `/:id` | `ROLE_ACCESS.ownerManager` + addon-group write limiter | path: `id`; body: `name`, `description`, `is_required`, `min_selection`, `max_selection`, `allow_multiple_quantities`, `sort_order`, `is_active`, `addons` | - |
 | `DELETE` | `/:id` | `ROLE_ACCESS.ownerManager` + addon-group write limiter | path: `id` | - |
 | `POST` | `/:groupId/addons` | `ROLE_ACCESS.ownerManager` + addon-group write limiter | path: `groupId`; body: `name`, `price`, `tax_category_id`, `tax_behavior`, `inherit_parent_tax_category`, `is_active`, `sort_order` | `201` with the created add-on. |
@@ -183,16 +189,21 @@ Router: `main/routes/products.ts`. Full path: `/api/products`.
 
 | Method | Path | Authorization | Parameters | Response |
 | --- | --- | --- | --- | --- |
-| `GET` | `/` | any authenticated role | query: `?category_id`, `?active`, `?search`, `?barcode`, `?low_stock` | Menu list. `?low_stock` returns only items at or below their threshold. |
+| `GET` | `/` | any authenticated role | query: `?category_id`, `?active`, `?search`, `?barcode`, `?low_stock` | Menu list. Variant objects include `recipe_multiplier`. `?low_stock` returns only items at or below their threshold. |
 | `GET` | `/:id/image` | any authenticated role | path: `id` | Product image bytes. Unauthenticated by design so `<img>` tags work; subject to SSRF and path-containment checks on the stored URL. |
-| `GET` | `/:id` | any authenticated role | path: `id` | Single product. |
+| `GET` | `/:id` | any authenticated role | path: `id` | Single product; variant objects include `recipe_multiplier`. |
 | `POST` | `/fetch-url` | `ROLE_ACCESS.ownerManager` | body: `url` | Body `url` is fetched server-side and stored as the product image. Subject to the SSRF blocklist. |
-| `POST` | `/` | `ROLE_ACCESS.ownerManager` | body: `category_id`, `name`, `sku`, `barcode`, `description`, `price`, `cost_price`, `sale_unit`, `allow_fractional_quantity`, `weight_precision`, `inventory_product_id`, `inventory_deduction_quantity`, `tax_category_id`, `tax_behavior`, `track_inventory`, `stock_quantity`, `low_stock_threshold`, `is_active`, `image_url`, `sort_order`, `cb_percent`, `tags`, `addon_group_ids`, `reason` | - |
-| `PUT` | `/:id` | `ROLE_ACCESS.ownerManager` | path: `id`; body: `category_id`, `name`, `sku`, `barcode`, `description`, `price`, `cost_price`, `sale_unit`, `allow_fractional_quantity`, `weight_precision`, `inventory_product_id`, `inventory_deduction_quantity`, `tax_category_id`, `tax_behavior`, `track_inventory`, `stock_quantity`, `low_stock_threshold`, `is_active`, `image_url`, `sort_order`, `cb_percent`, `tags`, `addon_group_ids`, `reason` | - |
+| `POST` | `/` | `ROLE_ACCESS.ownerManager` | body: `category_id`, `name`, `sku`, `barcode`, `description`, `price`, `cost_price`, `sale_unit`, `allow_fractional_quantity`, `weight_precision`, `inventory_product_id`, `inventory_deduction_quantity`, `tax_category_id`, `tax_behavior`, `track_inventory`, `stock_quantity`, `low_stock_threshold`, `is_active`, `image_url`, `sort_order`, `cb_percent`, `tags`, `addon_group_ids`, `variants`, `reason` | - |
+| `PUT` | `/:id` | `ROLE_ACCESS.ownerManager` | path: `id`; body: `category_id`, `name`, `sku`, `barcode`, `description`, `price`, `cost_price`, `sale_unit`, `allow_fractional_quantity`, `weight_precision`, `inventory_product_id`, `inventory_deduction_quantity`, `tax_category_id`, `tax_behavior`, `track_inventory`, `stock_quantity`, `low_stock_threshold`, `is_active`, `image_url`, `sort_order`, `cb_percent`, `tags`, `addon_group_ids`, `variants`, `reason` | - |
 | `DELETE` | `/:id` | `ROLE_ACCESS.ownerManager` | path: `id` | - |
 | `POST` | `/:id/stock` | `ROLE_ACCESS.ownerManager` | path: `id`; body: `action`, `quantity`, `reason` | - |
 | `GET` | `/loyalty/global-rate-candidates` | `ROLE_ACCESS.ownerManager` | none | - |
 | `POST` | `/loyalty/apply-global-rate` | `ROLE_ACCESS.ownerManager` | none | Applies one cashback rate across products. |
+
+In product create/update requests, each `variants` entry may include a positive finite
+`recipe_multiplier`. If omitted, a new variant uses 1 and an existing variant keeps its stored
+value. Product reads return the field on each variant; see [product invariants](product-invariants.md#supplies-stock-and-recipe-depletion)
+for its recipe-depletion behavior.
 
 ### Recipes
 
@@ -213,7 +224,7 @@ Router: `main/routes/supplies.ts`. Full path: `/api/supplies`.
 | --- | --- | --- | --- | --- |
 | `GET` | `/` | `ROLE_ACCESS.ownerManager` | query: `?include_inactive`, `?low_stock`, `?search` | Supply list. `?low_stock` and `?include_inactive` narrow it. |
 | `POST` | `/` | `ROLE_ACCESS.ownerManager` | body: `name`, `base_unit`, `stock_quantity`, `low_stock_threshold`, `is_active` | - |
-| `GET` | `/movements` | `ROLE_ACCESS.ownerManager` | query: `?supply_id`, `?movement_type`, `?before_id`, `?per_page` | Supply movement ledger, newest first; `?before_id` pages backwards. |
+| `GET` | `/movements` | `ROLE_ACCESS.ownerManager` | query: `?supply_id`, `?movement_type`, `?search`, `?before_id`, `?per_page` | Supply movement ledger, newest first; `?search` matches the supply name, reason, or actor across the whole ledger; `?before_id` pages backwards. |
 | `GET` | `/:id` | `ROLE_ACCESS.ownerManager` | path: `id` | - |
 | `PUT` | `/:id` | `ROLE_ACCESS.ownerManager` | path: `id`; body: `name`, `is_active`, `low_stock_threshold` | - |
 | `DELETE` | `/:id` | `ROLE_ACCESS.ownerManager` | path: `id` | - |
@@ -242,7 +253,7 @@ Router: `main/routes/tables.ts`. Full path: `/api/tables`.
 | `PUT` | `/:id` | `ROLE_ACCESS.ownerManager` | path: `id`; body: `number`, `name`, `capacity`, `floor`, `section`, `position_x`, `position_y`, `kitchen_station_id` | - |
 | `POST` | `/:id/deactivate` | `ROLE_ACCESS.ownerManager` | path: `id` | Soft-deactivates the table rather than deleting it. |
 | `POST` | `/:id/reactivate` | `ROLE_ACCESS.ownerManager` | path: `id` | - |
-| `POST` | `/:id/move-order` | `ROLE_ACCESS.sales` | path: `id`; body: `target_table_id`, `order_id` | - |
+| `POST` | `/:id/move-order` | `ROLE_ACCESS.sales` | path: `id`; body: `target_table_id`, `order_id` | `{ order, sourceTable, targetTable }`. `400` when `target_table_id` is missing, matches `id`, or names an inactive table; `404` when either table or the active order is not found; `409` when the destination table has an active or held order or is `reserved`. |
 | `PATCH` | `/:id/status` | `ROLE_ACCESS.ownerManager` | path: `id`; body: `status`, `reservation_customer_id` | Body `status`, plus `reservation_customer_id` for reservation state. |
 
 ### Kitchen stations
@@ -262,12 +273,15 @@ Router: `main/routes/kitchen-stations.ts`. Full path: `/api/kitchen-stations`.
 
 Router: `main/routes/orders.ts`. Full path: `/api/orders`.
 
+The cart-to-payment path these endpoints drive - held carts, the pricing pipeline, discounts, bills,
+and settlement - is in [Order lifecycle](../architecture/order-lifecycle.md).
+
 | Method | Path | Authorization | Parameters | Response |
 | --- | --- | --- | --- | --- |
-| `GET` | `/` | `ROLE_ACCESS.sales` + order read limiter | query: `?status`, `?type`, `?today`, `?start_date`, `?end_date`, `?table_id`, `?before_id`, `?per_page` | `{ orders, table }`, newest page first. `?before_id` pages backwards. |
-| `GET` | `/:id` | `ROLE_ACCESS.sales` + order read limiter | path: `id` | `{ ...order, items, table }`. |
-| `POST` | `/` | `ROLE_ACCESS.sales` + order write limiter | body: `items`, `table_id`, `customer_id`, `type`, `guest_count`, `special_instructions`, `packaging_charge`, `delivery_charge`, `service_charge`, `online_platform`, `external_order_id`; header: `Idempotency-Key` | `201` with the created order. Honours an `Idempotency-Key` header; reusing a key with a different body returns `409`. |
-| `POST` | `/:id/items` | `ROLE_ACCESS.sales` + order write limiter | path: `id`; body: `items`, `special_instructions`; header: `Idempotency-Key` | Appends items and returns the recomputed order. Honours `Idempotency-Key`. |
+| `GET` | `/` | `orders.read` (default roles: `ROLE_ACCESS.sales`) + order read limiter | query: `?status`, `?type`, `?today`, `?start_date`, `?end_date`, `?table_id`, `?before_id`, `?per_page`, `?search` | `{ orders, nextCursor? }`, newest page first. `?before_id` pages backwards. `?search` matches order number, customer name, or phone before pagination. |
+| `GET` | `/:id` | `orders.read` (default roles: `ROLE_ACCESS.sales`) + order read limiter | path: `id` | `{ ...order, items, table }`. |
+| `POST` | `/` | `ROLE_ACCESS.sales` + order write limiter | body: `items`, `table_id`, `customer_id`, `type`, `guest_count`, `special_instructions`, `packaging_charge`, `delivery_charge`, `service_charge`, `online_platform`, `external_order_id`, `delivery_address`, `expected_payment_method`, `expected_payment_method_id`, `delivery_note`; header: `Idempotency-Key` | `201` with the created order. Repeating the same request body with an `Idempotency-Key` returns its stored response; reusing the key with a different body returns `409`. `expected_payment_method` and `delivery_note` are stored only for `type: 'delivery'`: without an id, the method keeps its legacy string/sentinel resolution (`unknown` by default, `pending`, `cash`, `card`, or an active custom method name), and is never recorded as a payment; `400` for any other method or a note over 200 characters. A custom method whose name matches a built-in or sentinel needs its id to be identified as custom. An optional `expected_payment_method_id` must be a positive safe integer naming an **active** configured method; the server stores its canonical name and requires any supplied non-empty name to match case-insensitively. Invalid, unknown, or inactive ids return `400`. The id is a historical marker, not a foreign key, so renaming or deleting the method later never rewrites an order; only `orders.expected_payment_method_id` decides that the stored name prints literally on a delivery slip. Non-delivery orders persist both expected-method fields as `null`. An item's `variant_id` is required when the product has active variants, and `400` when it names an unknown, foreign, or inactive variant; `unit_price` is never taken from the client. |
+| `POST` | `/:id/items` | `ROLE_ACCESS.sales` + order write limiter | path: `id`; body: `items`, `special_instructions`; header: `Idempotency-Key` | Appends items and returns the recomputed order. Honours `Idempotency-Key`. Items resolve a `variant_id` under the same rules as order creation, priced with `variant.online_price` when the order carries an `online_platform`. |
 | `PATCH` | `/:id/status` | `ROLE_ACCESS.orderStatus` + order write limiter | path: `id`; body: `status`, `reason`, `override_pin`, `free_table` | Order-level transition. Allowed targets: `pending` to `preparing`, `ready`, `served`, `completed`, `cancelled`; `preparing` to `ready`, `served`, `completed`, `cancelled`; `ready` to `served`, `completed`, `cancelled`; `served` to `completed`, `cancelled`. `completed` and `cancelled` are terminal. Repeating the current status is a no-op. |
 | `PATCH` | `/:id/customer` | `ROLE_ACCESS.ownerManager` + order write limiter | path: `id`; body: `customer_id` | - |
 | `PATCH` | `/:id/convert-to-takeaway` | `ROLE_ACCESS.sales` + order write limiter | path: `id` | - |
@@ -275,6 +289,12 @@ Router: `main/routes/orders.ts`. Full path: `/api/orders`.
 | `PATCH` | `/:id/items/:itemId/discount` | `ROLE_ACCESS.ownerManagerCashier` + order write limiter | path: `id`, `itemId`; body: `discount_type`, `discount_value`, `override_pin` | - |
 | `PATCH` | `/:orderId/items/:itemId/cancel` | any authenticated role + item cancel limiter, then an in-handler permission check | path: `orderId`, `itemId`; body: `override_pin`, `reason`, `manager_id` | See the note below. Returns `{ order: { ...order, items } }`. |
 | `PATCH` | `/:orderId/items/:itemId/restore` | in-handler `orders.item.restore` (shipped to `ROLE_ACCESS.ownerManager`) | path: `orderId`, `itemId` | Returns `{ order: { ...order, items } }`. `400` on a completed or cancelled order or a paid one. Re-deducts inventory and recipe components, and rescales an order-level percentage discount. |
+
+Order creation and item append accept an optional version-4 UUID `X-Operation-ID` correlation
+header. A validation rejection with a registered failure point includes `reason_code`, `operation`, `stage`,
+`classification`, `outcome`, and `correlation_id` alongside `error`; `display_code` may also be
+present. A valid supplied UUID is returned as the correlation id, otherwise the server generates
+one. Failures without a registered tuple may retain the `{ error }` response.
 
 Both item endpoints resolve the caller's effective permissions from the database inside a `withTxn`
 (deferred, not immediate) transaction rather than from the JWT claim, and re-run every policy check
@@ -311,26 +331,33 @@ Router: `main/routes/order-items.ts`. Full path: `/api/order-items`.
 
 Router: `main/routes/held-orders.ts`. Full path: `/api/held-orders`.
 
+Held-cart behavior and the POS resume sequence are described in
+[Order lifecycle](../architecture/order-lifecycle.md#cart-and-held-carts).
+
 | Method | Path | Authorization | Parameters | Response |
 | --- | --- | --- | --- | --- |
-| `GET` | `/` | `ROLE_ACCESS.sales` + held-order read limiter | none | - |
-| `POST` | `/` | `ROLE_ACCESS.sales` + held-order write limiter | none | - |
-| `DELETE` | `/:tableId` | `ROLE_ACCESS.sales` + held-order write limiter | path: `tableId`; query: `?heldOrderId` | `?heldOrderId` selects one of several holds on the table. |
+| `GET` | `/` | `ROLE_ACCESS.sales` + held-order read limiter | none | Held carts in `updated_at` order, each with `waivedChargeIds` and `optedInChargeIds`; a hold saved without them reads back as an empty list. A row whose stored selection JSON is damaged is still returned with empty selections. |
+| `POST` | `/` | `ROLE_ACCESS.sales` + held-order write limiter | body: held-cart fields plus optional `waivedChargeIds`, `optedInChargeIds` | `{ success, id }`. Selections are bounded charge ids (`CHARGE_ID_PATTERN`, `MAX_CHARGE_ID_LENGTH`) and are deduplicated; an omitted, null, or empty list means no choices, and a malformed list is a `400` that leaves the stored cart untouched. Unknown but well-formed ids persist, because the charges engine decides applicability when the order is created. |
+| `DELETE` | `/:tableId` | `ROLE_ACCESS.sales` + held-order write limiter | path: `tableId`; query: `?heldOrderId` | `heldOrderId` must match the table's current hold; a missing or stale id returns `{ success: true, deleted: false }`. A successful deletion sets the table to `available` only if it is still `held`. |
 
 ### Bills
 
 Router: `main/routes/bills.ts`. Full path: `/api/bills`.
+
+Bill generation, settlement, and completion are described end to end in
+[Order lifecycle](../architecture/order-lifecycle.md#bills).
 
 | Method | Path | Authorization | Parameters | Response |
 | --- | --- | --- | --- | --- |
 | `GET` | `/` | `ROLE_ACCESS.ownerManagerCashier` | query: `?status`, `?order_id`, `?customer_id`, `?today`, `?per_page`, `?limit`, `?offset` | `{ bills, pagination }`. |
 | `GET` | `/:id` | `ROLE_ACCESS.ownerManagerCashier` | path: `id` | - |
 | `GET` | `/order/:orderId` | `ROLE_ACCESS.ownerManagerCashier` | path: `orderId` | - |
-| `POST` | `/generate` | `ROLE_ACCESS.ownerManagerCashier` | body: `order_id` | Creates or returns the bill for `order_id`. |
-| `POST` | `/:id/split-check` | `ROLE_ACCESS.ownerManagerCashier` | body: `checks` | Body `checks` must hold between 2 and 20 entries. `403` when `split_checks_enabled` is off. |
-| `POST` | `/:id/payment` | `ROLE_ACCESS.ownerManagerCashier` | path: `id`; body: payment line object, `customer_id`; header: `Idempotency-Key` | Body is a single payment line; `customer_id` is read off it. Honours `Idempotency-Key`; a key reused for a different request returns `409`. |
-| `POST` | `/:id/payments` | `ROLE_ACCESS.ownerManagerCashier` | path: `id`; body: `payments`, `customer_id`; header: `Idempotency-Key` | Body `payments` is an array applied in one transaction. Honours `Idempotency-Key`. |
-| `POST` | `/:id/applyDiscount` | `ROLE_ACCESS.ownerManager` | path: `id`; body: `type`, `value`, `reason`, `override_pin`, `manager_id`, `user_id` | - |
+| `POST` | `/generate` | `ROLE_ACCESS.ownerManagerCashier` | body: `order_id` | See [Order lifecycle](../architecture/order-lifecycle.md#bills) for bill creation and re-sync behavior. |
+| `POST` | `/:id/split-check` | `ROLE_ACCESS.ownerManagerCashier` | body: `checks` | Body `checks` must hold between 2 and 20 entries and the resulting split group is capped at 20 checks. An unpaid untouched dine-in check is divided by allocating every active order item quantity; a split-group child may be divided again while it stays unpaid with no payment recorded, keeping its bill id, bill number and group, while paid siblings keep their own rows and payments. `400` when a request does not allocate exactly the source's own quantities. `403` when `split_checks_enabled` is off. `409` when the source has a recorded payment, a legacy already-split bill is re-split, the source has no divisible allocation, or the resulting split group would exceed 20 checks. |
+| `POST` | `/:id/payment` | `ROLE_ACCESS.ownerManagerCashier` | path: `id`; body: payment line object, `customer_id`; header: `Idempotency-Key` | See [Order lifecycle](../architecture/order-lifecycle.md#payments) for input, replay, gate, and settlement behavior. |
+| `POST` | `/:id/payments` | `ROLE_ACCESS.ownerManagerCashier` | path: `id`; body: `payments`, `customer_id`; header: `Idempotency-Key` | See [Order lifecycle](../architecture/order-lifecycle.md#payments) for input, replay, gate, and settlement behavior. |
+| `POST` | `/:id/applyDiscount` | `ROLE_ACCESS.ownerManager` | path: `id`; body: `type`, `value`, `reason`, `override_pin`, `manager_id`, `user_id` | `409` when the order is cancelled. |
+| `PATCH` | `/:id/charges` | `bills.discount.apply` | path: `id`; body: `charge_id`, `waived` or `applied` | `{ bill }` with updated charge breakdown and totals. Only for unpaid, unsplit bills with no payments; the charge must be active and apply to the order type. `409` when the order is cancelled. |
 | `POST` | `/:id/markPrinted` | `bills.print` (`ROLE_ACCESS.ownerManager`) | path: `id` | Stamps `bills.printed_at`. |
 | `POST` | `/:id/print` | `ROLE_ACCESS.ownerManagerCashier` | path: `id`; body: `print_type` | - |
 | `GET` | `/:id/print-history` | `ROLE_ACCESS.ownerManagerCashier` | path: `id` | Print jobs recorded for the bill, newest first. |
@@ -341,8 +368,53 @@ Router: `main/routes/refunds.ts`. Full path: `/api/refunds`.
 
 | Method | Path | Authorization | Parameters | Response |
 | --- | --- | --- | --- | --- |
-| `POST` | `/` | `ROLE_ACCESS.ownerManager` | body: `bill_id`, `order_item_id`, `amount`, `reason`, `approver_id`, `manager_id`, `method`, `shift_id`, `override_pin`; header: `Idempotency-Key` | Creates a refund against `bill_id`, or a single `order_item_id`. `approver_id` must resolve to an active owner or manager whose Staff Approval PIN matches `override_pin`. `409` once the business day is closed. Honours `Idempotency-Key`. |
+| `POST` | `/` | `ROLE_ACCESS.ownerManager` | body: `bill_id`, `order_item_id`, `amount`, `reason`, `approver_id`, `manager_id`, `method`, `shift_id`, `override_pin`; header: `Idempotency-Key` | Creates a refund against `bill_id`, or a single `order_item_id`. Approval tiers and cutoff are documented in [product invariants](product-invariants.md#refunds-and-staff-approval-pins). Honours `Idempotency-Key`. |
 | `GET` | `/` | `ROLE_ACCESS.ownerManagerCashier` | query: `?bill_id`, `?limit`, `?offset` | Refund rows, newest first. |
+
+### Expenses
+
+Router: `main/routes/expenses.ts`. Full path: `/api/expenses`. Reads need `expenses.view`. Expense
+creation, voiding, and replacement need `expenses.manage` **and** `expenses.view`, while payment and
+reversal mutations need `expenses.pay` and `expenses.reverse` (alongside `expenses.view`, plus
+`cash.movements.manage` for cash methods) so an actor can always read back the row they touched.
+Amounts are integer minor units in the expense's own `currency_code`; no endpoint converts currencies
+or assumes a minor-unit factor.
+
+| Method | Path | Authorization | Parameters | Response |
+| --- | --- | --- | --- | --- |
+| `GET` | `/context` | `expenses.view` | none | `{ currency_code, business_date, cash_session_open }`: store currency, store business date, and whether a shift is open. |
+| `GET` | `/categories` | `expenses.view` | query: `?include_inactive` | `{ categories, truncated }`. Deactivated categories stay readable for history and never accept a new expense. |
+| `POST` | `/categories` | `expenses.manage` + `expenses.view`; header `Idempotency-Key` | body: `name`, optional `is_active` (defaults to `true`) | `201 { category }`. Names are unique after trimming, case-insensitively. |
+| `PATCH` | `/categories/:id` | `expenses.manage` + `expenses.view`; header `Idempotency-Key` | path: `id`; body: `name` and/or `is_active` | `{ category }`. Explicit values only - there is no toggle - and renaming never rewrites the category label snapshotted on existing expenses. |
+| `GET` | `/` | `expenses.view` | query: `?from`, `?to`, `?category_id`, `?status`, `?currency`, `?limit`, `?cursor` | `{ expenses, limit, maxLimit, nextCursor? }`, newest `incurred_on` first with a stable id tiebreak. `status` is `active` (default), `voided`, `replaced`, or `all`; `limit` defaults to 50 and caps at 100. |
+| `GET` | `/summary` | `expenses.view` | query: `?from`, `?to`, `?category_id`, `?currency` | `{ basis, filters, groups, totals }`; SQL aggregation over every matching expense, not just the fetched page. |
+| `GET` | `/:id` | `expenses.view` | path: `id`; query: `?payments_limit`, `?payments_cursor` | `{ expense, payments, paymentsNextCursor? }`; payments are newest first, with reversals kept as their own entries. |
+| `POST` | `/` | `expenses.manage` + `expenses.view`; header `Idempotency-Key` | body: `category_id`, `description`, `amount_minor`, `incurred_on`, optional `currency_code`, `payee`, `notes` | `201 { expense }`. A new expense never starts paid, `replaces_expense_id` cannot be set here, and a supplied `currency_code` must match the store currency. |
+| `POST` | `/:id/void` | `expenses.manage` + `expenses.view`; header `Idempotency-Key` | path: `id`; body: `reason` | `{ expense }`. Requires net paid of zero, preserves the original expense fields and `created_at`, and adds void metadata. |
+| `POST` | `/:id/replace` | `expenses.manage` + `expenses.view`; header `Idempotency-Key` | path: `id`; body: replacement fields plus `reason` | `201 { expense, replaced_expense_id }`. Voids the source and creates the linked replacement in one transaction; a source can be replaced once. |
+| `POST` | `/:id/payments` | `expenses.view` + `expenses.pay`, plus `cash.movements.manage` when `method` is `cash`; header `Idempotency-Key` | path: `id`; body: `amount_minor`, `method` (`cash`, `card`, `bank_transfer`, `other`), optional `reference`, `currency_code` | `201 { expense, payment }`. Amounts are positive minor units that may not exceed the current due; a supplied `currency_code` must match the expense. New payments require the expense currency to match the current store currency or return `409 currency_mismatch`. A cash payment needs a real open shift regardless of `require_open_shift` and writes exactly one linked Pay Out. |
+| `POST` | `/:id/payments/:paymentId/reverse` | `expenses.view` + `expenses.reverse`, plus `cash.movements.manage` when the reversed payment was cash; header `Idempotency-Key` | path: `id`, `paymentId`; body: `reason` | `201 { expense, payment }`. Copies the committed payment's amount and method, requires the expense currency to match the current store currency (`409 currency_mismatch` otherwise), is allowed once per payment, and leaves the original payment and its drawer movement untouched; a cash reversal needs today's open shift and writes one linked Pay In. |
+
+Mutation bodies are hashed into an immutable fingerprint under the authenticated actor and the
+`Idempotency-Key`: replaying the same key with the same normalized request returns the committed
+result (with an `Idempotent-Replay: true` header) without writing again, and reusing a key for a
+different operation, resource, or payload is a `409`. Replays resolve before current balance,
+category, or currency checks, while current access is still enforced, and only committed mutations
+are recorded. Omitted currency on expense creation or replacement resolves against the committed
+expense snapshot during replay, so it remains equivalent to that explicit currency after regional
+settings change.
+
+`incurred_on` is a validated Gregorian `YYYY-MM-DD` business-date label: it may precede today (a
+closed day is fine) and may not be in the future, so audit timestamps record the real creation
+time rather than a midnight back-dated one. The summary covers active expenses incurred inside the inclusive range and reports current net paid
+and due against them, grouped by currency and category, so a payment recorded after the range still
+counts as paid to date. Those are not payments-made-in-period figures, they are never subtracted
+from sales reports, and voided or replaced expenses stay out of the headline totals while remaining
+readable through the `status` history filter. Payments settle against the immutable ledger and are
+never edited in place: a reversal is a separate reasoned row that copies the original amount and
+method, and cash is always corrected by that reversal: `POST /api/cash-closures/movements/:id/void`
+refuses a drawer movement that backs an expense payment or reversal, so the original Pay Out is
+never voided out from under the ledger.
 
 ### Payment methods
 
@@ -363,7 +435,7 @@ Router: `main/routes/cash-sessions.ts`. Full path: `/api/cash-sessions`.
 
 | Method | Path | Authorization | Parameters | Response |
 | --- | --- | --- | --- | --- |
-| `POST` | `/open` | `ROLE_ACCESS.ownerManagerCashier` | body: `opening_float_cents` | Body `opening_float_cents` (integer minor units, defaults to 0). |
+| `POST` | `/open` | `ROLE_ACCESS.ownerManagerCashier` | body: `opening_float_cents` | Body `opening_float_cents` (integer minor units, defaults to 0). `409` when a shift is already open (`session_already_open`) or the current store business day is already closed (`day_already_closed`). |
 | `GET` | `/current` | `ROLE_ACCESS.ownerManagerCashier` | none | The open shift, or `null` when none is open. |
 | `POST` | `/:id/close` | `ROLE_ACCESS.ownerManagerCashier` | path: `id`; body: `notes` | Closes the shift with optional `notes`. |
 
@@ -391,6 +463,7 @@ Router: `main/routes/customers.ts`. Full path: `/api/customers`.
 | `GET` | `/` | `ROLE_ACCESS.sales` + customer read limiter | query: `?search`, `?filter`, `?sort`, `?order`, `?per_page` | Paginated list; `?search`, `?filter`, `?sort`, `?order`, `?per_page`. |
 | `GET` | `/:id` | `ROLE_ACCESS.sales` + customer read limiter | path: `id` | - |
 | `GET` | `/:id/wallet` | `ROLE_ACCESS.sales` + customer read limiter | path: `id` | Wallet balance and loyalty state for the customer. |
+| `GET` | `/:id/top-items` | `ROLE_ACCESS.sales` + customer read limiter | path: `id` | `{ items }`: up to 5 `{ product_id, product_name, total_quantity, order_count, available }`, the products the customer bought most on `completed` orders. Variants and modifiers count under their product. Cancelled, voided, refunded, and refund-adjustment lines are excluded, as is an order whose every bill is `refunded`. Ranked by total quantity, then order count, then name (case-insensitive), then product id. `available` is false for a deleted or inactive product or one in an inactive category; such products stay listed. `404` for an unknown customer. |
 | `POST` | `/` | `ROLE_ACCESS.sales` + customer write limiter | body: `phone`, `name`, `email`, `address`, `notes`, `country_code` | - |
 | `PUT` | `/:id` | `ROLE_ACCESS.ownerManagerCashier` + customer write limiter | path: `id`; body: `phone`, `name`, `email`, `address`, `notes`, `country_code` | - |
 
@@ -414,7 +487,7 @@ Router: `main/routes/printers.ts`. Full path: `/api/printers`.
 
 | Method | Path | Authorization | Parameters | Response |
 | --- | --- | --- | --- | --- |
-| `GET` | `/` | any authenticated role | none | `{ printers: [ ... ] }`, default first. |
+| `GET` | `/` | `printers.manage` or `printing.execute` | none | `{ printers: [ ... ] }`; `printers.manage` receives the full list, while `printing.execute` receives only the default printer's `id`, `name`, `connection_type`, `is_default`, and `readiness_state`. |
 | `GET` | `/detect` | any authenticated role | none | - |
 | `GET` | `/supported` | any authenticated role | none | - |
 | `GET` | `/:id` | any authenticated role | path: `id` | Single printer. |
@@ -423,10 +496,13 @@ Router: `main/routes/printers.ts`. Full path: `/api/printers`.
 | `DELETE` | `/:id` | `ROLE_ACCESS.ownerManager` | path: `id` | - |
 | `POST` | `/:id/set-default` | `ROLE_ACCESS.ownerManager` | path: `id` | - |
 | `POST` | `/:id/test` | `ROLE_ACCESS.ownerManager` | path: `id`; body: `rasterProbe` | - |
+| `POST` | `/kick-drawer` | `cash.movements.manage` | none | Requires an open cash shift; returns `409` with `{ error: "open_cash_shift_required" }` otherwise. Success is `{ success: true }` for USB/network printers or includes `webusb: true`, `bytes`, and `printerName` for browser delivery. `404` if no printer is configured, `400` if the selected connection is unsupported or lacks an IP address, and `502` if the pulse fails. |
+| `POST` | `/test-active` | `printing.execute` | none | Sends a standard test page to the default printer; returns `{ success: true }` or includes `webusb: true`, `bytes`, and `printerName` for browser delivery. `404` if no default printer is configured, `400` if the selected connection is unsupported or lacks an IP address, `409` if regional settings are missing, and `502` if printing fails. |
+| `POST` | `/print-menu` | `catalog.view` and `printing.execute` | body: boolean `includeInactive`, `includeOutOfStock`, `includeHidden`, `includeDescriptions`, `includeModifiers`; optional `paperWidth` (`58` or `80`) and `printerId` | `200` physical-print success, or `webusb: true` with byte array for browser delivery; `400` invalid input or `printer_not_configured`, `404` unknown `printerId` (`printer_not_found`), `409` missing regional configuration, `422` empty selection, `502` print failure. Prints to `printerId` when given, otherwise to the configured default, across connection types. |
 | `POST` | `/print-bill` | `ROLE_ACCESS.sales` | body: `billId`, `orderId`, `isReprint`, `preview`, `useUnicode`, `arabicShaping` | Body `billId` or `orderId`, plus `isReprint`, `preview`, `useUnicode`, `arabicShaping`. `preview` returns the rendered payload without sending it to the device. |
 | `POST` | `/print-kot` | `ROLE_ACCESS.sales` | body: `orderId`, `stationName`, `items`, `useUnicode`, `arabicShaping` | Body `orderId`, optional `stationName` and `items`, plus `useUnicode` and `arabicShaping`. |
-| `GET` | `/delivery-slip-payment/:orderId` | `printing.execute` | path: `orderId` | `200` with optional `payment` fields `status`, `amount`, `amountDue`, `formattedAmount`, `formattedAmountDue`, `method`, and `methods`; `404` if the order does not exist. Uses the order total when no bill exists, otherwise the latest bill or all same-order bills in that bill's split group and their stored balances. |
-| `POST` | `/print-delivery-slip` | `printing.execute` | body: `orderId`, `useUnicode`, `arabicShaping` | Body `orderId` plus optional `useUnicode` and `arabicShaping`. Includes the full customer number when either `bill_delivery_show_customer_phone_always` or `bill_show_customer_phone` is on, and omits it only when both are off. Prints the delivery address, order note, items, and payment status. No bill is required: without a bill the slip shows the order total; otherwise it uses the selected bill balance(s), including any positive balance on refund-marked bills, as the amount due. Paid bills show the captured method(s) and total; refunds retain their refund status; see [product invariants](product-invariants.md). |
+| `GET` | `/delivery-slip-payment/:orderId` | `printing.execute` | path: `orderId` | `200` with optional `payment` fields `status`, `amount`, `amountDue`, `formattedAmount`, `formattedAmountDue`, `method`, `methods`, and `expectedMethod` (the order's expected collection method, absent when unknown); `404` if the order does not exist. Uses the order total when no bill exists, otherwise the latest bill or all same-order bills in that bill's split group and their stored balances. |
+| `POST` | `/print-delivery-slip` | `printing.execute` | body: `orderId`, `useUnicode`, `arabicShaping` | Body `orderId` plus optional `useUnicode` and `arabicShaping`. Includes the full customer number when either `bill_delivery_show_customer_phone_always` or `bill_show_customer_phone` is on, and omits it only when both are off. Prints the delivery address, delivery note, order note, items, and payment status; an unpaid balance names the expected collection method. No bill is required: without a bill the slip shows the order total; otherwise it uses the selected bill balance(s), including any positive balance on refund-marked bills, as the amount due. Paid bills show the captured method(s) and total; refunds retain their refund status; see [product invariants](product-invariants.md). |
 
 ### Merchant print templates
 
@@ -455,7 +531,7 @@ Router: `main/routes/menu-csv.ts`. Full path: `/api/menu-csv`.
 | `GET` | `/export/products` | `ROLE_ACCESS.ownerManager` | none | `text/csv` attachment `products-export.csv`. |
 | `GET` | `/export/addons` | `ROLE_ACCESS.ownerManager` | none | `text/csv` attachment `addons-export.csv`. |
 | `POST` | `/import/categories` | `ROLE_ACCESS.ownerManager` | body: `csv` | Body `csv` is the raw file text. Per-row validation errors are reported in the response. |
-| `POST` | `/import/products` | `ROLE_ACCESS.ownerManager` | body: `csv` | - |
+| `POST` | `/import/products` | `ROLE_ACCESS.ownerManager` | body: `csv` | Body `csv` is the raw file text. A supplied `id` matching a non-deleted product updates it; a missing or unrecognized `id` creates a product with a generated id unless the name and category already exist, in which case the row is skipped. Returns `created`, `updated`, `reactivated`, `skipped`, and `failed` counts plus per-row `errors`. |
 | `POST` | `/import/addons` | `ROLE_ACCESS.ownerManager` | body: `csv` | - |
 
 ### Settings
@@ -464,8 +540,10 @@ Router: `main/routes/settings.ts`. Full path: `/api/settings`.
 
 | Method | Path | Authorization | Parameters | Response |
 | --- | --- | --- | --- | --- |
+| `GET` | `/charges` | `settings.view`, `orders.create`, or `bills.discount.apply` | none | `{ charges }`; fee definitions only. |
+| `PUT` | `/charges` | `settings.manage` | body: `charges` or a charge-definition array | `{ charges }`; replaces the validated fee definitions. Fee amounts remain configured in Settings. |
 | `GET` | `/business` | `ROLE_ACCESS.allStaff` | none | - |
-| `PUT` | `/business` | `ROLE_ACCESS.ownerManager` | body: `business_name`, `timezone`, `business_day_start_time`, `currency`, `country`, `language`, `tax_registration_number`, `state_code`, `business_address`, `business_phone`, `instagram_handle`, `billing_type`, `tables_required`, `tax_registered`, `bill_show_name`, `bill_show_address`, `bill_show_phone`, `bill_show_tax_id`, `bill_show_tax_breakdown`, `bill_show_customer_name`, `bill_show_customer_phone`, `bill_show_table_number`, `currency_display`, `number_digits`, `calendar`, `country_selected` | A `currency` that differs from the stored value returns `409` with `error: "currency_change_requires_reset"` plus `current_currency` and `requested_currency`. Currency changes go through the reset flow, not this route. |
+| `PUT` | `/business` | `ROLE_ACCESS.ownerManager` | body: `business_name`, `timezone`, `business_day_start_time`, `currency`, `country`, `language`, `tax_registration_number`, `state_code`, `business_address`, `business_phone`, `instagram_handle`, `billing_type`, `tables_required`, `tax_registered`, `bill_show_name`, `bill_show_address`, `bill_show_phone`, `bill_show_tax_id`, `bill_show_tax_breakdown`, `bill_show_customer_name`, `bill_show_customer_phone`, `bill_show_table_number`, `bill_show_logo`, `receipt_logo`, `receipt_logo_raster`, `currency_display`, `number_digits`, `calendar`, `country_selected` | A `currency` that differs from the stored value returns `409` with `error: "currency_change_requires_reset"` plus `current_currency` and `requested_currency`. Currency changes go through the reset flow, not this route. |
 | `GET` | `/tax` | `ROLE_ACCESS.allStaff` | none | - |
 | `PUT` | `/tax` | `ROLE_ACCESS.ownerManager` | body: `tax_registered`, `tax_registration_number`, `state_code`, `tax_scheme`, `country` | - |
 | `GET` | `/loyalty` | `ROLE_ACCESS.allStaff` | none | - |
@@ -474,6 +552,11 @@ Router: `main/routes/settings.ts`. Full path: `/api/settings`.
 | `PUT` | `/discount` | `ROLE_ACCESS.ownerManager` | body: `discount_max_percentage`, `discount_max_amount`, `discount_mode`, `discount_requires_approval` | - |
 | `GET` | `/kds` | any authenticated role | none | KDS settings for the pre-login and display surfaces. Readable by any authenticated role. |
 | `PUT` | `/kds` | `ROLE_ACCESS.ownerManager` | body: `kds_default_view` | - |
+| `GET` | `/customer-display` | `settings.view`, `orders.read`, or `orders.create` + settings read limiter | none | `{ statuses, refresh_seconds, show_updated }` for the order-status board; defaults when unset. |
+| `PUT` | `/customer-display` | `settings.manage` + settings write limiter | body: `statuses` (non-empty subset of `pending`, `preparing`, `ready`), `refresh_seconds` (integer 2-60), `show_updated` (boolean) | The stored config; `400` for any other shape. |
+| `GET` | `/customer-display/tokens` | `settings.manage` + settings read limiter | none | `{ tokens }`: `{ id, label, created_at, last_seen_at }` for each active paired display. Never includes the token or its hash. |
+| `POST` | `/customer-display/tokens` | `settings.manage` + settings write limiter | body: `label` (1-60 characters) | `201` with `{ id, label, created_at, last_seen_at, token }`. The plaintext `token` appears only in this response. `400` for a bad label, `409 customer_display_token_limit` at 20 active tokens. |
+| `DELETE` | `/customer-display/tokens/:id` | `settings.manage` + settings write limiter | path: `id` | `{ success: true }`; `404` when the token is unknown or already revoked. Takes effect on the next feed request. |
 | `GET` | `/order-numbering` | `ROLE_ACCESS.allStaff` | none | - |
 | `PUT` | `/order-numbering` | `ROLE_ACCESS.ownerManager` | body: `order_number_prefix`, `order_number_include_date`, `order_number_reset_daily`, `invoice_number_prefix`, `invoice_number_include_period`, `invoice_number_reset_period`, `invoice_financial_year_start_month`, `invoice_financial_year_start_day` | - |
 | `GET` | `/cloud` | `ROLE_ACCESS.ownerManager` | none | - |
@@ -503,6 +586,11 @@ Router: `main/routes/settings.ts`. Full path: `/api/settings`.
 | `PUT` | `/printing` | `ROLE_ACCESS.ownerManager` + settings write limiter | none | Body is the whole printing settings object; rejected with `400` when it is not an object. |
 | `GET` | `/:key` | `ROLE_ACCESS.allStaff` + settings read limiter | path: `key` | One setting. Registered after every named route, so a named key resolves to its named handler. |
 | `PUT` | `/:key` | `ROLE_ACCESS.ownerManager` + settings write limiter | path: `key`; body: `value` | Body `value`. Only the allow-listed non-sensitive keys are accepted; sensitive keys need their named route. `key: currency` returns `409 currency_change_requires_reset` on any value change. |
+
+`diagnostics_consent` and `diagnostics_transmission_enabled` are owner/manager-writable Boolean
+settings. Their delivery gates and consent synchronization are described in [store-attributed
+diagnostics](../architecture/cloud-integrations.md#store-attributed-diagnostics), including how
+`telemetry_enabled` affects anonymous diagnostic delivery.
 
 ### Tax packs
 
@@ -554,6 +642,16 @@ Router: `main/routes/kds-info.ts`. Full path: `/api/kds-info`.
 | Method | Path | Authorization | Parameters | Response |
 | --- | --- | --- | --- | --- |
 | `GET` | `/` | any authenticated role | none | `{ mdns_url, ip_url, qr_url, qr_data_url, ips_data }`. URLs point at the KDS port with **no path suffix**. `ips_data` is one `{ ip, url, qr_data }` per local address. |
+
+### Customer display feed
+
+Router: `main/routes/customer-display-feed.ts`. Full path: `/api/customer-display`.
+
+| Method | Path | Authorization | Parameters | Response |
+| --- | --- | --- | --- | --- |
+| `GET` | `/feed` | a customer display token (`Authorization: Bearer cdt_...`); exempt from the JWT middleware by exact path and method | none | `{ business_name, config, orders }` where `orders` is `{ id, number, status }` for up to 100 active orders, oldest first, filtered by the configured statuses. Carries no customer, staff, or item data. `401` for a missing, unknown, or revoked token. Rate limited to 120 requests per minute. |
+
+A display token is not a JWT, so it cannot authorize any other endpoint. Only its SHA-256 hash is stored in `customer_display_tokens`; the table is excluded from database export and cleared on restore.
 
 ### POS info
 
@@ -611,7 +709,7 @@ Router: `main/routes/support-ticket.ts`. Full path: `/api/support-ticket`.
 | `GET` | `/profile` | `ROLE_ACCESS.allStaff` | none | - |
 | `GET` | `/diagnostics-preview` | `ROLE_ACCESS.allStaff` | query: `?category` | - |
 | `GET` | `/:clientTicketId/status` | `ROLE_ACCESS.allStaff` | path: `clientTicketId` | - |
-| `POST` | `/` | `ROLE_ACCESS.allStaff` | none | - |
+| `POST` | `/` | `ROLE_ACCESS.allStaff` | body: support-ticket fields; optional `operation_failure` | Queues the ticket; the structured failure context is validated and normalized as described in [cloud integrations](../architecture/cloud-integrations.md#linking-a-ticket-to-a-known-operation-failure). |
 | `GET` | `/pre-login/profile` | any authenticated role + pre-login limiter | none | Unauthenticated tenant profile for the login-screen ticket form. Body limit 300kb on this subtree. |
 | `GET` | `/pre-login/:clientTicketId/status` | any authenticated role + pre-login limiter | path: `clientTicketId` | Unauthenticated ticket status lookup; `clientTicketId` must be a UUID. |
 | `POST` | `/pre-login` | any authenticated role + pre-login limiter | none | Unauthenticated ticket creation from the login screen. Body limit 300kb on this subtree. |
@@ -622,10 +720,12 @@ Router: `main/routes/diagnostics.ts`. Full path: `/api/diagnostics`.
 
 | Method | Path | Authorization | Parameters | Response |
 | --- | --- | --- | --- | --- |
-| `POST` | `/event` | `ROLE_ACCESS.allStaff` + diagnostics write limiter | none | Consent-gated diagnostic event intake. |
-| `GET` | `/recent` | `ROLE_ACCESS.allStaff` | query: `?limit` (clamped to 200) | `{ failures: [ ... ] }`, the locally captured failures, newest first. |
-| `DELETE` | `/recent` | `ROLE_ACCESS.ownerManager` (`settings.manage`) | none | `{ removed }`, the number of local failures dropped. Nothing has been transmitted, so nothing is withdrawn. |
-| `GET` | `/support-bundle` | `ROLE_ACCESS.allStaff` | query: `?limit` (clamped to 200), `?category` | `{ bundle: { system, recent_failures } }` for the copy-for-support action. Never carries the raw log tail. |
+| `POST` | `/event` | `support.use` + diagnostics write limiter | body: legacy event fields | Local-only legacy event intake; free-form messages are never automatically transmitted. |
+| `POST` | `/capture` | authenticated API caller + diagnostics write limiter | body: `capture_point`, `operation_id`, `outcome`, optional allowlisted `facts` | `202` with the server-registered reason, operation, stage, classification, outcome, and correlation ID; rejects unregistered points or invalid fields. |
+| `GET` | `/health` | `support.use` | none | Safe consent, transport, queue, rejection, and delivery-gap state without report bytes or error text. |
+| `GET` | `/recent` | `support.use` | query: `?limit` (clamped to 200) | `{ failures: [ ... ] }`, locally captured failures, newest first. |
+| `DELETE` | `/recent` | `settings.manage` | none | `{ removed }`, the number of local failures dropped. This clears local evidence only. |
+| `GET` | `/support-bundle` | `support.use` | query: `?limit` (clamped to 200), `?category` | `{ bundle: { system, recent_failures } }` for copy-for-support. Never carries the raw log tail. |
 
 ### Database
 
@@ -651,10 +751,10 @@ Router: `main/routes/database-tools.ts`. Full path: `/api/db-tools`.
 | `GET` | `/backups` | `ROLE_ACCESS.owner` | none | - |
 | `POST` | `/backups/:fileName/delete` | `ROLE_ACCESS.owner` + Master PIN | path: `fileName` | - |
 | `GET` | `/master-pin/status` | `ROLE_ACCESS.owner` | none | - |
-| `POST` | `/master-pin/reset` | `ROLE_ACCESS.owner` | body: `pin`, `confirm_pin` | - |
+| `POST` | `/master-pin/reset` | `ROLE_ACCESS.owner` (`database.manage`) + current Master PIN when one is configured | body: `pin`, `confirm_pin`, and `master_pin` when a PIN is already configured | First-time setup requires no `master_pin`. |
 | `GET` | `/currency-reset-impact` | `ROLE_ACCESS.owner` | none | Active currency plus the invoice, order, refund, customer, product, and add-on counts the destructive warning uses. |
 | `POST` | `/currency-reset` | `ROLE_ACCESS.owner` + Master PIN | body: `currency` | Also needs `current_currency` and `confirmation_phrase` of the form `CHANGE TO <CODE>`. Creates a recovery backup, recreates the local database, preserves the sanitized menu catalog with monetary fields zeroed, and returns the backup path. The active session becomes invalid. |
-| `POST` | `/initialize` | `ROLE_ACCESS.owner` + Master PIN | body: `confirmation_phrase` | Master-PIN gated database initialization. |
+| `POST` | `/initialize` | `ROLE_ACCESS.owner` + Master PIN | body: `confirmation_phrase` | A stale Drive restore boundary classified as ambiguous by recovery may be discarded only by this owner-authorized reset with the exact `INITIALIZE` phrase (stored Drive credentials are dropped); an active in-process reset still conflicts. |
 
 ### Reports
 
@@ -715,12 +815,12 @@ Router: declared inline in `main/routes/index.ts`.
 
 | Method | Path | Authorization | Parameters | Response |
 | --- | --- | --- | --- | --- |
-| `POST` | `/api/tax/preview` | `pos.use`, `orders.create`, or `kitchen.use` | body: `items`, `customer_id`, `packaging_charge`, `delivery_charge`, `service_charge`, `discount_type`, `discount_value` | `400` when `items` is missing or empty. Returns the tax rollup for a hypothetical basket without persisting anything. Any one of those three permissions admits the caller, so by default every role prices a basket exactly as it did before the permission migration; the POS checkout modal calls this on every cart change. |
+| `POST` | `/api/tax/preview` | `pos.use`, `orders.create`, or `kitchen.use` | body: `items`, `customer_id`, `packaging_charge`, `delivery_charge`, `service_charge`, `discount_type`, `discount_value`, `online_platform`; optional new-order context: `order_type` (required when any context field is supplied), `waived_charge_ids`, `opted_in_charge_ids` | `400` when `items` is missing or empty, the supplied order type is missing or invalid, either supplied charge-ID value is neither `null` nor an array of strings, or an item names a variant that is unknown, foreign, or inactive (including a product with active variants that names none). Returns the tax rollup for a hypothetical basket without persisting anything. An item's `variant_id` follows the order rules and is priced from the catalog, so the quote matches the order it becomes. With the optional context, the server resolves configured charges for that order type and returns them as `summary.charges_breakdown` in the payable total; without it, the legacy manual charge inputs are unchanged. Any one of the three sale permissions admits the caller, and the POS checkout modal calls this on every cart change. |
 | `GET` | `/api/tax/categories` | `ROLE_ACCESS.ownerManager` | none | `{ pack_id, country, categories, default_category_id, configuration_ready, unclassified_category_id }`. `categories` is empty until the pack's configuration is complete. |
 | `GET` | `/api/mobile/pairing-code` | `ROLE_ACCESS.owner` | none | `{ pairing_code, expires_at, qr_data_url }`. Returns the cached code when one is live, otherwise generates one. `409` when the store is not yet claimed in FloAdmin; `502` for any other cloud failure. |
 | `POST` | `/api/mobile/rotate-code` | `ROLE_ACCESS.owner` | none | Same shape as the read, and every already paired RevFlo device is disconnected. |
 | `GET` | `/api/mobile/devices` | `ROLE_ACCESS.owner` | none | `{ devices: [ ... ] }`. `502` when FloAdmin is unreachable. |
-| `GET` | `/api/customers-search` | `ROLE_ACCESS.sales` | query: `q` | Flat array of at most 20 active customers, each with a `wallet_balance`. `q` shorter than 2 characters returns `[]`. A query with no letters is treated as phone-like and matched against stored phone digits. |
+| `GET` | `/api/customers-search` | `customers.view` (`ROLE_ACCESS.sales` by default; grants are configurable) | query: `q` | Flat array of at most 20 active customers, each with a `wallet_balance`. `q` shorter than 2 characters returns `[]`. |
 | `GET` | `/api/crm/lookup` | `ROLE_ACCESS.sales` | query: `phone`, `country_code` | `{ found, customer }`. `400` when `phone` is missing. The number is normalized to E.164 against the tenant country before lookup. |
 
 ## KDS server (`:3002`)
@@ -977,18 +1077,18 @@ documents only the two routes.
 
 ## Coverage
 
-This page lists 294 HTTP route registrations across 293 distinct rows, and one WebSocket contract:
+This page lists 308 HTTP route registrations across 307 distinct rows, and one WebSocket contract:
 
-- `267` on the main API: 259 router registrations, 7 inline registrations in `main/routes/index.ts`,
+- `281` on the main API: 273 router registrations, 7 inline registrations in `main/routes/index.ts`,
   and `GET /api/health` in `main/server.ts`.
 - `8` REST routes on the KDS server, plus 3 static handlers.
 - `19` route registrations on the Server App, of which 11 forward to the main API. Two of those 19
   are mutually exclusive `GET /` handlers under one path, which is why 19 registrations render as 18
   rows.
 
-Every one of the 293 rows is listed with its method, path, authorization gate, and the parameters
-its handler reads. The **Response** column carries a note for 157 of them: 131 main-API endpoints,
-all 8 KDS-server routes, and the 18 Server App routes. The remaining 136 main-API endpoints are
+Every one of the 307 rows is listed with its method, path, authorization gate, and the parameters
+its handler reads. The **Response** column carries a note for 171 of them: 145 main-API endpoints,
+all 8 KDS-server routes, and the 18 Server App routes. The remaining 146 main-API endpoints are
 listed with method, path, gate, and parameters only, and this page asserts nothing about what they
 return. Those rows are complete as a route inventory and silent as a contract; the handler in
 `main/routes/` is authoritative for them. A `-` in the Response column means that, not that the

@@ -39,6 +39,7 @@ How the system is put together and why its boundaries sit where they do.
 | [internationalization.md](architecture/internationalization.md) | The message catalogue, the language registry, the loader, and the derived print-label table. |
 | [regional-settings.md](architecture/regional-settings.md) | How country and currency become a regional snapshot, and who consumes it. |
 | [taxation.md](architecture/taxation.md) | The single tax calculation path, category resolution, rounding, and pack activation. |
+| [order-lifecycle.md](architecture/order-lifecycle.md) | Held carts, order pricing, discounts, bill generation, payments, settlement, and refunds. |
 | [cloud-integrations.md](architecture/cloud-integrations.md) | The optional network features, what each talks to, and how each degrades offline. |
 
 ## Reference
@@ -69,6 +70,7 @@ Recurring procedures with an outcome.
 | --- | --- |
 | [adding-a-language.md](guides/adding-a-language.md) | Adding a locale, from scaffolding to the verification commands. |
 | [adding-a-tax-pack.md](guides/adding-a-tax-pack.md) | Authoring and shipping a country tax pack. |
+| [showcase-recording.md](guides/showcase-recording.md) | Capturing and transcoding automated visual feature showcase assets. |
 | [testing-printers.md](guides/testing-printers.md) | Validating a physical printer against the print pipeline. |
 
 ## Maintainers
