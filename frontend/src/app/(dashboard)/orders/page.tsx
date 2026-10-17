@@ -346,12 +346,15 @@ export default function OrdersPage() {
     }
   };
 
-  const refreshSelectedOrder = (orderId: number) => {
-    if (selectedOrderLookupInProgressRef.current === orderId) return;
+  const redispatchedRefreshSelectedOrderRef = useRef<Promise<boolean> | null>(null);
+  const refreshSelectedOrder = (orderId: number): Promise<boolean> => {
+    if (selectedOrderLookupInProgressRef.current === orderId) {
+      return redispatchedRefreshSelectedOrderRef.current ?? Promise.resolve(false);
+    }
     const lookupId = ++selectedOrderLookupIdRef.current;
     const lookupFilterKey = ordersFilterKeyRef.current;
     selectedOrderLookupInProgressRef.current = orderId;
-    api
+    const request: Promise<boolean> = api
       .get(`/orders/${orderId}`)
       .then(({ data }) => {
         if (
@@ -359,12 +362,13 @@ export default function OrdersPage() {
           selectedOrderIdRef.current !== orderId ||
           ordersFilterKeyRef.current !== lookupFilterKey
         )
-          return;
+          return false;
         selectedOrderLookupIdRef.current++;
         selectedOrderLookupInProgressRef.current = null;
         setSelectedOrderSnapshot(data.order || null);
         setSelectedOrderMissing(!data.order);
         setSelectedOrderNotInCurrentList(!!data.order);
+        return Boolean(data.order);
       })
       .catch((error) => {
         if (
@@ -372,18 +376,24 @@ export default function OrdersPage() {
           selectedOrderIdRef.current !== orderId ||
           ordersFilterKeyRef.current !== lookupFilterKey
         )
-          return;
+          return false;
         if ((error as { response?: { status?: number } })?.response?.status === 404) {
           setSelectedOrderSnapshot(null);
           setSelectedOrderMissing(true);
           setSelectedOrderNotInCurrentList(false);
         }
+        return false;
       })
       .finally(() => {
         if (selectedOrderLookupIdRef.current === lookupId) {
           selectedOrderLookupInProgressRef.current = null;
         }
+        if (redispatchedRefreshSelectedOrderRef.current === request) {
+          redispatchedRefreshSelectedOrderRef.current = null;
+        }
       });
+    redispatchedRefreshSelectedOrderRef.current = request;
+    return request;
   };
 
   const fetchOrders = async (
@@ -393,25 +403,25 @@ export default function OrdersPage() {
       refreshLoadedPages = false,
     }: { rateLimitedRefresh?: boolean; refreshLoadedPages?: boolean } = {},
   ): Promise<boolean> => {
-    if (tabFilterRef.current === 'held') return true;
+    if (tabFilterRef.current === 'held') return false;
     if (
       cursor === undefined &&
       (ordersLoadMoreInProgressRef.current || ordersRefreshInProgressRef.current)
     ) {
       ordersRefreshPendingRef.current = true;
       ordersRefreshLoadedPagesPendingRef.current ||= refreshLoadedPages;
-      return true;
+      return false;
     }
     if (
       cursor !== undefined &&
       (ordersRefreshInProgressRef.current || ordersLoadMoreInProgressRef.current)
     )
-      return true;
+      return false;
     if (cursor === undefined && rateLimitedRefresh) {
       if (ordersRefreshTimerRef.current !== null) {
         ordersRefreshPendingRef.current = true;
         ordersRefreshLoadedPagesPendingRef.current ||= refreshLoadedPages;
-        return true;
+        return false;
       }
       ordersRefreshTimerRef.current = setTimeout(() => {
         ordersRefreshTimerRef.current = null;
@@ -473,12 +483,12 @@ export default function OrdersPage() {
           },
         });
         if (fetchId !== ordersFetchIdRef.current || requestFilterKey !== ordersFilterKeyRef.current)
-          return true;
+          return false;
         orders.push(...(data.orders || []));
         nextCursor = data.nextCursor ?? null;
       }
       if (fetchId !== ordersFetchIdRef.current || requestFilterKey !== ordersFilterKeyRef.current)
-        return true;
+        return false;
       const selectedId = selectedOrderIdRef.current;
       if (selectedId !== null) {
         const refreshedSelection = orders.find((order) => order.id === selectedId);
@@ -554,6 +564,19 @@ export default function OrdersPage() {
         }
       }
     }
+  };
+
+  // After a saved item edit resolves (or is definitively rejected), reload the
+  // loaded pages plus the selected snapshot; false means callers show a refresh
+  // failure instead of assuming the visible data matches the server.
+  const handleItemEditResolved = async (orderId: number): Promise<boolean> => {
+    const listRefreshed = await fetchOrders(undefined, { refreshLoadedPages: true });
+    const selectedId = selectedOrderIdRef.current;
+    if (selectedId === orderId) {
+      const detailRefreshed = await refreshSelectedOrder(orderId);
+      return Boolean(listRefreshed) && detailRefreshed;
+    }
+    return Boolean(listRefreshed);
   };
 
   useEffect(() => {
@@ -1790,6 +1813,7 @@ export default function OrdersPage() {
                 setVoidItemModal({ orderId, itemId, productName, overridePin: '' })
               }
               onRestoreItem={restoreItem}
+              onItemEditResolved={handleItemEditResolved}
             />
           </div>
         </div>
@@ -1856,6 +1880,7 @@ export default function OrdersPage() {
                 setVoidItemModal({ orderId, itemId, productName, overridePin: '' })
               }
               onRestoreItem={restoreItem}
+              onItemEditResolved={handleItemEditResolved}
             />
           ))}
         </div>
@@ -2036,8 +2061,10 @@ export default function OrdersPage() {
         <EditOrderItemModal
           orderId={editItemTarget.order.id}
           item={editItemTarget.item}
+          onlinePlatformSelected={Boolean(editItemTarget.order.online_platform)}
           onClose={() => setEditItemTarget(null)}
           onSaved={() => fetchOrders(undefined, { refreshLoadedPages: true })}
+          onIdentityChanged={() => fetchOrders(undefined, { refreshLoadedPages: true })}
         />
       )}
       {voidItemModal && (
