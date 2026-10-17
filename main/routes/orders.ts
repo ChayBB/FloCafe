@@ -3227,6 +3227,12 @@ router.patch(
             pack,
             currency,
           );
+          if ((existingBill.paid_amount || 0) > 0 && billTotal < existingBill.paid_amount) {
+            throw Object.assign(
+              new Error('Discount cannot reduce bill total below collected payments'),
+              { statusCode: 409, diagnosticCode: 'below_collected_funds' },
+            );
+          }
           const newBillBalance = Math.max(0, billTotal - (existingBill.paid_amount || 0));
           db.prepare(`
           UPDATE bills SET subtotal = ?, discount_amount = ?, discount_type = ?, discount_value = ?,
@@ -3563,6 +3569,12 @@ router.patch(
             pack,
             currency,
           );
+          if ((existingBill.paid_amount || 0) > 0 && billTotal < existingBill.paid_amount) {
+            throw Object.assign(
+              new Error('Discount cannot reduce bill total below collected payments'),
+              { statusCode: 409, diagnosticCode: 'below_collected_funds' },
+            );
+          }
           const newBillBalance = Math.max(0, billTotal - (existingBill.paid_amount || 0));
           db.prepare(
             `UPDATE bills SET subtotal = ?, total = ?, balance = ?, tax_amount = ?, tax_breakdown = ?, tax_snapshot = ?, discount_amount = ?, service_charge = ?, packaging_charge = ?, charges_breakdown = ?, round_off = ?, updated_at = ? WHERE id = ?`,

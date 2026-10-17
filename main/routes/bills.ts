@@ -3526,20 +3526,21 @@ router.post(
         return res.status(404).json({ error: 'Order not found' });
       }
 
-      if (order.status === 'cancelled') {
+      if (['completed', 'cancelled'].includes(order.status)) {
         return res
           .status(409)
           .json(
             structuredBillFailure(
               req,
               'fc.backend.bill.discount.validation',
-              'Discounts cannot be changed on a cancelled order',
+              `Discounts cannot be changed on a ${order.status} order`,
               'order_not_discountable',
             ),
           );
       }
 
       // Check if approval is required
+      let approvedByUserId: string | undefined;
       const requiresApproval = getSettingValue('discount_requires_approval') === 'true';
       if (requiresApproval && value > 0) {
         const { override_pin } = req.body;
@@ -3588,6 +3589,7 @@ router.post(
           return res.status(403).json({ error: 'Invalid manager PIN' });
         }
         pinAttempts.delete(rateLimitKey);
+        approvedByUserId = user.id;
       }
 
       // Check discount mode
@@ -3730,6 +3732,18 @@ router.post(
         pack,
         currency,
       );
+      if ((bill.paid_amount || 0) > 0 && newTotal < bill.paid_amount) {
+        return res
+          .status(409)
+          .json(
+            structuredBillFailure(
+              req,
+              'fc.backend.bill.discount.validation',
+              'Discount cannot reduce bill total below collected payments',
+              'below_collected_funds',
+            ),
+          );
+      }
       const newBalance = Math.max(0, newTotal - (bill.paid_amount || 0));
 
       const updatedBill = withTxn(() => {
@@ -3783,6 +3797,17 @@ router.post(
           now(),
           bill.order_id,
         );
+
+        recordOrderAudit(db, {
+          orderId: String(bill.order_id),
+          actorUserId: String((req as Request & { user?: { userId?: string } }).user?.userId || ''),
+          action: 'order_discount_applied',
+          details: {
+            discount_type: type,
+            discount_value: value,
+            ...(approvedByUserId && { approved_by: approvedByUserId }),
+          },
+        });
 
         return parseRowJson(db.prepare('SELECT * FROM bills WHERE id = ?').get(req.params.id));
       });
