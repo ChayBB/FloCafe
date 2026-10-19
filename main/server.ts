@@ -1,4 +1,5 @@
 import express, { Express, Request, Response, NextFunction } from 'express';
+import { dropTlsConnections } from './lib/plain-http-guard';
 import cors from 'cors';
 import { WebSocketServer } from 'ws';
 import * as http from 'http';
@@ -358,6 +359,7 @@ export function startServer(): Promise<void> {
     let attempts = 0;
 
     const listeningServer = http.createServer(app);
+    dropTlsConnections(listeningServer);
     server = listeningServer;
     installHttpShutdownTracking(listeningServer);
 

@@ -7,20 +7,41 @@
  * authorises ordering, and only for that one table.
  */
 import express, { Express, Request, Response, NextFunction } from 'express';
+import { dropTlsConnections } from './lib/plain-http-guard';
 import cors from 'cors';
 import expressRateLimit from 'express-rate-limit';
 import * as http from 'http';
 import * as path from 'path';
 import * as fs from 'fs';
-import { closeServerResources, createShutdownCancellationError, getHttpRequestSignal, installHttpShutdownTracking, trackHttpRequestWork } from './shutdown';
-import { databaseMaintenanceMiddleware, getDatabase, getSettingValue, isGuestOrderingEnabled } from './db';
+import {
+  closeServerResources,
+  createShutdownCancellationError,
+  getHttpRequestSignal,
+  installHttpShutdownTracking,
+  trackHttpRequestWork,
+} from './shutdown';
+import {
+  databaseMaintenanceMiddleware,
+  getDatabase,
+  getSettingValue,
+  isGuestOrderingEnabled,
+} from './db';
 import { staticRouteRateLimit } from './middleware/security';
 import { getServerPort } from './server';
-import { getDefaultGuestPort, getGuestPort as getActiveGuestPort, setGuestPort } from './guest-server-state';
+import {
+  getDefaultGuestPort,
+  getGuestPort as getActiveGuestPort,
+  setGuestPort,
+} from './guest-server-state';
 import { API_JSON_BODY_LIMIT } from './http-limits';
 import { resolveContainedPath } from './lib/path-containment';
 import { GUEST_CHANNEL_HEADER, getGuestChannelSecret } from './services/guest-channel';
-import { isRoundTokenCurrent, isTokenForThisStore, newRoundToken, parseGuestToken } from './services/guest-tokens';
+import {
+  isRoundTokenCurrent,
+  isTokenForThisStore,
+  newRoundToken,
+  parseGuestToken,
+} from './services/guest-tokens';
 import { placeGuestOrder, tableTicket, validateGuestItems } from './services/guest-orders';
 import { publicMenu } from './services/public-menu';
 
@@ -50,7 +71,9 @@ const ROUND_HEADER = 'x-flo-round';
 function requireCurrentRound(req: Request, res: Response, next: NextFunction) {
   const table = (req as any).guestTable as GuestTable;
   if (!isRoundTokenCurrent(req.get(ROUND_HEADER), table.id, table.guest_round)) {
-    return res.status(409).json({ error: 'This table has been settled. Please scan the code again.' });
+    return res
+      .status(409)
+      .json({ error: 'This table has been settled. Please scan the code again.' });
   }
   next();
 }
@@ -89,7 +112,10 @@ function tableForToken(token: unknown): GuestTable | null {
 function requireGuestTable(req: Request, res: Response, next: NextFunction) {
   if (!isGuestOrderingEnabled()) return res.status(404).json({ error: 'Not found' });
   const table = tableForToken(req.params.token);
-  if (!table) return res.status(404).json({ error: 'This QR code is no longer valid. Ask our staff for help.' });
+  if (!table)
+    return res
+      .status(404)
+      .json({ error: 'This QR code is no longer valid. Ask our staff for help.' });
   (req as any).guestTable = table;
   next();
 }
@@ -102,110 +128,155 @@ export function startGuestServer(): Promise<void> {
     const app: Express = express();
 
     // The public origin is the merchant's own VPS; anything else is refused.
-    app.use(cors({
-      origin: (origin, callback) => {
-        const allowed = (getSettingValue('guest_public_url') || '').trim();
-        if (!origin || !allowed) return callback(null, true);
-        try {
-          callback(null, new URL(allowed).origin === new URL(origin).origin);
-        } catch {
-          callback(null, false);
-        }
-      },
-    }));
+    app.use(
+      cors({
+        origin: (origin, callback) => {
+          const allowed = (getSettingValue('guest_public_url') || '').trim();
+          if (!origin || !allowed) return callback(null, true);
+          try {
+            callback(null, new URL(allowed).origin === new URL(origin).origin);
+          } catch {
+            callback(null, false);
+          }
+        },
+      }),
+    );
     app.use((_req: Request, res: Response, next: NextFunction) => {
       res.setHeader('X-Content-Type-Options', 'nosniff');
       res.setHeader('Referrer-Policy', 'no-referrer');
       // No staff surface is reachable from here, so the policy can stay tight.
-      res.setHeader('Content-Security-Policy', [
-        "default-src 'self'",
-        "script-src 'self' 'unsafe-inline'",
-        "style-src 'self' 'unsafe-inline'",
-        "img-src 'self' data:",
-        "font-src 'self' data:",
-        "connect-src 'self'",
-        "frame-ancestors 'none'",
-      ].join('; '));
+      res.setHeader(
+        'Content-Security-Policy',
+        [
+          "default-src 'self'",
+          "script-src 'self' 'unsafe-inline'",
+          "style-src 'self' 'unsafe-inline'",
+          "img-src 'self' data:",
+          "font-src 'self' data:",
+          "connect-src 'self'",
+          "frame-ancestors 'none'",
+        ].join('; '),
+      );
       next();
     });
     app.use(express.json({ limit: API_JSON_BODY_LIMIT }));
     app.use(databaseMaintenanceMiddleware);
 
-    const guestReadLimit = expressRateLimit({ windowMs: 60 * 1000, limit: 120, standardHeaders: true, legacyHeaders: false });
-    const guestOrderLimit = expressRateLimit({ windowMs: 60 * 1000, limit: 10, standardHeaders: true, legacyHeaders: false });
+    const guestReadLimit = expressRateLimit({
+      windowMs: 60 * 1000,
+      limit: 120,
+      standardHeaders: true,
+      legacyHeaders: false,
+    });
+    const guestOrderLimit = expressRateLimit({
+      windowMs: 60 * 1000,
+      limit: 10,
+      standardHeaders: true,
+      legacyHeaders: false,
+    });
 
     app.get('/api/health', (_req: Request, res: Response) => {
       res.json({ status: 'ok', service: 'Flo Guest Ordering', enabled: isGuestOrderingEnabled() });
     });
 
-    app.get('/api/guest/:token/session', guestReadLimit, requireGuestTable, (req: Request, res: Response) => {
-      const table = (req as any).guestTable as GuestTable;
-      const menu = publicMenu();
-      res.json({
-        table: { name: table.number },
-        round_token: newRoundToken(table.id, table.guest_round),
-        currency: getSettingValue('currency') || 'THB',
-        country: getSettingValue('country') || 'TH',
-        language: getSettingValue('language') || 'en',
-        ticket: tableTicket(table.id),
-        ...menu,
-      });
-    });
+    app.get(
+      '/api/guest/:token/session',
+      guestReadLimit,
+      requireGuestTable,
+      (req: Request, res: Response) => {
+        const table = (req as any).guestTable as GuestTable;
+        const menu = publicMenu();
+        res.json({
+          table: { name: table.number },
+          round_token: newRoundToken(table.id, table.guest_round),
+          currency: getSettingValue('currency') || 'THB',
+          country: getSettingValue('country') || 'TH',
+          language: getSettingValue('language') || 'en',
+          ticket: tableTicket(table.id),
+          ...menu,
+        });
+      },
+    );
 
-    app.get('/api/guest/:token/ticket', guestReadLimit, requireGuestTable, requireCurrentRound, (req: Request, res: Response) => {
-      const table = (req as any).guestTable as GuestTable;
-      res.json({ ticket: tableTicket(table.id) });
-    });
+    app.get(
+      '/api/guest/:token/ticket',
+      guestReadLimit,
+      requireGuestTable,
+      requireCurrentRound,
+      (req: Request, res: Response) => {
+        const table = (req as any).guestTable as GuestTable;
+        res.json({ ticket: tableTicket(table.id) });
+      },
+    );
 
     // Product images are already served unauthenticated by the POS API; this
     // proxy keeps the guest phone talking only to the guest port.
-    app.get('/api/guest/:token/products/:productId/image', guestReadLimit, requireGuestTable, (req: Request, res: Response) => {
-      void trackHttpRequestWork(req, (async () => {
-        try {
-          const target = new URL(
-            `/api/products/${encodeURIComponent(String(req.params.productId))}/image`,
-            `http://127.0.0.1:${getServerPort()}`,
-          );
-          const upstream = await fetch(target, { signal: getHttpRequestSignal(req) });
-          res.status(upstream.status);
-          for (const header of ['content-type', 'cache-control', 'etag']) {
-            const value = upstream.headers.get(header);
-            if (value) res.setHeader(header, value);
-          }
-          res.send(Buffer.from(await upstream.arrayBuffer()));
-        } catch {
-          if (!res.headersSent) res.status(502).end();
-        }
-      })());
-    });
+    app.get(
+      '/api/guest/:token/products/:productId/image',
+      guestReadLimit,
+      requireGuestTable,
+      (req: Request, res: Response) => {
+        void trackHttpRequestWork(
+          req,
+          (async () => {
+            try {
+              const target = new URL(
+                `/api/products/${encodeURIComponent(String(req.params.productId))}/image`,
+                `http://127.0.0.1:${getServerPort()}`,
+              );
+              const upstream = await fetch(target, { signal: getHttpRequestSignal(req) });
+              res.status(upstream.status);
+              for (const header of ['content-type', 'cache-control', 'etag']) {
+                const value = upstream.headers.get(header);
+                if (value) res.setHeader(header, value);
+              }
+              res.send(Buffer.from(await upstream.arrayBuffer()));
+            } catch {
+              if (!res.headersSent) res.status(502).end();
+            }
+          })(),
+        );
+      },
+    );
 
-    app.post('/api/guest/:token/order', guestOrderLimit, requireGuestTable, requireCurrentRound, (req: Request, res: Response) => {
-      void trackHttpRequestWork(req, (async () => {
-        const table = (req as any).guestTable as GuestTable;
+    app.post(
+      '/api/guest/:token/order',
+      guestOrderLimit,
+      requireGuestTable,
+      requireCurrentRound,
+      (req: Request, res: Response) => {
+        void trackHttpRequestWork(
+          req,
+          (async () => {
+            const table = (req as any).guestTable as GuestTable;
 
-        // Shared with the relay (main/services/guest-orders.ts) so the two guest
-        // entrances cannot end up enforcing different rules.
-        const validation = validateGuestItems(req.body?.items);
-        if (!validation.ok) return res.status(400).json({ error: validation.error });
+            // Shared with the relay (main/services/guest-orders.ts) so the two guest
+            // entrances cannot end up enforcing different rules.
+            const validation = validateGuestItems(req.body?.items);
+            if (!validation.ok) return res.status(400).json({ error: validation.error });
 
-        try {
-          const result = await placeGuestOrder(table.id, validation.items, {
-            signal: getHttpRequestSignal(req),
-          });
-          if (!result.ok) {
-            return res.status(502).json({ error: 'Could not send the order. Please ask our staff.' });
-          }
-          res.status(201).json({ ticket: tableTicket(table.id) });
-        } catch (error) {
-          if (getHttpRequestSignal(req)?.aborted) {
-            if (!res.headersSent) res.status(503).end();
-            return;
-          }
-          console.error('[Guest] Order failed:', error);
-          res.status(502).json({ error: 'Could not send the order. Please ask our staff.' });
-        }
-      })());
-    });
+            try {
+              const result = await placeGuestOrder(table.id, validation.items, {
+                signal: getHttpRequestSignal(req),
+              });
+              if (!result.ok) {
+                return res
+                  .status(502)
+                  .json({ error: 'Could not send the order. Please ask our staff.' });
+              }
+              res.status(201).json({ ticket: tableTicket(table.id) });
+            } catch (error) {
+              if (getHttpRequestSignal(req)?.aborted) {
+                if (!res.headersSent) res.status(503).end();
+                return;
+              }
+              console.error('[Guest] Order failed:', error);
+              res.status(502).json({ error: 'Could not send the order. Please ask our staff.' });
+            }
+          })(),
+        );
+      },
+    );
 
     // Any other API path is simply absent here; answer plainly instead of letting
     // the page fallback below return HTML for it.
@@ -239,6 +310,7 @@ export function startGuestServer(): Promise<void> {
     let currentPort = basePort;
     let attempts = 0;
     const listeningServer = http.createServer(app);
+    dropTlsConnections(listeningServer);
     guestServer = listeningServer;
     installHttpShutdownTracking(listeningServer);
 
@@ -246,7 +318,11 @@ export function startGuestServer(): Promise<void> {
       const attemptedPort = currentPort;
       const onListening = () => {
         if (stopping) {
-          try { listeningServer.close(); } catch { return; }
+          try {
+            listeningServer.close();
+          } catch {
+            return;
+          }
           return;
         }
         startReject = null;
@@ -283,8 +359,9 @@ export function stopGuestServer(): Promise<void> {
   rejectStart?.(createShutdownCancellationError('Guest server'));
   const serverToClose = guestServer;
   guestServer = null;
-  stopPromise = closeServerResources(serverToClose, null, 'Guest server')
-    .then(() => { console.log('[Guest] Guest ordering server stopped'); });
+  stopPromise = closeServerResources(serverToClose, null, 'Guest server').then(() => {
+    console.log('[Guest] Guest ordering server stopped');
+  });
   return stopPromise;
 }
 
