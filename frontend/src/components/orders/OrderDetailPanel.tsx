@@ -10,9 +10,34 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
 import {
-  Utensils, ShoppingBag, Truck, Globe, Clock, Printer, MoreHorizontal, User, Plus,
-  ChevronDown, ChevronRight, ChevronLeft, CreditCard, RotateCcw, Send, AlertCircle,
-  MapPin, Info, FileText, Ban, Trash2, Lock, XCircle, Download, Loader2, ClipboardList, Bike,
+  Utensils,
+  ShoppingBag,
+  Truck,
+  Globe,
+  Clock,
+  Printer,
+  MoreHorizontal,
+  User,
+  Plus,
+  ChevronDown,
+  ChevronRight,
+  ChevronLeft,
+  CreditCard,
+  RotateCcw,
+  Send,
+  AlertCircle,
+  MapPin,
+  Info,
+  FileText,
+  Ban,
+  Trash2,
+  Lock,
+  XCircle,
+  Download,
+  Loader2,
+  ClipboardList,
+  Bike,
+  Pencil,
 } from 'lucide-react';
 import { useTranslations } from 'use-intl';
 import type { Order, OrderItem, Bill, Customer } from '@/lib/types';
@@ -22,6 +47,8 @@ import { useFormatCurrency } from '@/hooks/useFormatCurrency';
 import { useFormatDate } from '@/hooks/useFormatDate';
 import { parseDbTimestamp } from '@/lib/utils';
 import { formatItemHeading } from '@/lib/printer/item-heading';
+import { isTerminalItemStatus } from '../../../../shared/order-item-status';
+import PendingOrderItemEdits from './PendingOrderItemEdits';
 import {
   orderStatusBadge,
   paymentStatusBadge,
@@ -34,12 +61,19 @@ import {
  * reimplements billing, checkout, cancel or refund behaviour. */
 export interface OrderDetailPanelProps {
   order: Order | null;
+  orderNotInCurrentList?: boolean;
+  orderMissing?: boolean;
   now: number;
   canCancelItems: boolean;
+  canEditItems?: boolean;
+  onEditItem?: (order: Order, item: OrderItem) => void;
   canRestoreItems: boolean;
   canRefund: boolean;
   isWhatsAppReady: boolean;
-  printHistory: Record<number, { id: number; print_type: string; user_name: string; printed_at: string }[]>;
+  printHistory: Record<
+    number,
+    { id: number; print_type: string; user_name: string; printed_at: string }[]
+  >;
   generatingBillId: number | null;
   printingBillId: number | null;
   printingSlipOrderId?: number | null;
@@ -71,12 +105,15 @@ export interface OrderDetailPanelProps {
   onDeleteItem?: (orderId: number, itemId: number) => void;
   onVoidItem?: (orderId: number, itemId: number, productName: string) => void;
   onRestoreItem?: (orderId: number, itemId: number) => void;
+  onItemEditResolved?: (orderId: number) => Promise<boolean> | void;
 }
 
 function OrderDetailContent({
   order,
   now,
   canCancelItems,
+  canEditItems = false,
+  onEditItem,
   canRestoreItems,
   canRefund,
   isWhatsAppReady,
@@ -111,6 +148,7 @@ function OrderDetailContent({
   onDeleteItem,
   onVoidItem,
   onRestoreItem,
+  onItemEditResolved,
 }: OrderDetailPanelProps & { order: Order }) {
   const tOrders = useTranslations('orders');
   const tCommon = useTranslations('common');
@@ -123,11 +161,13 @@ function OrderDetailContent({
   const [showOrderNotes, setShowOrderNotes] = useState(false);
   const [showVoidedItems, setShowVoidedItems] = useState(false);
   const [showPrintActivity, setShowPrintActivity] = useState(false);
+  const [pendingResolveIds, setPendingResolveIds] = useState<number[]>([]);
+  const itemEditBlocked = (itemId: number) => pendingResolveIds.includes(itemId);
 
-  const activeItems = (order.items || []).filter(
-    (i) => !['cancelled', 'voided', 'void_adjustment'].includes(i.status),
+  const activeItems = (order.items || []).filter((i) => !isTerminalItemStatus(i.status));
+  const inactiveItems = (order.items || []).filter(
+    (i) => ['cancelled', 'voided', 'refunded'].includes(i.status) && !i.superseded,
   );
-  const inactiveItems = (order.items || []).filter((i) => ['cancelled', 'voided'].includes(i.status));
 
   const bill = order.bill;
   const isPaid = bill?.payment_status === 'paid';
@@ -141,30 +181,62 @@ function OrderDetailContent({
 
   const orderBills = order.bills && order.bills.length > 0 ? order.bills : bill ? [bill] : [];
   const splitBills = orderBills.filter((candidate) => Boolean(candidate.split_group_id));
-  const canPaySplitBill = (candidate: Bill) => candidate.payment_status === 'unpaid' || candidate.payment_status === 'partial';
+  const canPaySplitBill = (candidate: Bill) =>
+    candidate.payment_status === 'unpaid' || candidate.payment_status === 'partial';
   const hasUnpaidSplitBills = splitBills.some(canPaySplitBill);
-  const paidBills = orderBills.filter((b) => Number(b.paid_amount) > 0 && b.payment_status !== 'refunded');
+  const paidBills = orderBills.filter(
+    (b) => Number(b.paid_amount) > 0 && b.payment_status !== 'refunded',
+  );
   const hasEligibleRefund = paidBills.length > 0;
+  const hasCollectedFunds = orderBills.some((candidate) => {
+    const status = String(candidate.payment_status || '');
+    const paidAmount = Number(candidate.paid_amount || 0);
+    const total = Number(candidate.total || 0);
+    const detailsCount = Array.isArray(candidate.payment_details)
+      ? candidate.payment_details.length
+      : 0;
+    return (
+      (paidAmount > 0 && status !== 'refunded') ||
+      status === 'partial' ||
+      status === 'partially_refunded' ||
+      (status === 'paid' && (total > 0 || detailsCount > 0))
+    );
+  });
+  const cancelRequiresPin =
+    order.status !== 'pending' ||
+    Boolean(
+      order.items?.some((i) => ['preparing', 'ready', 'served', 'completed'].includes(i.status)),
+    ) ||
+    hasCollectedFunds;
 
-  const hasPaidBill = order.bills?.some((candidate) => candidate.payment_status === 'paid') ?? isPaid;
-  const receiptStatusBadge = isWhatsAppReady && hasPaidBill && order.whatsapp_receipt_status
-    ? whatsappReceiptStatusBadge[order.whatsapp_receipt_status] || null
-    : null;
+  const hasPaidBill =
+    order.bills?.some((candidate) => candidate.payment_status === 'paid') ?? isPaid;
+  const receiptStatusBadge =
+    isWhatsAppReady && hasPaidBill && order.whatsapp_receipt_status
+      ? whatsappReceiptStatusBadge[order.whatsapp_receipt_status] || null
+      : null;
   const receiptStatusLabel = receiptStatusBadge
-    ? receiptStatusBadge.labelKey === 'sent' ? tOrders('receiptSent')
-      : receiptStatusBadge.labelKey === 'failed' ? tOrders('sendFailed')
-      : tWhatsappStatus(receiptStatusBadge.labelKey)
+    ? receiptStatusBadge.labelKey === 'sent'
+      ? tOrders('receiptSent')
+      : receiptStatusBadge.labelKey === 'failed'
+        ? tOrders('sendFailed')
+        : tWhatsappStatus(receiptStatusBadge.labelKey)
     : '';
 
   const subtotal = bill ? Number(bill.subtotal) : Number(order.subtotal);
   const discount = bill ? Number(bill.discount_amount) : Number(order.discount_amount);
   const tax = bill ? Number(bill.tax_amount) : Number(order.tax_amount);
   const total = bill ? Number(bill.total) : Number(order.total);
-  const deliveryCharge = bill ? Number(bill.delivery_charge || 0) : Number(order.delivery_charge || 0);
+  const deliveryCharge = bill
+    ? Number(bill.delivery_charge || 0)
+    : Number(order.delivery_charge || 0);
   const serviceCharge = bill ? Number(bill.service_charge || 0) : Number(order.service_charge || 0);
-  const packagingCharge = bill ? Number(bill.packaging_charge || 0) : Number(order.packaging_charge || 0);
-  const customCharges = receiptChargeLines(bill ? bill.charges_breakdown : order.charges_breakdown)
-    .filter((charge) => charge.id !== 'service_charge' && charge.id !== 'packaging_charge');
+  const packagingCharge = bill
+    ? Number(bill.packaging_charge || 0)
+    : Number(order.packaging_charge || 0);
+  const customCharges = receiptChargeLines(
+    bill ? bill.charges_breakdown : order.charges_breakdown,
+  ).filter((charge) => charge.id !== 'service_charge' && charge.id !== 'packaging_charge');
 
   const statusBadgeInfo = orderStatusBadge[order.status];
   const orderPrints = bill?.id ? printHistory[bill.id] || [] : [];
@@ -177,16 +249,23 @@ function OrderDetailContent({
     return tCommon('timeHoursMinutesAgo', { h: Math.floor(minutes / 60), m: minutes % 60 });
   };
 
-  const checkoutButtonLabel = generatingBillId === order.id
-    ? tOrders('generating')
-    : payStatus === 'partial' ? tOrders('takePayment') : tOrders('checkout');
+  const checkoutButtonLabel =
+    generatingBillId === order.id
+      ? tOrders('generating')
+      : payStatus === 'partial'
+        ? tOrders('takePayment')
+        : tOrders('checkout');
 
   const orderTypeIcon = (() => {
     switch (order.type) {
-      case 'dine_in': return <Utensils size={13} className="shrink-0 text-muted-foreground" />;
-      case 'delivery': return <Truck size={13} className="shrink-0 text-muted-foreground" />;
-      case 'online': return <Globe size={13} className="shrink-0 text-muted-foreground" />;
-      default: return <ShoppingBag size={13} className="shrink-0 text-muted-foreground" />;
+      case 'dine_in':
+        return <Utensils size={13} className="shrink-0 text-muted-foreground" />;
+      case 'delivery':
+        return <Truck size={13} className="shrink-0 text-muted-foreground" />;
+      case 'online':
+        return <Globe size={13} className="shrink-0 text-muted-foreground" />;
+      default:
+        return <ShoppingBag size={13} className="shrink-0 text-muted-foreground" />;
     }
   })();
 
@@ -200,18 +279,23 @@ function OrderDetailContent({
               #<Ltr>{order.order_number}</Ltr>
             </span>
             {statusBadgeInfo && (
-              <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${statusBadgeInfo.bg} ${statusBadgeInfo.text}`}>
+              <span
+                className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${statusBadgeInfo.bg} ${statusBadgeInfo.text}`}
+              >
                 {tOrders(statusBadgeInfo.labelKey)}
               </span>
             )}
             {payBadge && (
-              <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${payBadge.bg} ${payBadge.text}`}>
+              <span
+                className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${payBadge.bg} ${payBadge.text}`}
+              >
                 {tOrders(payBadge.labelKey)}
               </span>
             )}
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
-            {(bill || (onPrintOrder && order.type === 'dine_in' && order.status !== 'cancelled')) && (
+            {(bill ||
+              (onPrintOrder && order.type === 'dine_in' && order.status !== 'cancelled')) && (
               <Button
                 variant="outline"
                 size="icon"
@@ -223,9 +307,11 @@ function OrderDetailContent({
                 className="size-9 rounded-lg border-border/70 text-muted-foreground hover:text-foreground"
                 title={printCount > 0 ? tCommon('reprint') : tCommon('print')}
               >
-                {(bill && printingBillId === bill.id) || generatingBillId === order.id
-                  ? <Loader2 size={16} className="animate-spin" />
-                  : <Printer size={17} />}
+                {(bill && printingBillId === bill.id) || generatingBillId === order.id ? (
+                  <Loader2 size={16} className="animate-spin" />
+                ) : (
+                  <Printer size={17} />
+                )}
               </Button>
             )}
             <DropdownMenu>
@@ -240,9 +326,14 @@ function OrderDetailContent({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-52">
                 {order.type === 'dine_in' && !['completed', 'cancelled'].includes(order.status) && (
-                  <DropdownMenuItem onClick={() => onConvertToTakeaway(order)} disabled={convertingOrderId === order.id}>
+                  <DropdownMenuItem
+                    onClick={() => onConvertToTakeaway(order)}
+                    disabled={convertingOrderId === order.id}
+                  >
                     <ShoppingBag size={14} className="me-2" />
-                    {convertingOrderId === order.id ? tOrders('converting') : tOrders('convertToTakeaway')}
+                    {convertingOrderId === order.id
+                      ? tOrders('converting')
+                      : tOrders('convertToTakeaway')}
                   </DropdownMenuItem>
                 )}
                 {!['completed', 'cancelled'].includes(order.status) && (
@@ -265,9 +356,11 @@ function OrderDetailContent({
                       disabled={cancellingOrderId === order.id}
                       className="text-red-600 focus:text-red-600 focus:bg-red-50 dark:focus:bg-red-950/40"
                     >
-                      {order.status === 'pending'
-                        ? <XCircle size={14} className="me-2" />
-                        : <Lock size={14} className="me-2" />}
+                      {!cancelRequiresPin ? (
+                        <XCircle size={14} className="me-2" />
+                      ) : (
+                        <Lock size={14} className="me-2" />
+                      )}
                       {cancellingOrderId === order.id ? tOrders('cancelling') : tCommon('cancel')}
                     </DropdownMenuItem>
                   </>
@@ -293,7 +386,9 @@ function OrderDetailContent({
             </span>
           </div>
           {receiptStatusBadge && (
-            <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${receiptStatusBadge.bg} ${receiptStatusBadge.text}`}>
+            <span
+              className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${receiptStatusBadge.bg} ${receiptStatusBadge.text}`}
+            >
               {receiptStatusBadge.labelKey === 'sent' && <Send size={11} />}
               {receiptStatusBadge.labelKey === 'failed' && <AlertCircle size={11} />}
               {receiptStatusLabel}
@@ -313,7 +408,9 @@ function OrderDetailContent({
                     time: formatTime(order.cancelled_at || order.created_at),
                     reason: order.cancellation_reason,
                   })
-                : tOrders('orderCancelledBannerNoReason', { time: formatTime(order.cancelled_at || order.created_at) })}
+                : tOrders('orderCancelledBannerNoReason', {
+                    time: formatTime(order.cancelled_at || order.created_at),
+                  })}
             </span>
           </div>
         )}
@@ -330,7 +427,11 @@ function OrderDetailContent({
                 className="flex-1 px-3 py-1.5 text-xs sm:text-sm border border-border bg-card rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                 autoFocus
               />
-              <button type="button" onClick={onCancelLinkCustomer} className="text-muted-foreground hover:text-foreground p-1 rounded transition-colors">
+              <button
+                type="button"
+                onClick={onCancelLinkCustomer}
+                className="text-muted-foreground hover:text-foreground p-1 rounded transition-colors"
+              >
                 <XCircle size={18} />
               </button>
             </div>
@@ -346,9 +447,17 @@ function OrderDetailContent({
                   >
                     <div>
                       <span className="font-medium text-foreground">{customer.name}</span>
-                      {customer.phone && <span className="text-muted-foreground ms-2"><Ltr>{customer.phone}</Ltr></span>}
+                      {customer.phone && (
+                        <span className="text-muted-foreground ms-2">
+                          <Ltr>{customer.phone}</Ltr>
+                        </span>
+                      )}
                     </div>
-                    {linkingCustomer && <span className="text-muted-foreground text-[10px]">{tOrders('linking')}</span>}
+                    {linkingCustomer && (
+                      <span className="text-muted-foreground text-[10px]">
+                        {tOrders('linking')}
+                      </span>
+                    )}
                   </button>
                 ))}
               </div>
@@ -360,7 +469,9 @@ function OrderDetailContent({
               className="w-full flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-blue-600 dark:text-blue-400 bg-card hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-md border border-dashed border-blue-300 dark:border-blue-700 font-medium text-start disabled:opacity-50 transition-colors"
             >
               <Plus size={14} />
-              {linkCustomerSearch?.trim() ? `${tPos('addCustomer')} "${linkCustomerSearch.trim()}"` : tPos('addCustomer')}
+              {linkCustomerSearch?.trim()
+                ? `${tPos('addCustomer')} "${linkCustomerSearch.trim()}"`
+                : tPos('addCustomer')}
             </button>
           </div>
         ) : (
@@ -373,7 +484,9 @@ function OrderDetailContent({
                     {order.customer.name}
                   </span>
                   {order.customer.phone && (
-                    <span className="text-xs text-blue-600 dark:text-blue-400 shrink-0"><Ltr>{order.customer.phone}</Ltr></span>
+                    <span className="text-xs text-blue-600 dark:text-blue-400 shrink-0">
+                      <Ltr>{order.customer.phone}</Ltr>
+                    </span>
                   )}
                   {order.type === 'delivery' && order.customer.address && (
                     <span className="inline-flex items-center gap-1 text-xs text-blue-700 dark:text-blue-300 truncate ms-1">
@@ -383,7 +496,9 @@ function OrderDetailContent({
                   )}
                 </>
               ) : (
-                <span className="text-xs font-medium text-muted-foreground">{tOrders('walkInCustomer')}</span>
+                <span className="text-xs font-medium text-muted-foreground">
+                  {tOrders('walkInCustomer')}
+                </span>
               )}
             </div>
             {order.customer && (
@@ -423,7 +538,10 @@ function OrderDetailContent({
                 <FileText size={13} className="text-amber-600 shrink-0" />
                 {tOrders('orderNoteTap', { count: 1 })}
               </span>
-              <ChevronDown size={13} className={`text-amber-600 transition-transform duration-200 ${showOrderNotes ? 'rotate-180' : ''}`} />
+              <ChevronDown
+                size={13}
+                className={`text-amber-600 transition-transform duration-200 ${showOrderNotes ? 'rotate-180' : ''}`}
+              />
             </button>
             {showOrderNotes && (
               <div className="px-4 py-2 bg-amber-50/50 dark:bg-amber-950/20 text-xs text-amber-900 dark:text-amber-200 border-t border-amber-100/60 dark:border-amber-900/30 break-words">
@@ -435,6 +553,15 @@ function OrderDetailContent({
 
         {/* Items — every line is visible here, no truncation chip. */}
         <div className="px-4 py-3 space-y-2">
+          <PendingOrderItemEdits
+            orderId={order.id}
+            items={order.items}
+            // Recovery is permission- and identity-gated; a paid or terminal order
+            // still allows the same-key replay to be resolved.
+            canEditItems={canEditItems}
+            onPendingItemsChanged={setPendingResolveIds}
+            onItemEditResolved={onItemEditResolved}
+          />
           {activeItems.map((item: OrderItem) => {
             const dotConfig = itemStatusDot[item.status] || itemStatusDot.pending;
             const heading = formatItemHeading(item.product_name, item.variant_selection);
@@ -442,45 +569,74 @@ function OrderDetailContent({
               <div key={item.id} className="text-sm">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 min-w-0 flex-1">
-                    <span className={`w-2 h-2 rounded-full shrink-0 ${dotConfig.dot}`} title={tOrders(dotConfig.labelKey)} />
+                    <span
+                      className={`w-2 h-2 rounded-full shrink-0 ${dotConfig.dot}`}
+                      title={tOrders(dotConfig.labelKey)}
+                    />
                     <span className="font-semibold text-foreground shrink-0">{item.quantity}x</span>
-                    <span className="text-foreground truncate" title={heading}>{heading}</span>
+                    <span className="text-foreground truncate" title={heading}>
+                      {heading}
+                    </span>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
-                    <span className="text-muted-foreground font-medium">{fmt(Number(item.total))}</span>
-                    {canCancelItems && !isPaid && !['completed', 'cancelled'].includes(order.status) && (
-                      <div className="flex items-center gap-1 ms-1">
-                        {item.status === 'pending' && onDeleteItem && (
-                          <button
-                            type="button"
-                            onClick={() => onDeleteItem(order.id, item.id)}
-                            className="size-8 flex items-center justify-center text-red-400 hover:text-red-600 rounded-md hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors"
-                            title={tCommon('removeItem')}
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        )}
-                        {(item.status === 'preparing' || item.status === 'ready') && onVoidItem && (
-                          <button
-                            type="button"
-                            onClick={() => onVoidItem(order.id, item.id, heading)}
-                            className="size-8 flex items-center justify-center text-red-400 hover:text-red-600 rounded-md hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors"
-                            title={tOrders('voidItem')}
-                          >
-                            <Ban size={14} />
-                          </button>
-                        )}
-                      </div>
-                    )}
+                    <span className="text-muted-foreground font-medium">
+                      {fmt(Number(item.total))}
+                    </span>
+                    {canEditItems &&
+                      onEditItem &&
+                      !isPaid &&
+                      !['completed', 'cancelled'].includes(order.status) &&
+                      !itemEditBlocked(item.id) && (
+                        <button
+                          type="button"
+                          onClick={() => onEditItem(order, item)}
+                          className="size-8 flex items-center justify-center text-muted-foreground hover:text-foreground rounded-md hover:bg-muted transition-colors"
+                          title={tOrders('editItem')}
+                        >
+                          <Pencil size={14} />
+                        </button>
+                      )}
+                    {canCancelItems &&
+                      !isPaid &&
+                      !['completed', 'cancelled'].includes(order.status) &&
+                      !itemEditBlocked(item.id) && (
+                        <div className="flex items-center gap-1 ms-1">
+                          {item.status === 'pending' && onDeleteItem && (
+                            <button
+                              type="button"
+                              onClick={() => onDeleteItem(order.id, item.id)}
+                              className="size-8 flex items-center justify-center text-red-400 hover:text-red-600 rounded-md hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors"
+                              title={tCommon('removeItem')}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          )}
+                          {(item.status === 'preparing' || item.status === 'ready') &&
+                            onVoidItem && (
+                              <button
+                                type="button"
+                                onClick={() => onVoidItem(order.id, item.id, heading)}
+                                className="size-8 flex items-center justify-center text-red-400 hover:text-red-600 rounded-md hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors"
+                                title={tOrders('voidItem')}
+                              >
+                                <Ban size={14} />
+                              </button>
+                            )}
+                        </div>
+                      )}
                   </div>
                 </div>
                 {item.addons && item.addons.length > 0 && (
                   <div className="ps-6 mt-0.5 text-xs text-muted-foreground">
-                    {item.addons.map((a) => `+ ${a.name}${(a.quantity || 1) > 1 ? ` ×${a.quantity}` : ''}`).join(' · ')}
+                    {item.addons
+                      .map((a) => `+ ${a.name}${(a.quantity || 1) > 1 ? ` ×${a.quantity}` : ''}`)
+                      .join(' · ')}
                   </div>
                 )}
                 {item.special_instructions && (
-                  <div className="ps-6 mt-0.5 text-xs text-red-500/90 italic">&quot;{item.special_instructions}&quot;</div>
+                  <div className="ps-6 mt-0.5 text-xs text-red-500/90 italic">
+                    &quot;{item.special_instructions}&quot;
+                  </div>
                 )}
               </div>
             );
@@ -495,27 +651,37 @@ function OrderDetailContent({
             >
               <Ban size={13} />
               <span>{tOrders('voidedItemsCount', { count: inactiveItems.length })}</span>
-              <ChevronDown size={13} className={`transition-transform ${showVoidedItems ? 'rotate-180' : ''}`} />
+              <ChevronDown
+                size={13}
+                className={`transition-transform ${showVoidedItems ? 'rotate-180' : ''}`}
+              />
             </button>
           )}
 
           {showVoidedItems && inactiveItems.length > 0 && canRestoreItems && (
             <div className="ps-2.5 border-s-2 border-red-200 dark:border-red-900/40 space-y-1.5 py-1">
               {inactiveItems.map((cItem: OrderItem) => (
-                <div key={cItem.id} className="flex items-center justify-between text-xs opacity-70">
+                <div
+                  key={cItem.id}
+                  className="flex items-center justify-between text-xs opacity-70"
+                >
                   <span className="line-through text-muted-foreground truncate">
-                    {cItem.quantity}x {formatItemHeading(cItem.product_name, cItem.variant_selection)}
+                    {cItem.quantity}x{' '}
+                    {formatItemHeading(cItem.product_name, cItem.variant_selection)}
                   </span>
-                  {cItem.status === 'cancelled' && !isPaid && !['completed', 'cancelled'].includes(order.status) && onRestoreItem && (
-                    <button
-                      type="button"
-                      onClick={() => onRestoreItem(order.id, cItem.id)}
-                      className="size-8 flex items-center justify-center hover:text-green-600 text-green-500 rounded"
-                      title={tCommon('restore')}
-                    >
-                      <RotateCcw size={13} />
-                    </button>
-                  )}
+                  {cItem.status === 'cancelled' &&
+                    !isPaid &&
+                    !['completed', 'cancelled'].includes(order.status) &&
+                    onRestoreItem && (
+                      <button
+                        type="button"
+                        onClick={() => onRestoreItem(order.id, cItem.id)}
+                        className="size-8 flex items-center justify-center hover:text-green-600 text-green-500 rounded"
+                        title={tCommon('restore')}
+                      >
+                        <RotateCcw size={13} />
+                      </button>
+                    )}
                 </div>
               ))}
             </div>
@@ -603,8 +769,10 @@ function OrderDetailContent({
             <div className="mt-1.5 ps-3 border-s border-border text-xs text-muted-foreground space-y-0.5">
               {orderPrints.map((p, idx) => (
                 <div key={p.id || idx}>
-                  {idx + 1}. {tOrders('printHistoryEntry', {
-                    printedType: p.print_type === 'reprint' ? tOrders('reprint') : tOrders('printed'),
+                  {idx + 1}.{' '}
+                  {tOrders('printHistoryEntry', {
+                    printedType:
+                      p.print_type === 'reprint' ? tOrders('reprint') : tOrders('printed'),
                     user: p.user_name,
                     time: formatDateTime(p.printed_at),
                   })}
@@ -625,17 +793,29 @@ function OrderDetailContent({
         ) : hasUnpaidSplitBills ? (
           <div className="space-y-2">
             {splitBills.map((splitBill) => (
-              <div key={splitBill.id} className="flex items-center justify-between gap-3 rounded-lg border border-border p-2.5">
+              <div
+                key={splitBill.id}
+                className="flex items-center justify-between gap-3 rounded-lg border border-border p-2.5"
+              >
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-foreground">
                     {splitBill.split_label || `#${splitBill.bill_number}`}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {fmt(Number(splitBill.payment_status === 'paid' ? splitBill.total : splitBill.balance))} · {splitBill.payment_status === 'paid' ? tOrders('paid') : tOrders('balance')}
+                    {fmt(
+                      Number(
+                        splitBill.payment_status === 'paid' ? splitBill.total : splitBill.balance,
+                      ),
+                    )}{' '}
+                    · {splitBill.payment_status === 'paid' ? tOrders('paid') : tOrders('balance')}
                   </p>
                 </div>
                 {canPaySplitBill(splitBill) && onPayBill && (
-                  <Button size="sm" onClick={() => onPayBill({ ...splitBill, order })} className="h-9 shrink-0">
+                  <Button
+                    size="sm"
+                    onClick={() => onPayBill({ ...splitBill, order })}
+                    className="h-9 shrink-0"
+                  >
                     {tPos('pay')}
                   </Button>
                 )}
@@ -661,9 +841,11 @@ function OrderDetailContent({
                 disabled={printingBillId === bill.id}
                 className="flex-1 h-10 border-border text-foreground hover:bg-muted font-semibold text-xs"
               >
-                {printingBillId === bill.id
-                  ? <Loader2 size={15} className="animate-spin me-1.5" />
-                  : <Printer size={15} className="me-1.5 text-muted-foreground" />}
+                {printingBillId === bill.id ? (
+                  <Loader2 size={15} className="animate-spin me-1.5" />
+                ) : (
+                  <Printer size={15} className="me-1.5 text-muted-foreground" />
+                )}
                 {printCount > 0 ? tCommon('reprint') : tCommon('print')}
               </Button>
             )}
@@ -674,9 +856,11 @@ function OrderDetailContent({
                 disabled={sendingWaOrderId === order.id}
                 className="flex-1 h-10 border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-950/40 font-semibold text-xs"
               >
-                {sendingWaOrderId === order.id
-                  ? <Loader2 size={15} className="animate-spin me-1.5" />
-                  : <Send size={15} className="me-1.5" />}
+                {sendingWaOrderId === order.id ? (
+                  <Loader2 size={15} className="animate-spin me-1.5" />
+                ) : (
+                  <Send size={15} className="me-1.5" />
+                )}
                 {tOrders('sendReceipt')}
               </Button>
             )}
@@ -723,9 +907,11 @@ function OrderDetailContent({
             disabled={printingSlipOrderId === order.id}
             className="mt-2 w-full h-10 border-border text-foreground hover:bg-muted font-semibold text-xs"
           >
-            {printingSlipOrderId === order.id
-              ? <Loader2 size={15} className="animate-spin me-1.5" />
-              : <Bike size={15} className="me-1.5 text-muted-foreground" />}
+            {printingSlipOrderId === order.id ? (
+              <Loader2 size={15} className="animate-spin me-1.5" />
+            ) : (
+              <Bike size={15} className="me-1.5 text-muted-foreground" />
+            )}
             {tOrders('printDeliverySlip')}
           </Button>
         )}
@@ -734,15 +920,16 @@ function OrderDetailContent({
   );
 }
 
-/** Right pane of the Orders master/detail layout. Renders a placeholder until an
- * order is selected; `order` is null when the selection no longer matches the
- * filtered order list. */
+/** Right pane of the Orders master/detail layout. */
 export function OrderDetailPanel({ onBack, ...props }: OrderDetailPanelProps) {
   const tOrders = useTranslations('orders');
   const tCommon = useTranslations('common');
 
   return (
-    <div className="flex flex-col h-full min-h-0">
+    <div
+      data-testid="orders-detail-panel"
+      className="flex flex-col flex-1 w-full min-w-0 h-full min-h-0"
+    >
       {onBack && (
         <button
           type="button"
@@ -753,12 +940,19 @@ export function OrderDetailPanel({ onBack, ...props }: OrderDetailPanelProps) {
           {tCommon('back')}
         </button>
       )}
+      {props.order && props.orderNotInCurrentList && (
+        <div className="shrink-0 border-b border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800/40 dark:bg-amber-950/40 dark:text-amber-100">
+          {tOrders('orderNotInCurrentList')}
+        </div>
+      )}
       {props.order ? (
         <OrderDetailContent {...props} order={props.order} />
       ) : (
         <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-3 text-center p-6 text-muted-foreground bg-card rounded-xl border border-dashed border-border">
           <ClipboardList size={40} className="opacity-40" />
-          <p className="text-sm">{tOrders('selectOrderPlaceholder')}</p>
+          <p className="text-sm">
+            {props.orderMissing ? tOrders('orderMissing') : tOrders('selectOrderPlaceholder')}
+          </p>
         </div>
       )}
     </div>

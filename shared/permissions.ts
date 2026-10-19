@@ -108,6 +108,13 @@ export const PERMISSION_DEFINITIONS = [
     risk: 'sensitive',
   },
   {
+    id: 'orders.item.edit',
+    area: 'orders',
+    defaultRoles: OWNER,
+    configurable: true,
+    risk: 'sensitive',
+  },
+  {
     id: 'orders.item.restore',
     area: 'orders',
     defaultRoles: OWNER_MANAGER,

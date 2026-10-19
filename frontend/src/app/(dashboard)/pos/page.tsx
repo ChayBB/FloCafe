@@ -2495,10 +2495,8 @@ export default function POSPage() {
         </div>
       )}
       <PosTopbar
-        tables={tables}
         products={products}
         onTopItemSelect={handleProductClick}
-        onShowTablePicker={() => setShowTablePicker(true)}
         onShowCashMovement={cashDrawer.openModal}
         // Re-fetch on entry: the mount snapshot can be hours stale on a
         // multi-terminal POS (backend still guards stale operations). On a
@@ -2538,6 +2536,7 @@ export default function POSPage() {
             onScannedVariant={handleScannedVariant}
             onScaledProduct={(product, quantity) => cart.addItem(product, quantity)}
             sidebarOpen={leftSidebarOpen}
+            collapseCategories
           />
         </div>
 

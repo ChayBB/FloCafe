@@ -153,6 +153,9 @@ export interface Addon {
   low_stock_threshold: number;
   is_active: boolean;
   sort_order: number;
+  tax_category_id?: string | null;
+  tax_behavior?: Product['tax_behavior'];
+  inherit_parent_tax_category?: boolean;
 }
 
 export interface Table {
@@ -254,6 +257,8 @@ export interface OrderItem {
   addons: { id?: number | string | null; name: string; price?: number; quantity?: number }[] | null;
   special_instructions: string | null;
   status: 'pending' | 'preparing' | 'ready' | 'served' | 'cancelled' | 'voided' | 'void_adjustment';
+  superseded?: boolean;
+  edit_version?: number;
 }
 
 export interface Bill {
@@ -361,7 +366,7 @@ export interface ExpenseRecord {
   description: string;
   payee: string | null;
   notes: string | null;
-  amount_minor: number;
+  amount_minor: number | null;
   currency_code: string;
   incurred_on: string;
   created_by: string;
@@ -372,7 +377,7 @@ export interface ExpenseRecord {
   void_reason: string | null;
   status: ExpenseStatus;
   paid_minor: number;
-  due_minor: number;
+  due_minor: number | null;
 }
 
 export interface ExpensePaymentRecord {

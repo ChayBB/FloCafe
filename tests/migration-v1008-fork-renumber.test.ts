@@ -68,7 +68,7 @@ const UPSTREAM_TABLES = [
   'cash_sessions',
 ];
 
-/** Tables this branch's own migrations create, now at v114-v121. */
+/** Tables this branch's own migrations create, now at v1000-v1007. */
 const FORK_TABLES = ['table_users', 'staff_work_logs'];
 
 function hasTable(db: any, name: string): boolean {
@@ -127,7 +127,7 @@ function main(): void {
 
     assert(getCurrentSchemaVersion() === TAIL(), 'the store ends at the registry tail again');
     for (const table of UPSTREAM_TABLES) {
-      assert(hasTable(db, table), `${table} exists after the v122 repair`);
+      assert(hasTable(db, table), `${table} exists after the v1008 repair`);
     }
     for (const table of FORK_TABLES) {
       assert(hasTable(db, table), `${table} survived the repair`);
@@ -149,11 +149,11 @@ function main(): void {
     // repair must decline to do anything — including on a second call, since a
     // store that already has upstream's tables must never have their bodies
     // replayed over live data.
-    const repair = MIGRATIONS.find((m: any) => m.version === 122);
-    assert(Boolean(repair), 'v122 is in the registry');
+    const repair = MIGRATIONS.find((m: any) => m.version === 1008);
+    assert(Boolean(repair), 'v1008 is in the registry');
     assert(
       repair?.name === 'repair_upstream_v87_to_v94_skipped_by_fork_numbering',
-      'v122 is the repair, not an unrelated migration that drifted into the slot',
+      'v1008 is the repair, not an unrelated migration that drifted into the slot',
     );
     const suppliesBefore = db.prepare('SELECT COUNT(*) AS c FROM supplies').get() as { c: number };
     let threw = false;
@@ -163,7 +163,7 @@ function main(): void {
       threw = true;
       console.error('   ', (error as Error).message);
     }
-    assert(!threw, 'running v122 on an already-complete store throws nothing');
+    assert(!threw, 'running v1008 on an already-complete store throws nothing');
     const suppliesAfter = db.prepare('SELECT COUNT(*) AS c FROM supplies').get() as { c: number };
     assert(suppliesBefore.c === suppliesAfter.c, 'and changes nothing');
 

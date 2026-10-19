@@ -33,6 +33,7 @@ import { computeTaxPackUpdates, fetchRemoteTaxPackCatalog } from './tax-packs/ca
 import { startServer, stopServer, getLocalIP, isServerRunning, getServerPort } from './server';
 import { cloudSync } from './services/cloud-sync';
 import { telemetry } from './services/telemetry';
+import { capturePostHogException, startPostHog, stopPostHog } from './services/posthog';
 import { googleDrive } from './services/google-drive';
 import { startKdsServer, stopKdsServer, getKdsPort, isKdsServerRunning } from './kds-server';
 import { startServerApp, stopServerApp, getServerAppPort, isServerAppRunning } from './server-app';
@@ -41,7 +42,7 @@ import { startGuestRelay, stopGuestRelay } from './services/guest-relay';
 import { startGuestServer, stopGuestServer } from './guest-server';
 import { initPrinter } from './printers/thermal';
 import { destroySharedRasterRenderer } from './printers/raster-renderer';
-import { registerIpcHandlers, isTrustedSender } from './ipc';
+import { registerIpcHandlers } from './ipc';
 import { authorizeMasterPin } from './services/master-pin';
 import {
   requestShutdown as requestWhatsAppShutdown,
@@ -62,7 +63,6 @@ import {
   missingUpdateConfigState,
   oneShotUpdateState,
   parseStoredAutoUpdateCheckEnabled,
-  toIpcUpdateStatus,
   type StoredUpdateStatus,
   type UpdateErrorPhase,
 } from './update-state';
@@ -75,9 +75,11 @@ import { clearStaleRenderCachesOnVersionChange } from './startup-cache';
 import {
   createLocalWindowOpenHandler,
   createMainWindow,
+  createMainWindowWillNavigateHandler,
   resolveTitleBarMode,
   type TitleBarMode,
 } from './window-options';
+import { registerDirectUpdateIpcHandlers } from './update-ipc';
 import {
   applyTitleBarOverlayTheme,
   resolveTitleBarOverlayColors,
@@ -766,6 +768,16 @@ function createWindow(): void {
   // Always load from the embedded Express server (serves static Next.js export).
   // This avoids file:// protocol issues and keeps dev/prod behaviour identical.
   mainWindow.loadURL(`http://localhost:${getServerPort()}`);
+
+  const mainWindowWillNavigateHandler = createMainWindowWillNavigateHandler(
+    isAllowedLocalWindowUrl,
+    getServerPort,
+    getLocalIP,
+    isSafeExternalUrl,
+    (url) => shell.openExternal(url),
+    (msg, ...args) => console.warn(msg, ...args),
+  );
+  mainWindow.webContents.on('will-navigate', mainWindowWillNavigateHandler);
 
   // Allow target="_blank" links to open new windows for local URLs (e.g. the KDS page)
   // and blank popup windows (e.g. browser print popups). External URLs are sent to the system browser.
@@ -1478,6 +1490,7 @@ async function initialize(): Promise<void> {
 
     cloudSync.start();
     telemetry.start();
+    startPostHog();
     googleDrive.start();
 
     console.log('[Flo] Starting KDS server on port 3002...');
@@ -1518,83 +1531,24 @@ async function initialize(): Promise<void> {
       () => currentEffectiveIsDark,
     );
 
-    ipcMain.handle('get-update-status', () =>
-      // #467: return the real persisted state (including not-checked-yet and
-      // one-shot states) so renderer reloads recover it.
-      toIpcUpdateStatus(storedUpdateStatus, app.getVersion()),
-    );
-
-    ipcMain.handle('check-for-updates', () => {
-      checkForUpdates();
-    });
-
-    ipcMain.handle('download-update', () => downloadUpdate());
-
-    ipcMain.handle('updates:get-auto-check', () =>
-      withDatabaseRequest(() => readAutoUpdateCheckEnabled()),
-    );
-
-    ipcMain.handle('updates:set-auto-check', (_event, enabled: unknown) => {
-      if (typeof enabled !== 'boolean') {
-        return { success: false, error: 'enabled must be a boolean' };
-      }
-      return withDatabaseRequest(() => {
-        try {
-          writeAutoUpdateCheckEnabled(enabled);
-        } catch (error) {
-          log.error('[Update] Failed to persist automatic update preference:', error);
-          return { success: false, error: 'Could not save the automatic update preference' };
-        }
-        log.info(`[Update] Automatic update checks ${enabled ? 'enabled' : 'disabled'} by user`);
-        return { success: true };
-      });
-    });
-
-    ipcMain.handle('updates:get-beta-channel', () =>
-      // Returns persisted beta channel preference.
-      withDatabaseRequest(() => readBetaChannelEnabled()),
-    );
-
-    ipcMain.handle('updates:set-beta-channel', (_event, enabled: unknown) => {
-      if (typeof enabled !== 'boolean') {
-        return { success: false, error: 'enabled must be a boolean' };
-      }
-      return enqueueBetaChannelTransition(() =>
-        withDatabaseRequest(async () => {
-          // Prevent channel switch if an update check/download is active or staged.
-          if (isInstallReady(storedUpdateStatus, stagedUpdateReady)) {
-            return {
-              success: false,
-              error:
-                'A downloaded update is waiting to be installed — install it before switching channels',
-            };
-          }
-          if (isUpdateCheckInFlight(storedUpdateStatus, updaterPhase)) {
-            return {
-              success: false,
-              error: 'An update check or download is in progress — try again once it finishes',
-            };
-          }
-          try {
-            writeBetaChannelEnabled(enabled);
-          } catch (error) {
-            log.error('[Update] Failed to persist beta-channel preference:', error);
-            return { success: false, error: 'Could not save the channel preference' };
-          }
-          log.info(`[Update] Beta channel ${enabled ? 'enabled' : 'disabled'} by user`);
-          // Reconfigure channel settings and initiate immediate update re-check.
-          configureAutoUpdaterChannel(enabled);
-          setUpdateStatus(initialUpdateState());
-          checkForUpdates();
-          return { success: true };
-        }),
-      );
-    });
-
-    // Requires master PIN authorization and runs cleanup before quitAndInstall.
-    ipcMain.handle(
-      'restart-and-install',
-      createRestartAndInstallHandler({
+    registerDirectUpdateIpcHandlers({
+      ipcMain,
+      getMainWindow: () => mainWindow,
+      getServerPort,
+      getStoredUpdateStatus: () => storedUpdateStatus,
+      getStagedUpdateReady: () => stagedUpdateReady,
+      getUpdaterPhase: () => updaterPhase,
+      getAppVersion: () => app.getVersion(),
+      checkForUpdates,
+      downloadUpdate: () => downloadUpdate(),
+      readAutoUpdateCheckEnabled,
+      writeAutoUpdateCheckEnabled,
+      readBetaChannelEnabled,
+      writeBetaChannelEnabled,
+      enqueueBetaChannelTransition,
+      configureAutoUpdaterChannel,
+      setUpdateStatus,
+      restartAndInstallHandler: createRestartAndInstallHandler({
         isInstallReady: () => isInstallReady(storedUpdateStatus, stagedUpdateReady),
         authorize: (pin) => authorizeMasterPin(pin, 'ipc:restart-and-install'),
         runCleanup,
@@ -1605,47 +1559,25 @@ async function initialize(): Promise<void> {
         warn: (message) => log.warn(message),
         error: (message, error) => log.error(message, error),
       }),
-    );
-
-    ipcMain.handle('get-status', () => {
-      const mem = process.memoryUsage();
-      return {
-        server: isServerRunning() ? 'running' : 'stopped',
-        kdsServer: isKdsServerRunning() ? 'running' : 'stopped',
-        serverApp: isServerAppRunning() ? 'running' : 'stopped',
-        memory: {
-          heapUsed: Math.round(mem.heapUsed / 1024 / 1024),
-          heapTotal: Math.round(mem.heapTotal / 1024 / 1024),
-          rss: Math.round(mem.rss / 1024 / 1024),
-        },
-        uptime: process.uptime(),
-        port: getServerPort(),
-        titleBarMode: resolvedTitleBarMode,
-        titleBarEpoch: getRendererReadinessEpoch(),
-        titleBarDocumentNonce: getRendererDocumentNonce() ?? undefined,
-        effectiveTheme: currentEffectiveIsDark ? 'dark' : 'light',
-      };
+      isServerRunning,
+      isKdsServerRunning,
+      isServerAppRunning,
+      getResolvedTitleBarMode: () => resolvedTitleBarMode,
+      getRendererReadinessEpoch,
+      getRendererDocumentNonce,
+      getCurrentEffectiveIsDark: () => currentEffectiveIsDark,
+      setCurrentEffectiveIsDark: (isDark) => {
+        currentEffectiveIsDark = isDark;
+      },
+      applyTitleBarOverlayTheme,
+      resolveTitleBarOverlayColors,
+      withDatabaseRequest,
+      log,
     });
 
     runtimeState = 'ready';
     relaunchAttemptGuard.markRuntimeRecovered();
     log.info('[Lifecycle] Runtime is ready');
-    ipcMain.handle('set-theme-effective', (event, isDark: unknown) => {
-      // Validate sender origin matches trusted local window.
-      if (!isTrustedSender(event)) {
-        return { success: false, error: 'Untrusted sender' };
-      }
-      if (typeof isDark !== 'boolean') {
-        return { success: false, error: 'isDark must be boolean' };
-      }
-      currentEffectiveIsDark = isDark;
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        applyTitleBarOverlayTheme(mainWindow, isDark, process.platform);
-        // Match window background to overlay token to prevent border flashing.
-        mainWindow.setBackgroundColor(resolveTitleBarOverlayColors(isDark).color);
-      }
-      return { success: true };
-    });
     console.log('[Flo] Creating window...');
     createWindow();
     registerPowerMonitorRecovery();
@@ -1771,6 +1703,7 @@ const cleanupCoordinator = createShutdownCoordinator(
     { name: 'KDS server', run: () => stopKdsServer(), blocksDatabase: true },
     { name: 'cloud sync', run: () => cloudSync.shutdown(), blocksDatabase: true },
     { name: 'telemetry', run: () => telemetry.stop(), blocksDatabase: true },
+    { name: 'posthog', run: () => stopPostHog(), blocksDatabase: true },
     { name: 'Google Drive', run: () => googleDrive.stop(), blocksDatabase: true },
     { name: 'WhatsApp', run: () => shutdownWhatsApp(), blocksDatabase: true },
     { name: 'Guest relay', run: () => stopGuestRelay() },
@@ -1831,6 +1764,7 @@ process.on('uncaughtException', (error) => {
       capture_point: 'fc.electron.main.uncaught',
       outcome: 'unknown',
     });
+    capturePostHogException('uncaughtException', error);
   }
 });
 
@@ -1842,5 +1776,6 @@ process.on('unhandledRejection', (reason) => {
       capture_point: 'fc.electron.main.unhandled_rejection',
       outcome: 'unknown',
     });
+    capturePostHogException('unhandledRejection', reason);
   }
 });

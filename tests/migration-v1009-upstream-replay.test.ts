@@ -73,7 +73,7 @@ const UPSTREAM_COLUMNS: Array<[string, string]> = [
   ['orders', 'expected_payment_method_id'],
 ];
 
-/** Schema this branch's own migrations create, now at v114-v122. */
+/** Schema this branch's own migrations create, now at v1000-v1009. */
 const FORK_TABLES = ['table_users', 'staff_work_logs'];
 const FORK_COLUMNS: Array<[string, string]> = [
   ['tables', 'guest_token'],
@@ -142,9 +142,9 @@ function main(): void {
     db = getDatabase();
 
     assert(getCurrentSchemaVersion() === TAIL(), 'the store ends at the registry tail again');
-    assert(hasTable(db, UPSTREAM_TABLE), `${UPSTREAM_TABLE} exists after the v123 repair`);
+    assert(hasTable(db, UPSTREAM_TABLE), `${UPSTREAM_TABLE} exists after the v1009 repair`);
     for (const [table, column] of UPSTREAM_COLUMNS) {
-      assert(hasColumn(db, table, column), `${table}.${column} is restored by the v123 repair`);
+      assert(hasColumn(db, table, column), `${table}.${column} is restored by the v1009 repair`);
     }
     for (const table of FORK_TABLES) {
       assert(hasTable(db, table), `${table} survived the repair`);
@@ -178,11 +178,11 @@ function main(): void {
     // so the repair must decline to do anything — including on a second call,
     // since a store that already has upstream's schema must never have their
     // bodies replayed over live data.
-    const repair = MIGRATIONS.find((m: any) => m.version === 123);
-    assert(Boolean(repair), 'v123 is in the registry');
+    const repair = MIGRATIONS.find((m: any) => m.version === 1009);
+    assert(Boolean(repair), 'v1009 is in the registry');
     assert(
       repair?.name === 'repair_upstream_v99_to_v107_skipped_by_fork_numbering',
-      'v123 is the repair, not an unrelated migration that drifted into the slot',
+      'v1009 is the repair, not an unrelated migration that drifted into the slot',
     );
     const variantsBefore = db.prepare(`SELECT COUNT(*) AS c FROM ${UPSTREAM_TABLE}`).get() as {
       c: number;
@@ -194,7 +194,7 @@ function main(): void {
       threw = true;
       console.error('   ', (error as Error).message);
     }
-    assert(!threw, 'running v123 on an already-complete store throws nothing');
+    assert(!threw, 'running v1009 on an already-complete store throws nothing');
     const variantsAfter = db.prepare(`SELECT COUNT(*) AS c FROM ${UPSTREAM_TABLE}`).get() as {
       c: number;
     };
@@ -207,7 +207,7 @@ function main(): void {
       versions.every((v: number, i: number) => i === 0 || v > versions[i - 1]),
       'the registry is strictly ascending',
     );
-    for (let version = 114; version <= 122; version++) {
+    for (let version = 1000; version <= 1007; version++) {
       assert(versions.includes(version), `the fork's renumbered v${version} is registered`);
     }
 

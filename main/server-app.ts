@@ -16,6 +16,8 @@ import {
   trackHttpRequestWork,
 } from './shutdown';
 import {
+  DatabaseAdmissionReservation,
+  createDatabaseMaintenanceHandoff,
   databaseMaintenanceMiddleware,
   findUserByLoginIdentifier,
   getDatabase,
@@ -23,10 +25,16 @@ import {
   isServerAppEnabled,
   isTableAllowedForUser,
   recordStaffWorkEvent,
+  revokeDatabaseMaintenanceHandoff,
 } from './db';
 import { getJWTSecret } from './security/jwt-secret';
 import {
   authRateLimit,
+  loginAuthRateLimit,
+  checkLoginRateLimit,
+  incrementFailedLogin,
+  resetSuccessfulLogin,
+  FAILED_LOGIN_LOCKOUT_MINUTES,
   staticRouteRateLimit,
   corsOptions,
   isTokenRevoked,
@@ -176,6 +184,11 @@ async function forwardToMainApiImpl(
     }
   }
 
+  const reservation = (req as any).databaseAdmissionReservation as
+    | DatabaseAdmissionReservation
+    | undefined;
+  const handoffToken = reservation ? createDatabaseMaintenanceHandoff(reservation) : undefined;
+
   try {
     const upstream = await fetch(target, {
       method: req.method,
@@ -183,6 +196,7 @@ async function forwardToMainApiImpl(
         'Content-Type': 'application/json',
         ...(req.headers.authorization ? { Authorization: req.headers.authorization } : {}),
         ...(req.get('Idempotency-Key') ? { 'Idempotency-Key': req.get('Idempotency-Key')! } : {}),
+        ...(handoffToken ? { 'x-flo-maintenance-handoff': handoffToken } : {}),
       },
       body: ['GET', 'HEAD'].includes(req.method) ? undefined : JSON.stringify(req.body || {}),
       signal: getHttpRequestSignal(req),
@@ -209,6 +223,10 @@ async function forwardToMainApiImpl(
     }
     console.error('[Server App] Main API forward failed:', error);
     res.status(502).json({ error: 'Could not reach the local POS API' });
+  } finally {
+    if (handoffToken) {
+      revokeDatabaseMaintenanceHandoff(handoffToken);
+    }
   }
 }
 
@@ -509,9 +527,17 @@ export function startServerApp(): Promise<void> {
       });
     });
 
-    app.post('/api/auth/login', authRateLimit(), (req: Request, res: Response) => {
+    app.post('/api/auth/login', loginAuthRateLimit(), (req: Request, res: Response) => {
       if (!isServerAppEnabled()) return res.status(404).json({ error: 'Not found' });
       try {
+        const ip = req.ip || req.socket.remoteAddress || 'unknown';
+        const loginLimiter = checkLoginRateLimit(ip);
+        if (!loginLimiter.allowed) {
+          return res.status(429).json({
+            error: `Too many failed attempts. Try again in ${loginLimiter.waitMinutes} minutes.`,
+          });
+        }
+
         const email = normalizeEmail(req.body?.email);
         const { password, remember_me } = req.body;
         if (!email || !password)
@@ -529,8 +555,16 @@ export function startServerApp(): Promise<void> {
           }
         }
         if (!user || !passwordMatches) {
-          return res.status(401).json({ error: 'Invalid credentials' });
+          const attemptsRemaining = incrementFailedLogin(ip);
+          return res.status(401).json({
+            error: 'Invalid credentials',
+            attempts_remaining: attemptsRemaining,
+            lockout_minutes: attemptsRemaining === 0 ? FAILED_LOGIN_LOCKOUT_MINUTES : undefined,
+          });
         }
+
+        resetSuccessfulLogin(ip);
+
         if (!hasPermission(user.id, 'server-app.use')) {
           return res.status(403).json({
             error: 'Access denied. Only server, manager, or owner accounts allowed.',

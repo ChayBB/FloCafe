@@ -36,6 +36,7 @@ import {
   Download,
   Loader2,
   SquarePen,
+  Pencil,
 } from 'lucide-react';
 import type { Order, OrderItem, Bill, Customer } from '@/lib/types';
 import { receiptChargeLines } from '@/lib/charges';
@@ -45,6 +46,8 @@ import { useFormatCurrency } from '@/hooks/useFormatCurrency';
 import { useFormatDate } from '@/hooks/useFormatDate';
 import { parseDbTimestamp } from '@/lib/utils';
 import { formatItemHeading } from '@/lib/printer/item-heading';
+import { isTerminalItemStatus } from '../../../../shared/order-item-status';
+import PendingOrderItemEdits from './PendingOrderItemEdits';
 
 type OrdersKey = keyof AppConfig['Messages']['orders'];
 type WhatsAppStatusKey = keyof AppConfig['Messages']['whatsapp']['status'];
@@ -183,6 +186,9 @@ interface OrderCardProps {
   onCreateCustomer?: (orderId: number, search: string) => void;
   onCreateNewOrderForCustomer: (order: Order) => void;
   onDownloadPrintPreview?: (billId: number) => void;
+  canEditItems?: boolean;
+  onEditItem?: (order: Order, item: OrderItem) => void;
+  onItemEditResolved?: (orderId: number) => Promise<boolean> | void;
   onDeleteItem?: (orderId: number, itemId: number) => void;
   onVoidItem?: (orderId: number, itemId: number, productName: string) => void;
   onRestoreItem?: (orderId: number, itemId: number) => void;
@@ -222,9 +228,12 @@ export function OrderCard({
   onCreateCustomer,
   onCreateNewOrderForCustomer,
   onDownloadPrintPreview,
+  canEditItems = false,
+  onEditItem,
   onDeleteItem,
   onVoidItem,
   onRestoreItem,
+  onItemEditResolved,
 }: OrderCardProps) {
   const tOrders = useTranslations('orders');
   const tCommon = useTranslations('common');
@@ -238,12 +247,12 @@ export function OrderCard({
   const [showAllItems, setShowAllItems] = useState(false);
   const [showVoidedItems, setShowVoidedItems] = useState(false);
   const [showPrintActivity, setShowPrintActivity] = useState(false);
+  const [pendingResolveIds, setPendingResolveIds] = useState<number[]>([]);
+  const itemEditBlocked = (itemId: number) => pendingResolveIds.includes(itemId);
 
-  const activeItems = (order.items || []).filter(
-    (i) => !['cancelled', 'voided', 'void_adjustment'].includes(i.status),
-  );
-  const inactiveItems = (order.items || []).filter((i) =>
-    ['cancelled', 'voided'].includes(i.status),
+  const activeItems = (order.items || []).filter((i) => !isTerminalItemStatus(i.status));
+  const inactiveItems = (order.items || []).filter(
+    (i) => ['cancelled', 'voided', 'refunded'].includes(i.status) && !i.superseded,
   );
 
   const bill = order.bill;
@@ -295,6 +304,26 @@ export function OrderCard({
     (b) => Number(b.paid_amount) > 0 && b.payment_status !== 'refunded',
   );
   const hasEligibleRefund = paidBills.length > 0;
+  const hasCollectedFunds = orderBills.some((candidate) => {
+    const status = String(candidate.payment_status || '');
+    const paidAmount = Number(candidate.paid_amount || 0);
+    const total = Number(candidate.total || 0);
+    const detailsCount = Array.isArray(candidate.payment_details)
+      ? candidate.payment_details.length
+      : 0;
+    return (
+      (paidAmount > 0 && status !== 'refunded') ||
+      status === 'partial' ||
+      status === 'partially_refunded' ||
+      (status === 'paid' && (total > 0 || detailsCount > 0))
+    );
+  });
+  const cancelRequiresPin =
+    order.status !== 'pending' ||
+    Boolean(
+      order.items?.some((i) => ['preparing', 'ready', 'served', 'completed'].includes(i.status)),
+    ) ||
+    hasCollectedFunds;
 
   const checkoutButtonLabel = (() => {
     if (generatingBillId === order.id) return tOrders('generating');
@@ -443,7 +472,7 @@ export function OrderCard({
                       disabled={cancellingOrderId === order.id}
                       className="text-red-600 focus:text-red-600 focus:bg-red-50 dark:focus:bg-red-950/40"
                     >
-                      {order.status === 'pending' ? (
+                      {!cancelRequiresPin ? (
                         <XCircle size={14} className="me-2" />
                       ) : (
                         <Lock size={14} className="me-2" />
@@ -658,6 +687,15 @@ export function OrderCard({
       <div className="px-4 py-3 flex-1 flex flex-col justify-between">
         {/* Item list */}
         <div id={`order-items-${order.id}`} className="space-y-2">
+          <PendingOrderItemEdits
+            orderId={order.id}
+            items={order.items}
+            // Recovery is permission- and identity-gated; a paid or terminal order
+            // still allows the same-key replay to be resolved.
+            canEditItems={canEditItems}
+            onPendingItemsChanged={setPendingResolveIds}
+            onItemEditResolved={onItemEditResolved}
+          />
           {displayedItems.map((item: OrderItem) => {
             const dotConfig = itemStatusDot[item.status] || itemStatusDot.pending;
             const heading = formatItemHeading(item.product_name, item.variant_selection);
@@ -680,10 +718,25 @@ export function OrderCard({
                       {fmt(Number(item.total))}
                     </span>
 
+                    {canEditItems &&
+                      onEditItem &&
+                      !isPaid &&
+                      !['completed', 'cancelled'].includes(order.status) &&
+                      !itemEditBlocked(item.id) && (
+                        <button
+                          type="button"
+                          onClick={() => onEditItem(order, item)}
+                          className="size-8 flex items-center justify-center text-muted-foreground hover:text-foreground active:scale-95 rounded-md hover:bg-muted transition-colors touch-manipulation"
+                          title={tOrders('editItem')}
+                        >
+                          <Pencil size={14} />
+                        </button>
+                      )}
                     {/* Touchscreen-accessible item actions for Manager */}
                     {canCancelItems &&
                       !isPaid &&
-                      !['completed', 'cancelled'].includes(order.status) && (
+                      !['completed', 'cancelled'].includes(order.status) &&
+                      !itemEditBlocked(item.id) && (
                         <div className="flex items-center gap-1 ms-1 shrink-0">
                           {item.status === 'pending' && onDeleteItem && (
                             <button
