@@ -8,6 +8,7 @@
  */
 const { execSync, exec } = require('child_process');
 const os = require('os');
+const path = require('path');
 
 // ── Validate args ───────────────────────────────────────────────────────────
 const ports = process.argv
@@ -41,8 +42,26 @@ const FLO_PATTERNS = [
   /(?:^|\s)(?:node|nodejs)(?:\s+\S+)*\s+dev-server\.js(?:$|\s)/i,
 ];
 
+// `npm run dev` launches this repository's own Electron binary as `electron .`,
+// which carries no --appName and so matched none of the patterns above — the
+// script skipped the very process it exists to clear, and the documented
+// EADDRINUSE recovery did nothing in dev.
+//
+// Anchored to this file's directory rather than to "any Electron": a second
+// checkout, or any other app built on Electron, must never match.
+const DEV_ELECTRON_BINARY = path.join(__dirname, 'node_modules', 'electron', 'dist', 'electron');
+
+function normalizeExecutablePath(value) {
+  return value.split('\\').join('/').toLowerCase();
+}
+
+function isDevElectron(cmdline) {
+  return normalizeExecutablePath(cmdline).includes(normalizeExecutablePath(DEV_ELECTRON_BINARY));
+}
+
 function isFloProcess(cmdline) {
   if (!cmdline) return false;
+  if (isDevElectron(cmdline)) return true;
   return FLO_PATTERNS.some((pat) => pat.test(cmdline));
 }
 

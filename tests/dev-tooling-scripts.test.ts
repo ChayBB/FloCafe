@@ -225,8 +225,29 @@ if (args[0] === 'ls') {
     assert.strictEqual(isFloProcess(cmd), true, `Expected "${cmd}" to match Flo process patterns`);
   }
 
+  // `npm run dev` runs this repository's own Electron as `electron .`, with no
+  // --appName. It used to match nothing, so `npm run clean` skipped the one
+  // process it exists to clear and EADDRINUSE recovery did nothing in dev.
+  const devElectron = path.join(rootDir, 'node_modules', 'electron', 'dist', 'electron.exe') + ' .';
+  assert.strictEqual(
+    isFloProcess(devElectron),
+    true,
+    "Expected this repository's dev Electron to match",
+  );
+  assert.strictEqual(
+    isFloProcess(path.join(rootDir, 'node_modules/electron/dist/electron') + ' .'),
+    true,
+    'Expected the POSIX form of the same binary to match',
+  );
+
   // Negative cases (should NOT match as Flo processes)
   const negativeCases = [
+    // Anchored to this checkout: another project's dev Electron, and every other
+    // app built on Electron, must stay untouched.
+    'C:\\Other\\Project\\node_modules\\electron\\dist\\electron.exe .',
+    '/Users/dev/other-checkout/node_modules/electron/dist/electron .',
+    '/usr/lib/code/node_modules/electron/dist/electron --type=renderer',
+    'C:\\Users\\dev\\AppData\\Local\\slack\\slack.exe',
     'node /Users/dev/other-project/index.js',
     'node /Users/other-project/dist/index.js',
     'node /Users/other-project/dev-server.js',
