@@ -76,11 +76,24 @@ function main() {
     'every migration version is declared exactly once',
   );
   const ascendingVersions = [...declaredVersions].sort((a: number, b: number) => a - b);
-  assert.deepEqual(
-    ascendingVersions,
-    ascendingVersions.map((_: unknown, index: number) => index + 1),
-    'the registry runs contiguously from 1 with no gaps',
-  );
+  // Two ranges, each contiguous: the shared history from 1, and this fork's own
+  // migrations from the reserved 1000 upward. The gap between them is deliberate
+  // — it is what stops upstream's next version number from colliding with ours
+  // (see tests/migration-v1010-reserved-range.test.ts). Within a range nothing
+  // may be skipped, so a new migration still cannot land unnoticed.
+  const FORK_RANGE_START = 1000;
+  for (const [label, versions] of [
+    ['the shared history', ascendingVersions.filter((v: number) => v < FORK_RANGE_START)],
+    ["this fork's reserved range", ascendingVersions.filter((v: number) => v >= FORK_RANGE_START)],
+  ] as [string, number[]][]) {
+    if (versions.length === 0) continue;
+    assert.deepEqual(
+      versions,
+      versions.map((_: unknown, index: number) => versions[0] + index),
+      `${label} runs contiguously from ${versions[0]} with no gaps`,
+    );
+  }
+  assert.equal(ascendingVersions[0], 1, 'the shared history still starts at 1');
   assert.equal(
     tailVersion,
     ascendingVersions[ascendingVersions.length - 1],
