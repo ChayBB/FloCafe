@@ -46,7 +46,12 @@ function loadLtrComponent(): {
   };
   const originalResolveFilename = moduleApi._resolveFilename;
 
-  moduleApi._resolveFilename = function (request: string, parent: any, isMain: boolean, options?: any) {
+  moduleApi._resolveFilename = function (
+    request: string,
+    parent: any,
+    isMain: boolean,
+    options?: any,
+  ) {
     let resolvedRequest = request;
     if (request.startsWith('@/')) {
       resolvedRequest = path.resolve(ROOT, 'frontend/src', request.slice(2));
@@ -118,7 +123,10 @@ function scanFile(filePath: string): string[] {
 
 function scanDir(dir: string): Array<{ file: string; matches: string[] }> {
   const out: Array<{ file: string; matches: string[] }> = [];
-  for (const f of fs.readdirSync(dir).filter((f) => f.endsWith('.tsx')).sort()) {
+  for (const f of fs
+    .readdirSync(dir)
+    .filter((f) => f.endsWith('.tsx'))
+    .sort()) {
     if (SKIP_FILES.has(f)) continue;
     out.push({ file: f, matches: scanFile(path.join(dir, f)) });
   }
@@ -142,12 +150,17 @@ function run(): void {
       totalPhysical += matches.length;
     }
   }
-  console.log(`  ✓ shared components use logical direction utilities (${totalPhysical} allowlisted physical cases)`);
+  console.log(
+    `  ✓ shared components use logical direction utilities (${totalPhysical} allowlisted physical cases)`,
+  );
 
   // 2. globals.css contains the RTL foundation rules.
   const css = fs.readFileSync(GLOBALS_CSS, 'utf8');
   assert(css.includes('.ltr-island'), 'globals.css missing .ltr-island rule');
-  assert(/\{\s*direction:\s*ltr;\s*unicode-bidi:\s*isolate;\s*\}/.test(css), '.ltr-island must set direction:ltr and unicode-bidi:isolate');
+  assert(
+    /\{\s*direction:\s*ltr;\s*unicode-bidi:\s*isolate;\s*\}/.test(css),
+    '.ltr-island must set direction:ltr and unicode-bidi:isolate',
+  );
   assert(/\[dir="rtl"\]\s*\.rtl-flip/.test(css), 'globals.css missing [dir="rtl"] .rtl-flip rule');
   assert(/scaleX\(-1\)/.test(css), '.rtl-flip must mirror with scaleX(-1)');
   console.log('  ✓ globals.css defines .ltr-island and .rtl-flip');
@@ -157,31 +170,35 @@ function run(): void {
   assert(typeof Ltr === 'function', 'Ltr component must be exported as a function');
 
   const defaultRender = ReactDOMServer.renderToStaticMarkup(
-    React.createElement(Ltr, null, 'user@example.com')
+    React.createElement(Ltr, null, 'user@example.com'),
   );
   assert(
     defaultRender === '<span dir="ltr" class="ltr-island">user@example.com</span>',
-    `Ltr must render default span with dir="ltr" and ltr-island class, got: ${defaultRender}`
+    `Ltr must render default span with dir="ltr" and ltr-island class, got: ${defaultRender}`,
   );
 
   const customClassRender = ReactDOMServer.renderToStaticMarkup(
-    React.createElement(Ltr, { className: 'font-mono text-sm' }, '192.168.1.1')
+    React.createElement(Ltr, { className: 'font-mono text-sm' }, '192.168.1.1'),
   );
   assert(
     customClassRender === '<span dir="ltr" class="ltr-island font-mono text-sm">192.168.1.1</span>',
-    `Ltr must merge custom className with ltr-island class, got: ${customClassRender}`
+    `Ltr must merge custom className with ltr-island class, got: ${customClassRender}`,
   );
 
   const customTagRender = ReactDOMServer.renderToStaticMarkup(
-    React.createElement(Ltr, { as: 'div', className: 'text-xs' }, 'PAIR-1234')
+    React.createElement(Ltr, { as: 'div', className: 'text-xs' }, 'PAIR-1234'),
   );
   assert(
     customTagRender === '<div dir="ltr" class="ltr-island text-xs">PAIR-1234</div>',
-    `Ltr must support rendering as a custom element tag (as="div"), got: ${customTagRender}`
+    `Ltr must support rendering as a custom element tag (as="div"), got: ${customTagRender}`,
   );
 
   const propsRender = ReactDOMServer.renderToStaticMarkup(
-    React.createElement(Ltr, { id: 'email-link', 'data-testid': 'user-email', title: 'User Email' }, 'test@domain.com')
+    React.createElement(
+      Ltr,
+      { id: 'email-link', 'data-testid': 'user-email', title: 'User Email' },
+      'test@domain.com',
+    ),
   );
   assert(
     propsRender.includes('dir="ltr"') &&
@@ -190,15 +207,15 @@ function run(): void {
       propsRender.includes('data-testid="user-email"') &&
       propsRender.includes('title="User Email"') &&
       propsRender.includes('test@domain.com'),
-    `Ltr must forward HTML attributes and props to the rendered element, got: ${propsRender}`
+    `Ltr must forward HTML attributes and props to the rendered element, got: ${propsRender}`,
   );
 
   const nestedRender = ReactDOMServer.renderToStaticMarkup(
-    React.createElement(Ltr, null, React.createElement('strong', null, 'nested'))
+    React.createElement(Ltr, null, React.createElement('strong', null, 'nested')),
   );
   assert(
     nestedRender === '<span dir="ltr" class="ltr-island"><strong>nested</strong></span>',
-    `Ltr must render nested children correctly, got: ${nestedRender}`
+    `Ltr must render nested children correctly, got: ${nestedRender}`,
   );
 
   console.log('  ✓ Ltr component renders dir="ltr" LTR islands through React interface');

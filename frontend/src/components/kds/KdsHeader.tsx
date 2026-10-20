@@ -53,7 +53,9 @@ export function KdsHeader({
               <WifiOff size={16} className="text-amber-500" />
             </span>
           ) : null}
-          <span className={`w-2.5 h-2.5 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'}`} />
+          <span
+            className={`w-2.5 h-2.5 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'}`}
+          />
           <span className="text-xs text-gray-400">
             {connected
               ? connectionMode === 'websocket'
@@ -72,7 +74,9 @@ export function KdsHeader({
             >
               <option value="">{t('stationAll')}</option>
               {stations.map((station) => (
-                <option key={station.id} value={station.id}>{station.name}</option>
+                <option key={station.id} value={station.id}>
+                  {station.name}
+                </option>
               ))}
             </select>
           )}

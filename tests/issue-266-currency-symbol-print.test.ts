@@ -47,22 +47,26 @@ function seedPrintableBill(db: any) {
     VALUES ('printer-266', 'Preview Printer', 'network', '127.0.0.1', 9100, 1, '80mm', ?, ?)
   `).run(now(), now());
 
-  const order = db.prepare(`
+  const order = db
+    .prepare(`
     INSERT INTO orders (order_number, type, status, subtotal, total, created_at, updated_at)
     VALUES ('ORD-266', 'takeaway', 'completed', 100, 100, ?, ?)
     RETURNING id
-  `).get(now(), now()) as { id: number };
+  `)
+    .get(now(), now()) as { id: number };
 
   db.prepare(`
     INSERT INTO order_items (order_id, product_id, product_name, unit_price, quantity, subtotal, total, created_at, updated_at)
     VALUES (?, 'prod-266', 'Mint Tea', 100, 1, 100, 100, ?, ?)
   `).run(order.id, now(), now());
 
-  const bill = db.prepare(`
+  const bill = db
+    .prepare(`
     INSERT INTO bills (bill_number, order_id, subtotal, total, balance, payment_status, created_at, updated_at)
     VALUES ('BILL-266', ?, 100, 100, 100, 'unpaid', ?, ?)
     RETURNING id
-  `).get(order.id, now(), now()) as { id: number };
+  `)
+    .get(order.id, now(), now()) as { id: number };
 
   return { orderId: order.id, billId: bill.id };
 }
@@ -106,10 +110,14 @@ async function main() {
     assertEqual(settingsRes.status, 200, 'business settings update succeeds');
     assertEqual(settingsRes.data.country, 'MA', 'settings response uses Morocco country');
     assertEqual(settingsRes.data.currency, 'MAD', 'settings response uses MAD currency');
-    const savedSymbol = db.prepare("SELECT value FROM settings WHERE key = 'currency_symbol'").get() as { value: string };
+    const savedSymbol = db
+      .prepare("SELECT value FROM settings WHERE key = 'currency_symbol'")
+      .get() as { value: string };
     assertEqual(savedSymbol.value, 'MAD', 'settings.currency_symbol is derived from MAD');
 
-    console.log('\n2. Electron preview derives from current currency even if stored symbol is stale');
+    console.log(
+      '\n2. Electron preview derives from current currency even if stored symbol is stale',
+    );
     upsertSetting(db, 'currency_symbol', '₹');
     const madPreview = await api(baseUrl, '/api/printers/print-bill', {
       method: 'POST',
@@ -135,7 +143,11 @@ async function main() {
     if (server) server.close();
     closeDatabase();
     Module._load = originalLoad;
-    try { fs.rmSync(testDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    try {
+      fs.rmSync(testDir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
   }
 
   const { passed, failed, total } = getResults();
@@ -146,8 +158,16 @@ async function main() {
 
 main().catch((error: unknown) => {
   console.error(error);
-  try { closeDatabase(); } catch { /* ignore */ }
-  try { fs.rmSync(testDir, { recursive: true, force: true }); } catch { /* ignore */ }
+  try {
+    closeDatabase();
+  } catch {
+    /* ignore */
+  }
+  try {
+    fs.rmSync(testDir, { recursive: true, force: true });
+  } catch {
+    /* ignore */
+  }
   Module._load = originalLoad;
   process.exit(1);
 });

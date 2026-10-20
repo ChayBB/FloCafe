@@ -17,13 +17,17 @@ const os = require('os');
 const path = require('path');
 const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-seq-'));
 Module._load = function (request: string, parent: unknown, isMain: boolean) {
-  if (request === 'electron') return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
+  if (request === 'electron')
+    return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
   return originalLoad.apply(this, arguments as any);
 };
 
 const {
-  initTestDb, getResults, closeDatabase,
-  assert, assertEqual,
+  initTestDb,
+  getResults,
+  closeDatabase,
+  assert,
+  assertEqual,
 } = require('./helpers/test-setup');
 
 const { generateOrderNumber, generateBillNumber, dateStampInTimezone } = require('../main/db');
@@ -37,7 +41,9 @@ async function main() {
   try {
     // ── Test 1: sequences table has composite primary key ──────────────
     console.log('\n1. Sequences table has composite primary key (name, date)');
-    const tableInfo = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='sequences'").get();
+    const tableInfo = db
+      .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='sequences'")
+      .get();
     const ddl = tableInfo?.sql?.replace(/\s+/g, ' ').trim() || '';
     assert(ddl.includes('PRIMARY KEY (name, date)'), 'Table has PRIMARY KEY (name, date)');
 
@@ -99,18 +105,30 @@ async function main() {
 
     // ── Test 10: Invoice numbers can reset monthly ────────────────────
     console.log('\n10. Bill numbers can reset monthly');
-    db.prepare("UPDATE settings SET value = 'monthly' WHERE key = 'invoice_number_reset_period'").run();
+    db.prepare(
+      "UPDATE settings SET value = 'monthly' WHERE key = 'invoice_number_reset_period'",
+    ).run();
     db.prepare('DELETE FROM sequences WHERE name = ?').run('bills');
     const monthly = generateBillNumber();
-    assertEqual(monthly, `INV-${orderToday.slice(0, 6)}-0001`, 'Monthly bill number uses YYYYMM bucket');
+    assertEqual(
+      monthly,
+      `INV-${orderToday.slice(0, 6)}-0001`,
+      'Monthly bill number uses YYYYMM bucket',
+    );
     const monthlyRow = db.prepare("SELECT date FROM sequences WHERE name = 'bills'").get() as any;
     assertEqual(monthlyRow?.date, orderToday.slice(0, 6), 'Monthly sequence bucket is YYYYMM');
 
     // ── Test 11: Invoice numbers can reset by financial year ───────────
     console.log('\n11. Bill numbers can reset by financial year');
-    db.prepare("UPDATE settings SET value = 'financial_year' WHERE key = 'invoice_number_reset_period'").run();
-    db.prepare("UPDATE settings SET value = '4' WHERE key = 'invoice_financial_year_start_month'").run();
-    db.prepare("UPDATE settings SET value = '1' WHERE key = 'invoice_financial_year_start_day'").run();
+    db.prepare(
+      "UPDATE settings SET value = 'financial_year' WHERE key = 'invoice_number_reset_period'",
+    ).run();
+    db.prepare(
+      "UPDATE settings SET value = '4' WHERE key = 'invoice_financial_year_start_month'",
+    ).run();
+    db.prepare(
+      "UPDATE settings SET value = '1' WHERE key = 'invoice_financial_year_start_day'",
+    ).run();
     db.prepare('DELETE FROM sequences WHERE name = ?').run('bills');
     const parts = orderToday.match(/^(\d{4})(\d{2})(\d{2})$/);
     const year = Number(parts?.[1]);
@@ -119,12 +137,20 @@ async function main() {
     const fyStart = month > 4 || (month === 4 && day >= 1) ? year : year - 1;
     const fySegment = `FY${fyStart}-${String((fyStart + 1) % 100).padStart(2, '0')}`;
     const financialYear = generateBillNumber();
-    assertEqual(financialYear, `INV-${fySegment}-0001`, 'Financial-year bill number uses FY segment');
+    assertEqual(
+      financialYear,
+      `INV-${fySegment}-0001`,
+      'Financial-year bill number uses FY segment',
+    );
 
     // ── Test 12: Invoice numbers can run without resets or period text ─
     console.log('\n12. Bill numbers can run without resets or period text');
-    db.prepare("UPDATE settings SET value = 'never' WHERE key = 'invoice_number_reset_period'").run();
-    db.prepare("UPDATE settings SET value = 'false' WHERE key = 'invoice_number_include_period'").run();
+    db.prepare(
+      "UPDATE settings SET value = 'never' WHERE key = 'invoice_number_reset_period'",
+    ).run();
+    db.prepare(
+      "UPDATE settings SET value = 'false' WHERE key = 'invoice_number_include_period'",
+    ).run();
     db.prepare('DELETE FROM sequences WHERE name = ?').run('bills');
     const noReset = generateBillNumber();
     assertEqual(noReset, 'INV-0001', 'No-reset bill number omits period text when configured');
@@ -134,12 +160,20 @@ async function main() {
     // ── Test 13: A pre-existing prefix saved with a trailing dash is ──
     // ── sanitized so it doesn't double up with the auto separator ─────
     console.log('\n13. Bill number sanitizes a pre-existing "FAC-" prefix (no double dash)');
-    db.prepare("UPDATE settings SET value = 'daily' WHERE key = 'invoice_number_reset_period'").run();
-    db.prepare("UPDATE settings SET value = 'true' WHERE key = 'invoice_number_include_period'").run();
+    db.prepare(
+      "UPDATE settings SET value = 'daily' WHERE key = 'invoice_number_reset_period'",
+    ).run();
+    db.prepare(
+      "UPDATE settings SET value = 'true' WHERE key = 'invoice_number_include_period'",
+    ).run();
     db.prepare("UPDATE settings SET value = 'FAC-' WHERE key = 'invoice_number_prefix'").run();
     db.prepare('DELETE FROM sequences WHERE name = ?').run('bills');
     const facDash = generateBillNumber();
-    assertEqual(facDash, `FAC-${orderToday}-0001`, 'Trailing dash in stored prefix is stripped, not doubled');
+    assertEqual(
+      facDash,
+      `FAC-${orderToday}-0001`,
+      'Trailing dash in stored prefix is stripped, not doubled',
+    );
 
     // ── Summary ───────────────────────────────────────────────────────
     console.log('\n' + '='.repeat(50));

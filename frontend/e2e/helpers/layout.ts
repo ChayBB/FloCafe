@@ -38,7 +38,9 @@ export async function scrollToEnd(locator: Locator): Promise<ScrollMetrics> {
  * document scroller. Lets a spec assert which region owns the scroll without
  * pinning a markup class.
  */
-export async function innermostScrollableAncestor(locator: Locator): Promise<ElementHandle<HTMLElement>> {
+export async function innermostScrollableAncestor(
+  locator: Locator,
+): Promise<ElementHandle<HTMLElement>> {
   const handle = await locator.evaluateHandle((element) => {
     let node: HTMLElement | null = element.parentElement;
     while (node) {

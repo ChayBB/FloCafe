@@ -68,18 +68,26 @@ export function layoutStyledUnit(
   if (requestedMultiplier === 2 && longestVariant > styleColumns && longestVariant <= columns) {
     multiplier = 1;
     available = columns;
-    warnings.push(warningFor(unit, 'Double-width style was downgraded so the complete text remains printable.'));
+    warnings.push(
+      warningFor(unit, 'Double-width style was downgraded so the complete text remains printable.'),
+    );
   } else if (requestedMultiplier === 2 && longestVariant > styleColumns) {
     multiplier = 1;
     available = columns;
-    warnings.push(warningFor(unit, 'Double-width style was downgraded and the complete text was wrapped.'));
+    warnings.push(
+      warningFor(unit, 'Double-width style was downgraded and the complete text was wrapped.'),
+    );
   }
 
   const lines = variants.flatMap((variant) => wrapToDisplayCells(variant, available));
   if (lines.length > variants.length) {
     warnings.push(warningFor(unit, 'Text was wrapped to the printer width without truncation.'));
   }
-  return Object.freeze({ lines: Object.freeze(lines), widthMultiplier: multiplier, warnings: Object.freeze(warnings) });
+  return Object.freeze({
+    lines: Object.freeze(lines),
+    widthMultiplier: multiplier,
+    warnings: Object.freeze(warnings),
+  });
 }
 
 /** Width-only invariant used by the ESC/POS safety layer after semantic layout. */

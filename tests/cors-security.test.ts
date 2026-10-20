@@ -4,7 +4,7 @@ import request from 'supertest';
 
 async function run() {
   console.log('Testing CORS IP Validation...');
-  
+
   const assert = (condition: boolean, msg: string) => {
     if (!condition) {
       throw new Error(`Assertion failed: ${msg}`);
@@ -30,7 +30,10 @@ async function run() {
   assert(isAllowedPrivateIp('8.8.8.8') === false, 'Should reject public IP');
   assert(isAllowedPrivateIp('100.63.255.255') === false, 'Should reject out of bound CGNAT (low)');
   assert(isAllowedPrivateIp('100.128.0.0') === false, 'Should reject out of bound CGNAT (high)');
-  assert(isAllowedPrivateIp('172.15.255.255') === false, 'Should reject out of bound Class B (low)');
+  assert(
+    isAllowedPrivateIp('172.15.255.255') === false,
+    'Should reject out of bound Class B (low)',
+  );
   assert(isAllowedPrivateIp('172.32.0.0') === false, 'Should reject out of bound Class B (high)');
   assert(isAllowedPrivateIp('192.169.0.1') === false, 'Should reject out of bound Class C');
 
@@ -41,14 +44,18 @@ async function run() {
 
   // 6. Rate Limiter Bypass Tests
   console.log('Testing Rate Limiter Bypass...');
-  
-  const createRateLimitedApp = (maxRequests: number, ipOverride?: string, extraOptions?: Record<string, any>) => {
+
+  const createRateLimitedApp = (
+    maxRequests: number,
+    ipOverride?: string,
+    extraOptions?: Record<string, any>,
+  ) => {
     const app = express();
     if (ipOverride) {
       app.use((req, res, next) => {
         Object.defineProperty(req, 'ip', {
           get: () => ipOverride,
-          configurable: true
+          configurable: true,
         });
         next();
       });
@@ -87,7 +94,10 @@ async function run() {
   const mappedV4App = createRateLimitedApp(2, '::ffff:127.0.0.1');
   for (let i = 0; i < 5; i++) {
     const resPrivate = await request(mappedV4App).get('/test');
-    assert(resPrivate.status === 200, `IPv4-mapped IPv6 request ${i + 1} should bypass rate limiting`);
+    assert(
+      resPrivate.status === 200,
+      `IPv4-mapped IPv6 request ${i + 1} should bypass rate limiting`,
+    );
   }
 
   // Test that private IPs ARE rate-limited when bypassPrivateIp:false (auth endpoints, vuln-0003)
@@ -107,7 +117,10 @@ async function run() {
   authRes = await request(authLoopbackApp).get('/test');
   assert(authRes.status === 200, 'Auth: loopback second request OK');
   authRes = await request(authLoopbackApp).get('/test');
-  assert(authRes.status === 429, 'Auth: loopback third request rate-limited when bypass disabled (vuln-0003)');
+  assert(
+    authRes.status === 429,
+    'Auth: loopback third request rate-limited when bypass disabled (vuln-0003)',
+  );
 
   // 7. Equivalent IP forms share one rate-limit bucket (GHSA-wp3q-hc3p-v36c)
   console.log('Testing equivalent IP-form bucket sharing...');
@@ -136,7 +149,10 @@ async function run() {
   sharedRes = await request(sharedBucketApp).get('/test').set('x-test-ip', '::ffff:8.8.8.8');
   assert(sharedRes.status === 200, 'shared bucket: mapped IPv6 second request OK');
   sharedRes = await request(sharedBucketApp).get('/test').set('x-test-ip', '8.8.8.8');
-  assert(sharedRes.status === 429, 'shared bucket: third request across equivalent forms throttled (429)');
+  assert(
+    sharedRes.status === 429,
+    'shared bucket: third request across equivalent forms throttled (429)',
+  );
 
   // Uppercase-mapped form must canonicalize to the same bucket as lowercase/plain.
   const caseBucketApp = createRotatingIpApp(1);
@@ -151,7 +167,10 @@ async function run() {
   assert(isAllowedPrivateIp('::ffff:8.8.8.8') === false, 'Should reject mapped public IPv6');
 
   // Malformed / non-IP / reserved IPv6 must not bypass and must not crash.
-  assert(isAllowedPrivateIp('::ffff:999.999.999.999') === false, 'Should reject malformed mapped IPv6');
+  assert(
+    isAllowedPrivateIp('::ffff:999.999.999.999') === false,
+    'Should reject malformed mapped IPv6',
+  );
   assert(isAllowedPrivateIp('fe80::1') === false, 'Should reject link-local IPv6');
   assert(isAllowedPrivateIp('fc00::1') === false, 'Should reject unique-local IPv6');
   const malformedApp = createRotatingIpApp(1);
@@ -168,7 +187,9 @@ async function run() {
     let statusCode = 200;
     const req: any = { ip, socket: { remoteAddress: ip } };
     const res: any = {
-      setHeader: (k: string, v: string) => { headers[k] = v; },
+      setHeader: (k: string, v: string) => {
+        headers[k] = v;
+      },
       status: (code: number) => {
         statusCode = code;
         return {
@@ -177,7 +198,9 @@ async function run() {
       },
     };
     let nextCalled = false;
-    const next = () => { nextCalled = true; };
+    const next = () => {
+      nextCalled = true;
+    };
     return { req, res, next, getNext: () => nextCalled, getStatus: () => statusCode };
   };
 
@@ -189,7 +212,7 @@ async function run() {
     assert(ctx.getNext() === true, `cleanup seed request ${i + 1} OK`);
   }
   // Wait for the window to expire
-  await new Promise(resolve => setTimeout(resolve, 25));
+  await new Promise((resolve) => setTimeout(resolve, 25));
   // The next request with a new IP triggers the table sweep (> 1000 items threshold)
   const sweepCtx = makeMockReqRes('203.0.113.1');
   limiter(sweepCtx.req, sweepCtx.res, sweepCtx.next);
@@ -226,10 +249,9 @@ async function run() {
   }
 
   console.log('✅ All CORS IP Validation & Rate Limiter tests passed!');
-
 }
 
-run().catch(err => {
+run().catch((err) => {
   console.error(err);
   process.exit(1);
 });

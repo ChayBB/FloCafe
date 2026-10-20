@@ -42,7 +42,9 @@ export type PrimaryLanguageSelection =
  *   - {@link ReceiptLanguagePolicy}: at most 1 additional → max 2 (v1).
  *   - {@link KotLanguagePolicy}: single-primary only.
  */
-export interface PrintLanguagePolicy<Additional extends readonly PrintLanguageCode[] = readonly []> {
+export interface PrintLanguagePolicy<
+  Additional extends readonly PrintLanguageCode[] = readonly [],
+> {
   readonly primary: PrimaryLanguageSelection;
   readonly additional: Additional;
 }
@@ -67,9 +69,6 @@ export interface LanguageRegistryFacts {
 }
 
 /** Ordered resolved languages for a printable document (primary first). */
-export type ResolvedPrintLanguages = readonly [
-  PrintLanguageCode,
-] | readonly [
-  PrintLanguageCode,
-  PrintLanguageCode,
-];
+export type ResolvedPrintLanguages =
+  | readonly [PrintLanguageCode]
+  | readonly [PrintLanguageCode, PrintLanguageCode];

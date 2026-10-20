@@ -20,7 +20,7 @@ import { initDatabase, closeDatabase, getDatabase } from '../main/db';
 
 async function run() {
   console.log('Testing Dual-Server Application Smoke Test...');
-  
+
   const assert = (condition: boolean, msg: string) => {
     if (!condition) {
       throw new Error(`Assertion failed: ${msg}`);
@@ -47,7 +47,10 @@ async function run() {
     // this POS by QR, subnet sweep or a typed address has no other way to learn
     // them before signing in — /api/pos-info carries the same values but needs a
     // token. docs/mobile-discovery.md relies on this.
-    assert(res1.body.service === 'Flo Local API', 'health reports the service marker clients match on');
+    assert(
+      res1.body.service === 'Flo Local API',
+      'health reports the service marker clients match on',
+    );
     assert(res1.body.kds_port === kdsPort, 'health reports the KDS port');
     assert(typeof res1.body.server_app_port === 'number', 'health reports the Server App port');
 
@@ -73,11 +76,11 @@ async function run() {
     closeDatabase();
     try {
       fs.rmSync(testDir, { recursive: true, force: true });
-    } catch { }
+    } catch {}
   }
 }
 
-run().catch(err => {
+run().catch((err) => {
   console.error(err);
   process.exit(1);
 });

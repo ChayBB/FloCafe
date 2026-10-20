@@ -58,8 +58,16 @@ async function run(): Promise<void> {
   const kds = await startHealthyServer();
   const serverApp = await startHealthyServer();
   try {
-    const healthy = await probeBackendHealth({ server: main.port, kds: kds.port, serverApp: serverApp.port });
-    assert.equal(healthy, true, 'probeBackendHealth reports healthy when all three /api/health endpoints respond ok');
+    const healthy = await probeBackendHealth({
+      server: main.port,
+      kds: kds.port,
+      serverApp: serverApp.port,
+    });
+    assert.equal(
+      healthy,
+      true,
+      'probeBackendHealth reports healthy when all three /api/health endpoints respond ok',
+    );
     console.log('  ✓ Reports healthy when all three services answer.');
   } finally {
     await Promise.all([main.close(), kds.close(), serverApp.close()]);
@@ -79,7 +87,11 @@ async function run(): Promise<void> {
         { server: main2.port, kds: deadKdsPort, serverApp: serverApp2.port },
         500,
       );
-      assert.equal(healthy, false, 'probeBackendHealth reports unhealthy when the KDS endpoint is unreachable');
+      assert.equal(
+        healthy,
+        false,
+        'probeBackendHealth reports unhealthy when the KDS endpoint is unreachable',
+      );
       console.log('  ✓ Reports unhealthy when the KDS endpoint does not answer.');
     } finally {
       await Promise.all([main2.close(), serverApp2.close()]);
@@ -100,7 +112,11 @@ async function run(): Promise<void> {
         { server: main3.port, kds: kds3.port, serverApp: deadServerAppPort },
         500,
       );
-      assert.equal(healthy, false, 'probeBackendHealth reports unhealthy when the Server App endpoint is unreachable');
+      assert.equal(
+        healthy,
+        false,
+        'probeBackendHealth reports unhealthy when the Server App endpoint is unreachable',
+      );
       console.log('  ✓ Reports unhealthy when the Server App endpoint does not answer.');
     } finally {
       await Promise.all([main3.close(), kds3.close()]);
@@ -108,7 +124,10 @@ async function run(): Promise<void> {
   }
 
   console.log('\n[Step 4] Non-ok HTTP response counts as unhealthy...');
-  const server3 = http.createServer((_req, res) => { res.writeHead(503); res.end(); });
+  const server3 = http.createServer((_req, res) => {
+    res.writeHead(503);
+    res.end();
+  });
   await new Promise<void>((resolve) => server3.listen(0, '127.0.0.1', () => resolve()));
   const address3 = server3.address();
   const port3 = typeof address3 === 'object' && address3 ? address3.port : 0;

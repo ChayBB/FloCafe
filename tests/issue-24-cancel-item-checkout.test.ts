@@ -19,18 +19,31 @@ const os = require('os');
 const path = require('path');
 const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-issue-24-'));
 Module._load = function (request: string, parent: unknown, isMain: boolean) {
-  if (request === 'electron') return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
+  if (request === 'electron')
+    return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
   return originalLoad.apply(this, arguments as any);
 };
 
 process.env.JWT_SECRET = 'test-secret-issue-24';
 
 const {
-  initTestDb, createApp, startServer,
-  seedOwnerUser, seedManagerUser, seedCategory, seedProduct, seedTable,
+  initTestDb,
+  createApp,
+  startServer,
+  seedOwnerUser,
+  seedManagerUser,
+  seedCategory,
+  seedProduct,
+  seedTable,
   installAndActivateTestTaxPack,
-  api, assert, assertEqual, assertIncludes,
-  getResults, closeDatabase, getDatabase, now,
+  api,
+  assert,
+  assertEqual,
+  assertIncludes,
+  getResults,
+  closeDatabase,
+  getDatabase,
+  now,
 } = require('./helpers/test-setup');
 
 const { registerRoutes } = require('../main/routes/index');
@@ -40,7 +53,13 @@ const dualRatePackData = require('./fixtures/synthetic-dual-rate-pack.json');
 // Country/currency stay IN/INR (the default test business country) so
 // getActiveCountryPack() actually resolves this pack instead of falling
 // through to the generic no-tax default.
-const testTaxPack = { ...dualRatePackData, id: 'test-in-pack', country: 'IN', currency: 'INR', publisher: 'FreeOpenSourcePOS' };
+const testTaxPack = {
+  ...dualRatePackData,
+  id: 'test-in-pack',
+  country: 'IN',
+  currency: 'INR',
+  publisher: 'FreeOpenSourcePOS',
+};
 
 async function main() {
   console.log('Integration Test: Issue #24 — Cancel item then checkout');
@@ -65,15 +84,29 @@ async function main() {
   const jwt = require('jsonwebtoken');
   const { getJWTSecret } = require('../main/routes/auth');
   app.use((req: any, res: any, next: any) => {
-    if (!req.path.startsWith('/api')) { next(); return; }
-    if (req.path === '/api/health') { next(); return; }
-    if (req.path.startsWith('/api/auth') && !req.path.includes('/api/auth/me')) { next(); return; }
+    if (!req.path.startsWith('/api')) {
+      next();
+      return;
+    }
+    if (req.path === '/api/health') {
+      next();
+      return;
+    }
+    if (req.path.startsWith('/api/auth') && !req.path.includes('/api/auth/me')) {
+      next();
+      return;
+    }
     const h = req.headers.authorization;
-    if (!h?.startsWith('Bearer ')) { res.status(401).json({ error: 'Authentication required' }); return; }
+    if (!h?.startsWith('Bearer ')) {
+      res.status(401).json({ error: 'Authentication required' });
+      return;
+    }
     try {
       (req as any).user = jwt.verify(h.split(' ')[1], getJWTSecret());
       next();
-    } catch { res.status(401).json({ error: 'Invalid token' }); }
+    } catch {
+      res.status(401).json({ error: 'Invalid token' });
+    }
   });
 
   app.use('/api/orders', orderRoutes);
@@ -88,15 +121,20 @@ async function main() {
     {
       const createRes = await api(baseUrl, '/api/orders', {
         method: 'POST',
-        body: { type: 'takeaway', items: [
-          { product_id: 'prod-24-a', quantity: 1 },
-          { product_id: 'prod-24-b', quantity: 1 },
-        ]},
+        body: {
+          type: 'takeaway',
+          items: [
+            { product_id: 'prod-24-a', quantity: 1 },
+            { product_id: 'prod-24-b', quantity: 1 },
+          ],
+        },
         headers: authHeader,
       });
       assertEqual(createRes.status, 201, 'A: order created');
       const orderId = createRes.data.order.id;
-      const itemToCancel = createRes.data.order.items.find((i: any) => i.product_id === 'prod-24-b').id;
+      const itemToCancel = createRes.data.order.items.find(
+        (i: any) => i.product_id === 'prod-24-b',
+      ).id;
 
       const cancelRes = await api(baseUrl, `/api/orders/${orderId}/items/${itemToCancel}/cancel`, {
         method: 'PATCH',
@@ -121,17 +159,23 @@ async function main() {
     {
       const createRes = await api(baseUrl, '/api/orders', {
         method: 'POST',
-        body: { type: 'delivery', delivery_charge: 50, items: [
-          { product_id: 'prod-24-a', quantity: 1 },
-          { product_id: 'prod-24-b', quantity: 1 },
-          { product_id: 'prod-24-c', quantity: 1 },
-        ]},
+        body: {
+          type: 'delivery',
+          delivery_charge: 50,
+          items: [
+            { product_id: 'prod-24-a', quantity: 1 },
+            { product_id: 'prod-24-b', quantity: 1 },
+            { product_id: 'prod-24-c', quantity: 1 },
+          ],
+        },
         headers: authHeader,
       });
       assertEqual(createRes.status, 201, 'B: order with delivery charge created');
       const orderId = createRes.data.order.id;
 
-      const itemToCancel = createRes.data.order.items.find((i: any) => i.product_id === 'prod-24-c').id;
+      const itemToCancel = createRes.data.order.items.find(
+        (i: any) => i.product_id === 'prod-24-c',
+      ).id;
 
       const cancelRes = await api(baseUrl, `/api/orders/${orderId}/items/${itemToCancel}/cancel`, {
         method: 'PATCH',
@@ -150,10 +194,18 @@ async function main() {
         body: { order_id: orderId },
         headers: authHeader,
       });
-      assertEqual(billRes.status, 201, 'B: bill generated after item cancel WITH delivery charge (not 500)');
+      assertEqual(
+        billRes.status,
+        201,
+        'B: bill generated after item cancel WITH delivery charge (not 500)',
+      );
       assert(billRes.data.bill?.id > 0, 'B: bill has valid id');
       assertEqual(billRes.data.bill.delivery_charge, 50, 'B: bill preserves delivery_charge = 50');
-      assertEqual(billRes.data.bill.total, orderAfterCancel.total, 'B: bill total matches order total');
+      assertEqual(
+        billRes.data.bill.total,
+        orderAfterCancel.total,
+        'B: bill total matches order total',
+      );
     }
 
     // ── Scenario C: Cancel ALL items from order, bill should handle gracefully ─
@@ -161,9 +213,7 @@ async function main() {
     {
       const createRes = await api(baseUrl, '/api/orders', {
         method: 'POST',
-        body: { type: 'takeaway', items: [
-          { product_id: 'prod-24-a', quantity: 1 },
-        ]},
+        body: { type: 'takeaway', items: [{ product_id: 'prod-24-a', quantity: 1 }] },
         headers: authHeader,
       });
       assertEqual(createRes.status, 201, 'C: order created');
@@ -179,7 +229,11 @@ async function main() {
       // Issue #132: cancelling the last item must transition the order itself
       // to cancelled — otherwise it silently stays "active" with zero items,
       // cluttering the Active list and never freeing its table.
-      assertEqual(cancelRes.data.order.status, 'cancelled', 'C: order status = cancelled after last item cancelled');
+      assertEqual(
+        cancelRes.data.order.status,
+        'cancelled',
+        'C: order status = cancelled after last item cancelled',
+      );
       assert(!!cancelRes.data.order.cancelled_at, 'C: cancelled_at is set');
 
       // Restoring an item on a now-cancelled order must be refused — same
@@ -199,9 +253,11 @@ async function main() {
 
       const createRes = await api(baseUrl, '/api/orders', {
         method: 'POST',
-        body: { type: 'dine_in', table_id: 'tbl-132-1', items: [
-          { product_id: 'prod-24-a', quantity: 1 },
-        ]},
+        body: {
+          type: 'dine_in',
+          table_id: 'tbl-132-1',
+          items: [{ product_id: 'prod-24-a', quantity: 1 }],
+        },
         headers: authHeader,
       });
       assertEqual(createRes.status, 201, 'D: dine-in order created');
@@ -215,7 +271,9 @@ async function main() {
       assertEqual(cancelRes.status, 200, 'D: last item cancelled on dine-in order');
       assertEqual(cancelRes.data.order.status, 'cancelled', 'D: order status = cancelled');
 
-      const tableRow = getDatabase().prepare('SELECT status FROM tables WHERE id = ?').get('tbl-132-1') as any;
+      const tableRow = getDatabase()
+        .prepare('SELECT status FROM tables WHERE id = ?')
+        .get('tbl-132-1') as any;
       assertEqual(tableRow.status, 'available', 'D: table freed after last item cancelled');
     }
 
@@ -224,23 +282,30 @@ async function main() {
     {
       const createRes = await api(baseUrl, '/api/orders', {
         method: 'POST',
-        body: { type: 'takeaway', items: [
-          { product_id: 'prod-24-a', quantity: 1 },
-          { product_id: 'prod-24-b', quantity: 1 },
-        ]},
+        body: {
+          type: 'takeaway',
+          items: [
+            { product_id: 'prod-24-a', quantity: 1 },
+            { product_id: 'prod-24-b', quantity: 1 },
+          ],
+        },
         headers: authHeader,
       });
       const orderId = createRes.data.order.id;
-      const itemToCancel = createRes.data.order.items.find((i: any) => i.product_id === 'prod-24-b').id;
+      const itemToCancel = createRes.data.order.items.find(
+        (i: any) => i.product_id === 'prod-24-b',
+      ).id;
 
       const cancelRes = await api(baseUrl, `/api/orders/${orderId}/items/${itemToCancel}/cancel`, {
         method: 'PATCH',
         headers: authHeader,
       });
       assertEqual(cancelRes.status, 200, 'E: item cancelled');
-      assert(cancelRes.data.order.status !== 'cancelled', 'E: order stays active — one item still active');
+      assert(
+        cancelRes.data.order.status !== 'cancelled',
+        'E: order stays active — one item still active',
+      );
     }
-
   } finally {
     server.close();
     closeDatabase();

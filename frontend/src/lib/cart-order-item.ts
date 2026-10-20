@@ -35,14 +35,15 @@ export function cartItemToOrderItem(item: OrderItemSource): OrderItemPayload {
     product_id: item.product.id,
     variant_id: item.variant?.id ?? null,
     quantity: item.quantity,
-    addons: item.addons.length > 0
-      ? item.addons.map((addon) => ({
-        id: addon.id,
-        name: addon.name,
-        price: addon.price,
-        quantity: addon.quantity || 1,
-      }))
-      : null,
+    addons:
+      item.addons.length > 0
+        ? item.addons.map((addon) => ({
+            id: addon.id,
+            name: addon.name,
+            price: addon.price,
+            quantity: addon.quantity || 1,
+          }))
+        : null,
     special_instructions: item.special_instructions || null,
   };
 }

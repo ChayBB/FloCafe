@@ -55,7 +55,7 @@ async function main() {
   for (let i = 1; i <= 5; i++) {
     db.prepare(
       `INSERT OR IGNORE INTO customers (id, name, phone, is_active, created_at, updated_at)
-       VALUES (?, ?, ?, 1, ?, ?)`
+       VALUES (?, ?, ?, 1, ?, ?)`,
     ).run(`cust-pag-${i}`, `Pagination Customer ${i}`, `+91900000000${i}`, now(), now());
   }
 
@@ -63,7 +63,7 @@ async function main() {
   // keyed by the JWT's userId — the token alone is not authoritative.
   db.prepare(
     `INSERT OR IGNORE INTO users (id, name, email, password, role, is_active, created_at, updated_at)
-     VALUES ('owner-pag-001', 'owner-pag-001', 'owner@pag.test', 'unused', 'owner', 1, ?, ?)`
+     VALUES ('owner-pag-001', 'owner-pag-001', 'owner@pag.test', 'unused', 'owner', 1, ?, ?)`,
   ).run(now(), now());
 
   const ownerAuth = makeToken('owner-pag-001', 'owner', 'owner@pag.test');
@@ -82,7 +82,11 @@ async function main() {
   // Test 3: Zero per_page=0 returns 400
   const resZero = await request(app).get('/api/customers?per_page=0').set(ownerAuth);
   assertEqual(resZero.status, 400, 'per_page=0 returns 400');
-  assertEqual(resZero.body.error, 'Invalid per_page parameter. Must be a positive integer.', 'Correct 400 error message for per_page=0');
+  assertEqual(
+    resZero.body.error,
+    'Invalid per_page parameter. Must be a positive integer.',
+    'Correct 400 error message for per_page=0',
+  );
 
   // Test 4: Negative per_page=-5 returns 400
   const resNegative = await request(app).get('/api/customers?per_page=-5').set(ownerAuth);
@@ -97,13 +101,19 @@ async function main() {
   assertEqual(resAlphabetic.status, 400, 'per_page=abc returns 400');
 
   // Test 7: SQL injection payload returns 400
-  const resSql = await request(app).get('/api/customers?per_page=1; DROP TABLE customers;').set(ownerAuth);
+  const resSql = await request(app)
+    .get('/api/customers?per_page=1; DROP TABLE customers;')
+    .set(ownerAuth);
   assertEqual(resSql.status, 400, 'SQL injection per_page payload returns 400');
 
   // Test 8: Oversized per_page=1000 returns 200 (capped at 500 max limit)
   const resOversized = await request(app).get('/api/customers?per_page=1000').set(ownerAuth);
   assertEqual(resOversized.status, 200, 'per_page=1000 returns 200');
-  assertEqual(resOversized.body.data.length, 5, 'per_page=1000 succeeds and returns all 5 seeded customers');
+  assertEqual(
+    resOversized.body.data.length,
+    5,
+    'per_page=1000 succeeds and returns all 5 seeded customers',
+  );
 
   closeDatabase();
 

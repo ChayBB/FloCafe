@@ -90,7 +90,8 @@ export function buildDailySalesExportDataset(
   const currency = getTenantCurrency(db);
   const minorFactor = getCurrencyMinorUnitFactor(currency);
 
-  const billRow = db.prepare(`
+  const billRow = db
+    .prepare(`
     SELECT
       COUNT(*) AS paid_bill_count,
       COUNT(DISTINCT order_id) AS order_count,
@@ -101,7 +102,8 @@ export function buildDailySalesExportDataset(
       COALESCE(SUM(delivery_charge), 0) AS delivery_charge_total
     FROM bills
     WHERE paid_at >= ? AND paid_at < ?
-  `).get(start, end) as {
+  `)
+    .get(start, end) as {
     paid_bill_count: number;
     order_count: number;
     gross_collected: number;
@@ -111,11 +113,13 @@ export function buildDailySalesExportDataset(
     delivery_charge_total: number;
   };
 
-  const refundRow = db.prepare(`
+  const refundRow = db
+    .prepare(`
     SELECT COALESCE(SUM(CAST(amount_cents AS REAL)) / ?, 0) AS refunds_issued
     FROM refunds
     WHERE created_at >= ? AND created_at < ?
-  `).get(minorFactor, start, end) as { refunds_issued: number };
+  `)
+    .get(minorFactor, start, end) as { refunds_issued: number };
 
   // Tax components: same paid-window hydration as computeDayAggregates / X-report.
   type PaidBillTaxRow = {
@@ -124,12 +128,14 @@ export function buildDailySalesExportDataset(
     tax_snapshot?: unknown;
     tax_breakdown?: unknown;
   };
-  const bills = db.prepare(`
+  const bills = db
+    .prepare(`
     SELECT b.*
     FROM bills b
     WHERE b.paid_at >= ? AND b.paid_at < ?
     ORDER BY b.paid_at, b.id
-  `).all(start, end) as PaidBillTaxRow[];
+  `)
+    .all(start, end) as PaidBillTaxRow[];
   const orders = getOrdersWithItemsForBills(db, bills);
   const taxDocuments = bills.map((bill) => ({
     tax_amount: bill.tax_amount,
@@ -140,7 +146,8 @@ export function buildDailySalesExportDataset(
   const taxComponents = aggregateTaxComponents(taxDocuments);
   const taxTotal = taxComponents.reduce((sum, component) => sum + Number(component.amount || 0), 0);
 
-  const itemRows = db.prepare(`
+  const itemRows = db
+    .prepare(`
     SELECT
       oi.product_id AS product_id,
       oi.product_name AS product_name,
@@ -172,7 +179,8 @@ export function buildDailySalesExportDataset(
       AND (b.split_group_id IS NULL OR b.split_group_id = '' OR bi.bill_id IS NOT NULL)
     GROUP BY oi.product_id, oi.product_name, oi.product_sku
     ORDER BY net_item_sales DESC, product_name ASC
-  `).all(start, end) as Array<{
+  `)
+    .all(start, end) as Array<{
     product_id: string;
     product_name: string;
     product_sku: string | null;
@@ -202,10 +210,13 @@ export function buildDailySalesExportDataset(
   // under the approved refund-day rule (attributeRefundsToBillDate=false).
   // count is intentionally dropped: paymentMethodBreakdown COUNT(*) covers
   // payment+refund lines, which is not a payment count (review: misleading).
-  const paymentMethods = paymentMethodBreakdown(
-    db,
-    { startDate: businessDate, endDate: businessDate, paidOnly: true, attributeRefundsToBillDate: false, keyByPaidAt: true },
-  ).map((row) => ({
+  const paymentMethods = paymentMethodBreakdown(db, {
+    startDate: businessDate,
+    endDate: businessDate,
+    paidOnly: true,
+    attributeRefundsToBillDate: false,
+    keyByPaidAt: true,
+  }).map((row) => ({
     method: String(row.method || 'unknown'),
     total: Number(row.total || 0),
   }));
@@ -254,7 +265,10 @@ export function dailySalesSummaryMetricRows(
     { metric: 'delivery_charge_total', value: summary.delivery_charge_total },
   ];
   for (const payment of summary.payment_methods) {
-    rows.push({ metric: `payment_${dailySalesPaymentMetricKey(payment.method)}`, value: payment.total });
+    rows.push({
+      metric: `payment_${dailySalesPaymentMetricKey(payment.method)}`,
+      value: payment.total,
+    });
   }
   return rows;
 }

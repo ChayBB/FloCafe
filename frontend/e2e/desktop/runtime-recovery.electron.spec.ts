@@ -8,8 +8,12 @@ test.setTimeout(90_000);
 let harness: NativeElectronHarness;
 
 async function countPosWindows(): Promise<number> {
-  return harness.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()
-    .filter((window: { webContents: { getURL: () => string } }) => window.webContents.getURL().startsWith('http://localhost:')).length);
+  return harness.app.evaluate(
+    ({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows().filter((window: { webContents: { getURL: () => string } }) =>
+        window.webContents.getURL().startsWith('http://localhost:'),
+      ).length,
+  );
 }
 
 test.beforeAll(async () => {
@@ -26,9 +30,15 @@ test('activation recreates a usable window after the renderer window is destroye
 
   await harness.app.evaluate(({ BrowserWindow }) => {
     new BrowserWindow({ show: false });
-    const pos = BrowserWindow.getAllWindows().find((win: { webContents: { getURL: () => string } }) => {
-      try { return win.webContents.getURL().startsWith('http://localhost:'); } catch { return false; }
-    });
+    const pos = BrowserWindow.getAllWindows().find(
+      (win: { webContents: { getURL: () => string } }) => {
+        try {
+          return win.webContents.getURL().startsWith('http://localhost:');
+        } catch {
+          return false;
+        }
+      },
+    );
     pos?.destroy();
   });
   await expect.poll(countPosWindows).toBe(0);
@@ -39,12 +49,17 @@ test('activation recreates a usable window after the renderer window is destroye
   });
   const recoveredPage = await recoveredWindow;
 
-  await recoveredPage.waitForURL((url) => url.port === String(harness.ports.main), { timeout: 30_000 });
+  await recoveredPage.waitForURL((url) => url.port === String(harness.ports.main), {
+    timeout: 30_000,
+  });
   await expect(recoveredPage.getByTestId('desktop-drag-surface')).toBeVisible();
   harness.setActivePage(recoveredPage);
   await harness.app.evaluate(({ BrowserWindow }) => {
     BrowserWindow.getAllWindows()
-      .filter((win: { webContents: { getURL: () => string } }) => !win.webContents.getURL().startsWith('http://localhost:'))
+      .filter(
+        (win: { webContents: { getURL: () => string } }) =>
+          !win.webContents.getURL().startsWith('http://localhost:'),
+      )
       .forEach((win: { destroy: () => void }) => win.destroy());
   });
   await expect.poll(countPosWindows).toBe(1);
@@ -52,7 +67,9 @@ test('activation recreates a usable window after the renderer window is destroye
 
   const evidenceDir = process.env.FLO_E2E_EVIDENCE_DIR;
   if (evidenceDir) {
-    await recoveredPage.screenshot({ path: `${evidenceDir}/recovered-window-after-renderer-destroyed.png` });
+    await recoveredPage.screenshot({
+      path: `${evidenceDir}/recovered-window-after-renderer-destroyed.png`,
+    });
   }
 
   const runtime = await recoveredPage.evaluate(async () => window.electronAPI?.getStatus());
@@ -90,18 +107,24 @@ test('activation relaunches once after terminal runtime loss', async () => {
   await expect.poll(() => relaunchCalls, { timeout: 30_000 }).toBe(1);
 
   const recoveredPage = await harness.relaunchAndWaitForPage();
-  await recoveredPage.waitForURL((url) => url.port === String(harness.ports.main), { timeout: 30_000 });
+  await recoveredPage.waitForURL((url) => url.port === String(harness.ports.main), {
+    timeout: 30_000,
+  });
   await expect(recoveredPage.getByTestId('desktop-drag-surface')).toBeVisible();
   await expect(recoveredPage.locator('[data-slot="sidebar-container"]')).toBeVisible();
 
   const evidenceDir = process.env.FLO_E2E_EVIDENCE_DIR;
   if (evidenceDir) {
-    await recoveredPage.screenshot({ path: `${evidenceDir}/recovered-window-after-terminal-runtime-loss.png` });
+    await recoveredPage.screenshot({
+      path: `${evidenceDir}/recovered-window-after-terminal-runtime-loss.png`,
+    });
   }
 
-  await expect.poll(async () => recoveredPage.evaluate(async () => window.electronAPI?.getStatus())).toMatchObject({
-    server: 'running',
-    kdsServer: 'running',
-    serverApp: 'running',
-  });
+  await expect
+    .poll(async () => recoveredPage.evaluate(async () => window.electronAPI?.getStatus()))
+    .toMatchObject({
+      server: 'running',
+      kdsServer: 'running',
+      serverApp: 'running',
+    });
 });

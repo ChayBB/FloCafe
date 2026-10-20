@@ -51,7 +51,11 @@ function billTemplateSource(value: unknown): 'core' | 'non-core' {
   if (typeof selection === 'string') {
     const trimmed = selection.trim();
     if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
-      try { selection = JSON.parse(trimmed); } catch { selection = trimmed; }
+      try {
+        selection = JSON.parse(trimmed);
+      } catch {
+        selection = trimmed;
+      }
     } else {
       selection = trimmed.toLowerCase();
     }
@@ -78,7 +82,8 @@ export function makeBillTemplateFallbackWarning(value: unknown): PrintWarning | 
   return {
     field: 'bill_template',
     text: text || 'unknown',
-    message: 'The selected bill template is not supported on this print path, so the built-in receipt layout was used.',
+    message:
+      'The selected bill template is not supported on this print path, so the built-in receipt layout was used.',
     kind: 'configuration',
   };
 }
@@ -129,13 +134,20 @@ export function safePrinterText<T extends { text(value: string): T }>(
   const thermalCapabilities = mergeThermalCapabilities(capabilities, arabicShaping);
   const useLegacyUnicode = capabilities === undefined && useUnicode;
   const printableValue = normalizeThermalText(value, thermalCapabilities);
-  const hasNativeCodePage = thermalCapabilities.encoding.codePages.some((codePage) => codePage !== 'ascii');
-  const printerValue = (!useLegacyUnicode && !hasNativeCodePage
-    ? normalizeCurrencyToAscii(printableValue)
-    : printableValue).replace(/\u2026/g, useUnicode && arabicShaping ? '\u2026' : '.');
+  const hasNativeCodePage = thermalCapabilities.encoding.codePages.some(
+    (codePage) => codePage !== 'ascii',
+  );
+  const printerValue = (
+    !useLegacyUnicode && !hasNativeCodePage
+      ? normalizeCurrencyToAscii(printableValue)
+      : printableValue
+  ).replace(/\u2026/g, useUnicode && arabicShaping ? '\u2026' : '.');
   const hasUnsupported = hasUnsupportedPrinterChars(printerValue);
-  const shapingSafe = thermalCapabilities.shaping.arabic && isCapabilityArabicShapingSafeLine(printerValue);
-  const representable = !hasUnsupported || (isThermalTextRepresentable(printerValue, thermalCapabilities) && !shapingSafe);
+  const shapingSafe =
+    thermalCapabilities.shaping.arabic && isCapabilityArabicShapingSafeLine(printerValue);
+  const representable =
+    !hasUnsupported ||
+    (isThermalTextRepresentable(printerValue, thermalCapabilities) && !shapingSafe);
   if (hasUnsupported) {
     if (shapingSafe) {
       const sanitized = printerValue.replace(ESCPOS_TEXT_CONTROL_RE, '');
@@ -148,14 +160,17 @@ export function safePrinterText<T extends { text(value: string): T }>(
       if ('raw' in enc && typeof (enc as { raw?: (data: Uint8Array) => T }).raw === 'function') {
         let payloadText = boundShapedText(sanitized, maxCols ?? centerCols);
         const alignableEnc = enc as T & { align?: (alignment: 'left' | 'center') => T };
-        const centerRawLine = centerCols !== undefined && centerCols > 0 && typeof alignableEnc.align === 'function';
+        const centerRawLine =
+          centerCols !== undefined && centerCols > 0 && typeof alignableEnc.align === 'function';
         if (centerRawLine) {
           const pad = Math.max(0, Math.floor((centerCols - displayCellWidth(payloadText)) / 2));
           payloadText = ' '.repeat(pad) + payloadText;
           alignableEnc.align?.('left');
         }
         try {
-          return (enc as { raw: (data: Uint8Array) => T }).raw(new TextEncoder().encode(payloadText));
+          return (enc as { raw: (data: Uint8Array) => T }).raw(
+            new TextEncoder().encode(payloadText),
+          );
         } finally {
           if (centerRawLine) alignableEnc.align?.('center');
         }
@@ -171,15 +186,20 @@ export function safePrinterText<T extends { text(value: string): T }>(
   }
   const codePage = selectThermalCodePage(printerValue, thermalCapabilities);
   if (
-    thermalCapabilities.shaping.arabic
-    && !hasNativeCodePage
-    && 'raw' in enc
-    && typeof (enc as { raw?: (data: Uint8Array) => T }).raw === 'function'
+    thermalCapabilities.shaping.arabic &&
+    !hasNativeCodePage &&
+    'raw' in enc &&
+    typeof (enc as { raw?: (data: Uint8Array) => T }).raw === 'function'
   ) {
     const sanitized = printerValue.replace(ESCPOS_TEXT_CONTROL_RE, '');
     return (enc as { raw: (data: Uint8Array) => T }).raw(new TextEncoder().encode(sanitized));
   }
-  if (codePage && codePage !== 'ascii' && 'codepage' in enc && typeof (enc as { codepage?: (value: string) => T }).codepage === 'function') {
+  if (
+    codePage &&
+    codePage !== 'ascii' &&
+    'codepage' in enc &&
+    typeof (enc as { codepage?: (value: string) => T }).codepage === 'function'
+  ) {
     (enc as { codepage: (value: string) => T }).codepage(codePage);
   }
   return enc.text(printerValue);
@@ -188,7 +208,10 @@ export function safePrinterText<T extends { text(value: string): T }>(
 /** Extracts error string from an unknown error or API Axios response. */
 export function extractPrinterErrorMessage(err: unknown): string {
   if (!err) return '';
-  const maybeAxios = err as { response?: { data?: { detail?: unknown; error?: unknown } }; message?: unknown };
+  const maybeAxios = err as {
+    response?: { data?: { detail?: unknown; error?: unknown } };
+    message?: unknown;
+  };
   const detail = maybeAxios.response?.data?.detail;
   if (typeof detail === 'string' && detail.trim()) return detail.trim();
   const error = maybeAxios.response?.data?.error;
@@ -216,7 +239,10 @@ function printerOfflineFixHint(): string {
 }
 
 /** Formats a user-facing receipt print error message with operational detail when available. */
-export function formatReceiptErrorToast(detail?: string, fallbackTranslation = 'Receipt print failed'): string {
+export function formatReceiptErrorToast(
+  detail?: string,
+  fallbackTranslation = 'Receipt print failed',
+): string {
   const msg = String(detail || '').trim();
   if (PRINTER_OFFLINE_DETAIL_RE.test(msg)) return printerOfflineFixHint();
   if (msg.startsWith('Receipt not printed:')) return msg;
@@ -226,9 +252,11 @@ export function formatReceiptErrorToast(detail?: string, fallbackTranslation = '
   return fallbackTranslation;
 }
 
-
 /** Formats a user-facing KOT print error message with operational detail when available. */
-export function formatKotErrorToast(detail?: string, fallbackTranslation = 'KOT print failed'): string {
+export function formatKotErrorToast(
+  detail?: string,
+  fallbackTranslation = 'KOT print failed',
+): string {
   const msg = String(detail || '').trim();
   if (PRINTER_OFFLINE_DETAIL_RE.test(msg)) return printerOfflineFixHint();
   if (msg && msg !== 'print failed' && msg !== 'KOT print failed') {

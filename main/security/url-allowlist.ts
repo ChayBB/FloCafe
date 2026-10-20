@@ -36,12 +36,14 @@ export function isSafeExternalUrl(rawUrl: string): boolean {
 export function isSafeWhatsAppShareUrl(rawUrl: string): boolean {
   try {
     const parsed = new URL(rawUrl);
-    return parsed.protocol === 'https:'
-      && parsed.hostname === 'wa.me'
-      && parsed.username === ''
-      && parsed.password === ''
-      && parsed.port === ''
-      && /^\/(?:\d+)?$/.test(parsed.pathname);
+    return (
+      parsed.protocol === 'https:' &&
+      parsed.hostname === 'wa.me' &&
+      parsed.username === '' &&
+      parsed.password === '' &&
+      parsed.port === '' &&
+      /^\/(?:\d+)?$/.test(parsed.pathname)
+    );
   } catch {
     return false;
   }

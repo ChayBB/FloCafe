@@ -25,7 +25,8 @@ const os = require('os');
 const path = require('path');
 const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-issue-133-'));
 Module._load = function (request: string, parent: unknown, isMain: boolean) {
-  if (request === 'electron') return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
+  if (request === 'electron')
+    return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
   return originalLoad.apply(this, arguments as any);
 };
 
@@ -35,7 +36,13 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const request = require('supertest');
 const {
-  initTestDb, createApp, assert, assertEqual, getResults, closeDatabase, now,
+  initTestDb,
+  createApp,
+  assert,
+  assertEqual,
+  getResults,
+  closeDatabase,
+  now,
 } = require('./helpers/test-setup');
 
 const { settingsRoutes } = require('../main/routes/settings');
@@ -50,11 +57,14 @@ function seedUser(db: any, id: string, role: string, email: string) {
     INSERT OR REPLACE INTO users (id, name, email, password, role, pin_hash, is_active, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
   `).run(
-    id, `${role} user`, email,
+    id,
+    `${role} user`,
+    email,
     bcrypt.hashSync('testpass123', 10),
     role,
     bcrypt.hashSync('1234', 10),
-    now(), now(),
+    now(),
+    now(),
   );
   const token = jwt.sign({ userId: id, email, role }, getJWTSecret(), { expiresIn: '1h' });
   return { Authorization: `Bearer ${token}` };
@@ -97,18 +107,31 @@ async function main() {
       .post('/api/printers/print-bill')
       .set(cashierAuth)
       .send({ billId: 999999 });
-    assertEqual(cashierBillRes.status, 400, 'cashier reaches POST /api/printers/print-bill handler');
-    assertEqual(cashierBillRes.body.error, 'No default printer configured. Add a printer in Settings.', 'cashier print-bill fails at printer validation, not role gating');
+    assertEqual(
+      cashierBillRes.status,
+      400,
+      'cashier reaches POST /api/printers/print-bill handler',
+    );
+    assertEqual(
+      cashierBillRes.body.error,
+      'No default printer configured. Add a printer in Settings.',
+      'cashier print-bill fails at printer validation, not role gating',
+    );
 
     const cashierKotRes = await request(app)
       .post('/api/printers/print-kot')
       .set(cashierAuth)
       .send({ orderId: 999999 });
     assertEqual(cashierKotRes.status, 400, 'cashier reaches POST /api/printers/print-kot handler');
-    assertEqual(cashierKotRes.body.error, 'No default printer configured. Add a printer in Settings.', 'cashier print-kot fails at printer validation, not role gating');
+    assertEqual(
+      cashierKotRes.body.error,
+      'No default printer configured. Add a printer in Settings.',
+      'cashier print-kot fails at printer validation, not role gating',
+    );
 
     assertEqual(
-      (await request(app).post('/api/printers/print-bill').set(waiterAuth).send({ billId: 999999 })).status,
+      (await request(app).post('/api/printers/print-bill').set(waiterAuth).send({ billId: 999999 }))
+        .status,
       403,
       'server remains forbidden from POST /api/printers/print-bill',
     );
@@ -118,7 +141,11 @@ async function main() {
       .set(waiterAuth)
       .send({ orderId: 999999 });
     assertEqual(waiterKotRes.status, 400, 'server reaches POST /api/printers/print-kot handler');
-    assertEqual(waiterKotRes.body.error, 'No default printer configured. Add a printer in Settings.', 'server print-kot fails at printer validation, not role gating');
+    assertEqual(
+      waiterKotRes.body.error,
+      'No default printer configured. Add a printer in Settings.',
+      'server print-kot fails at printer validation, not role gating',
+    );
     assertEqual(
       (await request(app).post('/api/printers/print-bill').send({ billId: 999999 })).status,
       401,
@@ -137,11 +164,31 @@ async function main() {
 
     // ── Both features on: existing KDS endpoints work normally ─────────────
     console.log('\n2. KDS enabled — endpoints reachable');
-    assertEqual((await request(app).get('/api/kds/orders').set(chefAuth)).status, 200, 'GET /api/kds/orders 200 when enabled');
-    assertEqual((await request(app).get('/api/kds/display?station_id=none').set(chefAuth)).status, 404, 'GET /api/kds/display 404 for unknown station (not gated — reaches the handler)');
-    assertEqual((await request(app).get('/api/kitchen/orders').set(chefAuth)).status, 200, 'GET /api/kitchen/orders 200 when enabled');
-    assertEqual((await request(app).get('/api/kds-info').set(chefAuth)).status, 200, 'GET /api/kds-info 200 when enabled');
-    assertEqual((await request(app).get('/api/kds/pairing').set(chefAuth)).status, 200, 'GET /api/kds/pairing 200 when enabled');
+    assertEqual(
+      (await request(app).get('/api/kds/orders').set(chefAuth)).status,
+      200,
+      'GET /api/kds/orders 200 when enabled',
+    );
+    assertEqual(
+      (await request(app).get('/api/kds/display?station_id=none').set(chefAuth)).status,
+      404,
+      'GET /api/kds/display 404 for unknown station (not gated — reaches the handler)',
+    );
+    assertEqual(
+      (await request(app).get('/api/kitchen/orders').set(chefAuth)).status,
+      200,
+      'GET /api/kitchen/orders 200 when enabled',
+    );
+    assertEqual(
+      (await request(app).get('/api/kds-info').set(chefAuth)).status,
+      200,
+      'GET /api/kds-info 200 when enabled',
+    );
+    assertEqual(
+      (await request(app).get('/api/kds/pairing').set(chefAuth)).status,
+      200,
+      'GET /api/kds/pairing 200 when enabled',
+    );
 
     // Seed an outstanding pairing token to verify it gets cleaned up below.
     const pairingRes = await request(app).post('/api/kds/pairing').set(ownerAuth).send({});
@@ -151,35 +198,57 @@ async function main() {
 
     // ── Disable KDS ──────────────────────────────────────────────────────
     console.log('\n3. kds_enabled = false — REST endpoints 403, pairing/websocket-style 404');
-    const disableKds = await request(app).put('/api/settings/kds_enabled').set(ownerAuth).send({ value: 'false' });
+    const disableKds = await request(app)
+      .put('/api/settings/kds_enabled')
+      .set(ownerAuth)
+      .send({ value: 'false' });
     assertEqual(disableKds.status, 200, 'PUT /api/settings/kds_enabled false succeeds');
 
     const ordersRes = await request(app).get('/api/kds/orders').set(chefAuth);
     assertEqual(ordersRes.status, 403, 'GET /api/kds/orders 403 when KDS disabled');
-    assertEqual(ordersRes.body.error, 'KDS is disabled for this business', 'GET /api/kds/orders has a clear error message');
+    assertEqual(
+      ordersRes.body.error,
+      'KDS is disabled for this business',
+      'GET /api/kds/orders has a clear error message',
+    );
 
     const displayRes = await request(app).get('/api/kds/display?station_id=none').set(chefAuth);
     assertEqual(displayRes.status, 403, 'GET /api/kds/display 403 when KDS disabled');
 
-    const statusRes = await request(app).patch('/api/kds/items/1/status').set(chefAuth).send({ status: 'preparing' });
+    const statusRes = await request(app)
+      .patch('/api/kds/items/1/status')
+      .set(chefAuth)
+      .send({ status: 'preparing' });
     assertEqual(statusRes.status, 403, 'PATCH /api/kds/items/:id/status 403 when KDS disabled');
 
     const kitchenRes = await request(app).get('/api/kitchen/orders').set(chefAuth);
     assertEqual(kitchenRes.status, 403, 'GET /api/kitchen/orders 403 when KDS disabled');
-    assertEqual(kitchenRes.body.error, 'KDS is disabled for this business', 'GET /api/kitchen/orders has a clear error message');
+    assertEqual(
+      kitchenRes.body.error,
+      'KDS is disabled for this business',
+      'GET /api/kitchen/orders has a clear error message',
+    );
 
     const kdsInfoRes = await request(app).get('/api/kds-info').set(chefAuth);
     assertEqual(kdsInfoRes.status, 403, 'GET /api/kds-info 403 when KDS disabled');
 
     const pairingGetRes = await request(app).get('/api/kds/pairing').set(chefAuth);
-    assertEqual(pairingGetRes.status, 404, 'GET /api/kds/pairing 404 when KDS disabled (pretend it does not exist)');
+    assertEqual(
+      pairingGetRes.status,
+      404,
+      'GET /api/kds/pairing 404 when KDS disabled (pretend it does not exist)',
+    );
 
     const pairingPostRes = await request(app).post('/api/kds/pairing').set(ownerAuth).send({});
     assertEqual(pairingPostRes.status, 404, 'POST /api/kds/pairing 404 when KDS disabled');
 
     // Also 404 for a role that would otherwise be rejected — disabled beats role check.
     const pairingWrongRoleRes = await request(app).get('/api/kds/pairing').set(ownerAuth);
-    assertEqual(pairingWrongRoleRes.status, 404, 'GET /api/kds/pairing still 404 for an allowed role when KDS disabled');
+    assertEqual(
+      pairingWrongRoleRes.status,
+      404,
+      'GET /api/kds/pairing still 404 for an allowed role when KDS disabled',
+    );
 
     // ── Pairing token cleanup on disable ────────────────────────────────
     console.log('\n4. Disabling KDS invalidates outstanding pairing tokens');
@@ -188,27 +257,62 @@ async function main() {
 
     // ── Re-enable ────────────────────────────────────────────────────────
     console.log('\n5. Re-enabling KDS restores normal behavior');
-    const enableKds = await request(app).put('/api/settings/kds_enabled').set(ownerAuth).send({ value: 'true' });
+    const enableKds = await request(app)
+      .put('/api/settings/kds_enabled')
+      .set(ownerAuth)
+      .send({ value: 'true' });
     assertEqual(enableKds.status, 200, 'PUT /api/settings/kds_enabled true succeeds');
-    assertEqual((await request(app).get('/api/kds/orders').set(chefAuth)).status, 200, 'GET /api/kds/orders 200 again after re-enabling');
-    assertEqual((await request(app).get('/api/kds/pairing').set(chefAuth)).status, 200, 'GET /api/kds/pairing 200 again after re-enabling');
+    assertEqual(
+      (await request(app).get('/api/kds/orders').set(chefAuth)).status,
+      200,
+      'GET /api/kds/orders 200 again after re-enabling',
+    );
+    assertEqual(
+      (await request(app).get('/api/kds/pairing').set(chefAuth)).status,
+      200,
+      'GET /api/kds/pairing 200 again after re-enabling',
+    );
 
     // ── KOT printing toggle ──────────────────────────────────────────────
     console.log('\n6. kot_printing_enabled = false blocks POST /api/printers/print-kot');
-    const disableKot = await request(app).put('/api/settings/kot_printing_enabled').set(ownerAuth).send({ value: 'false' });
+    const disableKot = await request(app)
+      .put('/api/settings/kot_printing_enabled')
+      .set(ownerAuth)
+      .send({ value: 'false' });
     assertEqual(disableKot.status, 200, 'PUT /api/settings/kot_printing_enabled false succeeds');
 
-    const printKotRes = await request(app).post('/api/printers/print-kot').set(ownerAuth).send({ orderId: 999999 });
-    assertEqual(printKotRes.status, 403, 'POST /api/printers/print-kot 403 when KOT printing disabled');
-    assertEqual(printKotRes.body.error, 'KOT printing is disabled for this business', 'POST /api/printers/print-kot has a clear error message');
+    const printKotRes = await request(app)
+      .post('/api/printers/print-kot')
+      .set(ownerAuth)
+      .send({ orderId: 999999 });
+    assertEqual(
+      printKotRes.status,
+      403,
+      'POST /api/printers/print-kot 403 when KOT printing disabled',
+    );
+    assertEqual(
+      printKotRes.body.error,
+      'KOT printing is disabled for this business',
+      'POST /api/printers/print-kot has a clear error message',
+    );
 
-    const enableKot = await request(app).put('/api/settings/kot_printing_enabled').set(ownerAuth).send({ value: 'true' });
+    const enableKot = await request(app)
+      .put('/api/settings/kot_printing_enabled')
+      .set(ownerAuth)
+      .send({ value: 'true' });
     assertEqual(enableKot.status, 200, 'PUT /api/settings/kot_printing_enabled true succeeds');
     // No default printer/order configured in this test DB, so re-enabled just
     // means the guard no longer short-circuits — the request now fails later
     // in the handler (no default printer configured) rather than at the gate.
-    const printKotAfterRes = await request(app).post('/api/printers/print-kot').set(ownerAuth).send({ orderId: 999999 });
-    assert(printKotAfterRes.status !== 403 || printKotAfterRes.body.error !== 'KOT printing is disabled for this business', 'POST /api/printers/print-kot no longer blocked by the KOT-disabled gate once re-enabled');
+    const printKotAfterRes = await request(app)
+      .post('/api/printers/print-kot')
+      .set(ownerAuth)
+      .send({ orderId: 999999 });
+    assert(
+      printKotAfterRes.status !== 403 ||
+        printKotAfterRes.body.error !== 'KOT printing is disabled for this business',
+      'POST /api/printers/print-kot no longer blocked by the KOT-disabled gate once re-enabled',
+    );
 
     // ── Summary ───────────────────────────────────────────────────────────
     console.log('\n' + '='.repeat(60));

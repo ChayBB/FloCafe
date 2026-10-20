@@ -55,8 +55,8 @@ export default function EditCustomerModal({ customer, onClose, onSaved }: Props)
       // The address bound is a tenant setting, so the server owns the refusal and
       // its message is the only one that says which bound was hit.
       const serverMessage = axios.isAxiosError(err)
-        ? (err.response?.data as { message?: string; error?: string } | undefined)?.message
-          || (err.response?.data as { message?: string; error?: string } | undefined)?.error
+        ? (err.response?.data as { message?: string; error?: string } | undefined)?.message ||
+          (err.response?.data as { message?: string; error?: string } | undefined)?.error
         : undefined;
       toast.error(serverMessage || t('customerUpdateFailed'));
     } finally {
@@ -69,13 +69,19 @@ export default function EditCustomerModal({ customer, onClose, onSaved }: Props)
       <div className="bg-card rounded-2xl w-full max-w-sm p-5">
         <div className="flex justify-between items-center mb-4">
           <h3 className="text-lg font-bold text-foreground">{t('editCustomer')}</h3>
-          <button onClick={onClose} className="touch-target rounded-full text-gray-400 hover:text-muted-foreground active:bg-muted" aria-label={t('close')}>
+          <button
+            onClick={onClose}
+            className="touch-target rounded-full text-gray-400 hover:text-muted-foreground active:bg-muted"
+            aria-label={t('close')}
+          >
             <X size={20} />
           </button>
         </div>
         <div className="space-y-3">
           <div>
-            <label className="block text-xs font-medium text-muted-foreground mb-1">{t('customerName')}</label>
+            <label className="block text-xs font-medium text-muted-foreground mb-1">
+              {t('customerName')}
+            </label>
             <input
               type="text"
               value={name}
@@ -85,7 +91,9 @@ export default function EditCustomerModal({ customer, onClose, onSaved }: Props)
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-muted-foreground mb-1">{t('phone')}</label>
+            <label className="block text-xs font-medium text-muted-foreground mb-1">
+              {t('phone')}
+            </label>
             <input
               type="tel"
               inputMode="tel"
@@ -97,7 +105,12 @@ export default function EditCustomerModal({ customer, onClose, onSaved }: Props)
             />
           </div>
           <div>
-            <label htmlFor="customer-address" className="block text-xs font-medium text-muted-foreground mb-1">{t('customerAddress')}</label>
+            <label
+              htmlFor="customer-address"
+              className="block text-xs font-medium text-muted-foreground mb-1"
+            >
+              {t('customerAddress')}
+            </label>
             <input
               id="customer-address"
               type="text"
@@ -108,7 +121,9 @@ export default function EditCustomerModal({ customer, onClose, onSaved }: Props)
           </div>
         </div>
         <div className="flex gap-2 mt-5">
-          <Button variant="outline" onClick={onClose} className="flex-1">{tCommon('cancel')}</Button>
+          <Button variant="outline" onClick={onClose} className="flex-1">
+            {tCommon('cancel')}
+          </Button>
           <Button onClick={handleSave} disabled={saving} className="flex-1">
             {saving ? t('loadingEllipsis') : tCommon('save')}
           </Button>

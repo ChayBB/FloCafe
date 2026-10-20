@@ -24,8 +24,10 @@ function resolveLanguage(): Language {
 function getTranslator(lang: Language): (key: string, values?: Record<string, unknown>) => string {
   const locale = LANGUAGES[lang]?.locale ?? 'en';
   const messages = getCachedMessages(lang) ?? getCachedMessages('en') ?? {};
-  return createTranslator({ locale, messages }) as unknown as
-    (key: string, values?: Record<string, unknown>) => string;
+  return createTranslator({ locale, messages }) as unknown as (
+    key: string,
+    values?: Record<string, unknown>,
+  ) => string;
 }
 
 /** Shows one amber toast listing every line a print job skipped, if any. */
@@ -34,7 +36,9 @@ export function showPrintWarningsToast(warnings: PrintWarning[]): void {
 
   const localeWarnings = warnings.filter((warning) => warning.kind === 'locale');
   if (localeWarnings.length > 0) {
-    showPrintLanguageLoadErrorsToast(localeWarnings.map((warning) => warning.text as PrintLanguageCode));
+    showPrintLanguageLoadErrorsToast(
+      localeWarnings.map((warning) => warning.text as PrintLanguageCode),
+    );
   }
 
   const printableWarnings = warnings.filter((warning) => warning.kind !== 'locale');
@@ -48,7 +52,9 @@ export function showPrintWarningsToast(warnings: PrintWarning[]): void {
   if (lineWarnings.length > 0) {
     const hasArabic = lineWarnings.some((warning) => hasArabicScript(warning.text));
     sections.push(t('printWarnings.title', { count: lineWarnings.length }));
-    sections.push(hasArabic ? t('printWarnings.arabicShapingHint') : t('printWarnings.genericHint'));
+    sections.push(
+      hasArabic ? t('printWarnings.arabicShapingHint') : t('printWarnings.genericHint'),
+    );
   }
 
   const texts = printableWarnings.map((warning) => warning.message || warning.text).filter(Boolean);
@@ -75,8 +81,8 @@ export function showPrintLanguageLoadErrorsToast(languages: readonly PrintLangua
   if (languages.length === 0) return;
 
   const t = getTranslator(resolveLanguage());
-  toast.error(
-    t('printWarnings.languageLoadError', { languages: languages.join(', ') }),
-    { duration: 7000, id: 'print-language-load-errors' },
-  );
+  toast.error(t('printWarnings.languageLoadError', { languages: languages.join(', ') }), {
+    duration: 7000,
+    id: 'print-language-load-errors',
+  });
 }

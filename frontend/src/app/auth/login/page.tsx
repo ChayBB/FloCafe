@@ -20,7 +20,10 @@ import {
 import toast from 'react-hot-toast';
 import { Eye, EyeOff, LifeBuoy, MessageCircle, Ticket } from 'lucide-react';
 import { ROLE_LABEL_KEYS } from '@/lib/i18n-enums';
-import { SupportTicketForm, PRE_LOGIN_SUPPORT_ENDPOINTS } from '@/components/support/SupportTicketForm';
+import {
+  SupportTicketForm,
+  PRE_LOGIN_SUPPORT_ENDPOINTS,
+} from '@/components/support/SupportTicketForm';
 
 const WHATSAPP_COMMUNITY_URL = 'https://chat.whatsapp.com/LxHobzv6d2X81NzrVfMjzo?mode=gi_t';
 
@@ -51,15 +54,15 @@ function LoginContent() {
 
   useEffect(() => {
     fetch('/api/auth/setup/status')
-      .then(r => r.ok ? r.json() : null)
-      .then(data => {
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
         if (data?.needsSetup) router.replace('/setup');
       })
       .catch(() => {});
 
     fetch('/api/health')
-      .then(r => r.ok ? r.json() : null)
-      .then(data => {
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
         if (data && data.status !== 'ok') {
           setDbError(data.db || t('dbErrorPrefix'));
         }
@@ -71,17 +74,20 @@ function LoginContent() {
     loadFromStorage();
   }, [loadFromStorage]);
 
-  const handleTenantSelect = useCallback(async (tenantId: number) => {
-    setLoading(true);
-    try {
-      await selectTenant(tenantId);
-      // useEffect on currentTenant will handle the redirect
-    } catch {
-      toast.error(t('selectBusinessFailed'));
-    } finally {
-      setLoading(false);
-    }
-  }, [selectTenant, t]);
+  const handleTenantSelect = useCallback(
+    async (tenantId: number) => {
+      setLoading(true);
+      try {
+        await selectTenant(tenantId);
+        // useEffect on currentTenant will handle the redirect
+      } catch {
+        toast.error(t('selectBusinessFailed'));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [selectTenant, t],
+  );
 
   useEffect(() => {
     // Navigate to landing page once user and tenant are selected (auto-selection handled in auth store).
@@ -112,8 +118,7 @@ function LoginContent() {
           } else if (typeof remaining === 'number' && remaining < 4) {
             // Warn only when getting close (≤ 4 remaining to avoid noise on first attempt)
             setLoginError(
-              t('invalidCredentials') + ' ' +
-              t('attemptsRemaining', { count: remaining })
+              t('invalidCredentials') + ' ' + t('attemptsRemaining', { count: remaining }),
             );
           } else {
             setLoginError(t('invalidCredentials'));
@@ -134,9 +139,10 @@ function LoginContent() {
     }
   };
 
-
-
-  const shouldShowTenantSelect = !!(user && (tenants.length > 1 || searchParams.get('select_tenant') === 'true'));
+  const shouldShowTenantSelect = !!(
+    user &&
+    (tenants.length > 1 || searchParams.get('select_tenant') === 'true')
+  );
 
   if (shouldShowTenantSelect) {
     return (
@@ -148,7 +154,9 @@ function LoginContent() {
               <p className="text-muted-foreground text-sm mb-6">{t('selectBusinessHint')}</p>
               <div className="space-y-3">
                 {tenants.map((tenant) => {
-                  const businessTypeKey = tenant.business_type ? BUSINESS_TYPE_LEAF_KEYS[tenant.business_type] : undefined;
+                  const businessTypeKey = tenant.business_type
+                    ? BUSINESS_TYPE_LEAF_KEYS[tenant.business_type]
+                    : undefined;
                   const roleKey = tenant.role ? ROLE_LABEL_KEYS[tenant.role] : undefined;
                   return (
                     <button
@@ -157,9 +165,14 @@ function LoginContent() {
                       disabled={loading}
                       className="w-full text-start p-4 border rounded-lg hover:border-primary hover:bg-accent transition-colors group"
                     >
-                      <div className="font-semibold group-hover:text-primary">{tenant.business_name}</div>
+                      <div className="font-semibold group-hover:text-primary">
+                        {tenant.business_name}
+                      </div>
                       <div className="text-sm text-muted-foreground mt-0.5">
-                        {businessTypeKey ? tBusinessType(businessTypeKey) : tenant.business_type ?? ''} &middot; {roleKey ? tStaff(roleKey) : tenant.role ?? ''}
+                        {businessTypeKey
+                          ? tBusinessType(businessTypeKey)
+                          : (tenant.business_type ?? '')}{' '}
+                        &middot; {roleKey ? tStaff(roleKey) : (tenant.role ?? '')}
                       </div>
                     </button>
                   );
@@ -189,12 +202,30 @@ function LoginContent() {
             <form onSubmit={handleLogin} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="email">{t('email')}</Label>
-                <Input id="email" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t('emailPlaceholder')} dir="ltr" required />
+                <Input
+                  id="email"
+                  type="email"
+                  autoComplete="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder={t('emailPlaceholder')}
+                  dir="ltr"
+                  required
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="password">{t('password')}</Label>
                 <div className="relative">
-                  <Input id="password" type={showPassword ? 'text' : 'password'} autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={t('passwordPlaceholder')} className="pe-10" required />
+                  <Input
+                    id="password"
+                    type={showPassword ? 'text' : 'password'}
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder={t('passwordPlaceholder')}
+                    className="pe-10"
+                    required
+                  />
                   <button
                     type="button"
                     data-testid="password-visibility-toggle"
@@ -215,9 +246,7 @@ function LoginContent() {
                 />
                 {t('rememberMe')}
               </label>
-              {loginError && (
-                <p className="text-sm text-destructive text-center">{loginError}</p>
-              )}
+              {loginError && <p className="text-sm text-destructive text-center">{loginError}</p>}
               <Button type="submit" disabled={loading} className="w-full" size="lg">
                 {loading ? t('signingIn') : t('signIn')}
               </Button>

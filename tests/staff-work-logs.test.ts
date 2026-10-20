@@ -31,7 +31,9 @@ async function getFreeTcpPort(): Promise<number> {
   const address = probe.address();
   assert(address && typeof address !== 'string');
   const port = address.port;
-  await new Promise<void>((resolve, reject) => probe.close((error) => error ? reject(error) : resolve()));
+  await new Promise<void>((resolve, reject) =>
+    probe.close((error) => (error ? reject(error) : resolve())),
+  );
   return port;
 }
 
@@ -42,7 +44,11 @@ async function call(baseUrl: string, pathName: string, init: RequestInit = {}) {
   });
   const text = await response.text();
   let body: any = text;
-  try { body = JSON.parse(text); } catch { /* not json */ }
+  try {
+    body = JSON.parse(text);
+  } catch {
+    /* not json */
+  }
   return { status: response.status, body };
 }
 
@@ -93,10 +99,16 @@ async function main() {
       body: JSON.stringify({ email: 'nok@worklog.test', password: 'WorkLog123!' }),
     });
     assert.equal(login.status, 200, 'the server signs in');
-    const events = db.prepare("SELECT event_type, source FROM staff_work_logs WHERE user_id = 'wl-server'").all() as any[];
+    const events = db
+      .prepare("SELECT event_type, source FROM staff_work_logs WHERE user_id = 'wl-server'")
+      .all() as any[];
     assert.equal(events.length, 1);
     assert.equal(events[0].event_type, 'login');
-    assert.equal(events[0].source, 'server_app', 'the surface is recorded so the POS can share this table later');
+    assert.equal(
+      events[0].source,
+      'server_app',
+      'the surface is recorded so the POS can share this table later',
+    );
 
     console.log('\n2. a failed sign-in records nothing');
     await call(appUrl, '/api/auth/login', {
@@ -104,7 +116,11 @@ async function main() {
       body: JSON.stringify({ email: 'nok@worklog.test', password: 'wrong-password' }),
     });
     assert.equal(
-      (db.prepare("SELECT COUNT(*) c FROM staff_work_logs WHERE user_id = 'wl-server'").get() as any).c,
+      (
+        db
+          .prepare("SELECT COUNT(*) c FROM staff_work_logs WHERE user_id = 'wl-server'")
+          .get() as any
+      ).c,
       1,
       'a rejected password is not an arrival',
     );
@@ -116,7 +132,13 @@ async function main() {
     });
     assert.equal(out.status, 200);
     assert.equal(
-      (db.prepare("SELECT COUNT(*) c FROM staff_work_logs WHERE user_id = 'wl-server' AND event_type = 'logout'").get() as any).c,
+      (
+        db
+          .prepare(
+            "SELECT COUNT(*) c FROM staff_work_logs WHERE user_id = 'wl-server' AND event_type = 'logout'",
+          )
+          .get() as any
+      ).c,
       1,
     );
 
@@ -130,7 +152,9 @@ async function main() {
 
     // A tidy full shift, a shift still running, and a logout whose login sits
     // in the previous month.
-    const insert = db.prepare("INSERT INTO staff_work_logs (user_id, event_type, source, created_at) VALUES (?, ?, 'server_app', ?)");
+    const insert = db.prepare(
+      "INSERT INTO staff_work_logs (user_id, event_type, source, created_at) VALUES (?, ?, 'server_app', ?)",
+    );
     insert.run('wl-server', 'login', '2026-03-04 09:00:00');
     insert.run('wl-server', 'logout', '2026-03-04 17:30:00');
     insert.run('wl-server', 'login', '2026-03-05 10:00:00');
@@ -168,7 +192,11 @@ async function main() {
     assert.equal(byUsername.status, 200, 'a username works where an email would');
     assert.equal(byUsername.body.user.name, 'Fon');
     assert.equal(
-      (db.prepare("SELECT COUNT(*) c FROM staff_work_logs WHERE user_id = 'wl-noemail'").get() as any).c,
+      (
+        db
+          .prepare("SELECT COUNT(*) c FROM staff_work_logs WHERE user_id = 'wl-noemail'")
+          .get() as any
+      ).c,
       1,
       'and their hours are recorded the same way',
     );
@@ -187,7 +215,8 @@ async function main() {
     assert.equal(thai.status, 200, 'a Thai username works at the Server App login');
     assert.equal(thai.body.user.name, 'นกสมใจ');
     assert.equal(
-      (db.prepare("SELECT COUNT(*) c FROM staff_work_logs WHERE user_id = 'wl-thai'").get() as any).c,
+      (db.prepare("SELECT COUNT(*) c FROM staff_work_logs WHERE user_id = 'wl-thai'").get() as any)
+        .c,
       1,
       'and their hours are recorded like anyone else',
     );
@@ -210,7 +239,11 @@ async function main() {
 
     console.log('\n8. a malformed month is refused');
     for (const query of ['?year=26&month=03', '?year=2026&month=13', '?year=2026&month=0']) {
-      assert.equal((await call(posUrl, `/api/staff/work-logs${query}`, { headers: auth })).status, 400, query);
+      assert.equal(
+        (await call(posUrl, `/api/staff/work-logs${query}`, { headers: auth })).status,
+        400,
+        query,
+      );
     }
   } finally {
     await stopServerApp();

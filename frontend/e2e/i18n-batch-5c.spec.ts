@@ -26,7 +26,9 @@ async function login(page: Page, email: string): Promise<void> {
   await page.waitForFunction(() => !!localStorage.getItem('token'));
 }
 
-test('Batch 5C Pages (Dashboard, Orders, Tables, Customers, OrderHistoryGrid) render correctly in English and Persian', async ({ page }) => {
+test('Batch 5C Pages (Dashboard, Orders, Tables, Customers, OrderHistoryGrid) render correctly in English and Persian', async ({
+  page,
+}) => {
   await login(page, 'owner@flo.local');
 
   // ==========================================
@@ -92,7 +94,9 @@ test('Batch 5C Pages (Dashboard, Orders, Tables, Customers, OrderHistoryGrid) re
     await page.goto(`${BASE}/orders`);
     await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('سفارش‌ها');
-    await expect(page.getByPlaceholder('بر پایه شماره سفارش، نام یا تلفن جستجو کنید…')).toBeVisible();
+    await expect(
+      page.getByPlaceholder('بر پایه شماره سفارش، نام یا تلفن جستجو کنید…'),
+    ).toBeVisible();
     await captureScreenshot(page, 'orders-fa.png');
 
     // 2c. Tables (FA)
@@ -118,7 +122,6 @@ test('Batch 5C Pages (Dashboard, Orders, Tables, Customers, OrderHistoryGrid) re
     await expect(page.getByText('جمع جزء').first()).toBeVisible();
     await expect(page.getByText('چاپ رسید').first()).toBeVisible();
     await captureScreenshot(page, 'order-history-grid-fa.png');
-
   } finally {
     await setLanguage(page, 'en');
   }

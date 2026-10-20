@@ -22,7 +22,10 @@ const releaseBase = `https://github.com/FreeOpenSourcePOS/FloCafe-Plugins/releas
 function response(value: string, status = 200): Response {
   return new Response(value, {
     status,
-    headers: { 'content-type': 'application/json', 'content-length': String(Buffer.byteLength(value)) },
+    headers: {
+      'content-type': 'application/json',
+      'content-length': String(Buffer.byteLength(value)),
+    },
   });
 }
 
@@ -82,8 +85,18 @@ test('computeTaxPackUpdates flags only installed packs with a newer catalog vers
   };
   const updates = computeTaxPackUpdates(
     [
-      { packId: 'official-testland', country: 'ZZ', publisher: 'FreeOpenSourcePOS', version: '1.0.0' },
-      { packId: 'official-otherland', country: 'YY', publisher: 'FreeOpenSourcePOS', version: '1.0.0' },
+      {
+        packId: 'official-testland',
+        country: 'ZZ',
+        publisher: 'FreeOpenSourcePOS',
+        version: '1.0.0',
+      },
+      {
+        packId: 'official-otherland',
+        country: 'YY',
+        publisher: 'FreeOpenSourcePOS',
+        version: '1.0.0',
+      },
     ],
     catalog,
   );
@@ -118,7 +131,14 @@ test('computeTaxPackUpdates treats a double-digit minor version as newer, not a 
     packs: [catalogEntry({ id: 'official-testland', version: '1.10.0' })],
   };
   const updates = computeTaxPackUpdates(
-    [{ packId: 'official-testland', country: 'ZZ', publisher: 'FreeOpenSourcePOS', version: '1.9.0' }],
+    [
+      {
+        packId: 'official-testland',
+        country: 'ZZ',
+        publisher: 'FreeOpenSourcePOS',
+        version: '1.9.0',
+      },
+    ],
     catalog,
   );
   assert.equal(updates.length, 1);
@@ -132,7 +152,14 @@ test('computeTaxPackUpdates returns nothing when the installed version is alread
     packs: [catalogEntry({ id: 'official-testland', version: '1.0.0' })],
   };
   const updates = computeTaxPackUpdates(
-    [{ packId: 'official-testland', country: 'ZZ', publisher: 'FreeOpenSourcePOS', version: '1.0.0' }],
+    [
+      {
+        packId: 'official-testland',
+        country: 'ZZ',
+        publisher: 'FreeOpenSourcePOS',
+        version: '1.0.0',
+      },
+    ],
     catalog,
   );
   assert.equal(updates.length, 0);
@@ -144,14 +171,16 @@ test('catalog discovery finds the newest tax-pack release and verifies its detac
   const fetchImpl: typeof fetch = async (input) => {
     const url = String(input);
     if (url.startsWith('https://api.github.com/repos/FreeOpenSourcePOS/FloCafe-Plugins/releases')) {
-      return response(JSON.stringify([
-        {
-          tag_name: releaseTag,
-          html_url: `https://github.com/FreeOpenSourcePOS/FloCafe-Plugins/releases/tag/${releaseTag}`,
-          draft: false,
-          assets: [{ name: 'catalog.json', browser_download_url: catalogUrl }],
-        },
-      ]));
+      return response(
+        JSON.stringify([
+          {
+            tag_name: releaseTag,
+            html_url: `https://github.com/FreeOpenSourcePOS/FloCafe-Plugins/releases/tag/${releaseTag}`,
+            draft: false,
+            assets: [{ name: 'catalog.json', browser_download_url: catalogUrl }],
+          },
+        ]),
+      );
     }
     if (url === catalogUrl) return response(JSON.stringify(fixture.catalog));
     if (url === fixture.entry.downloadUrl) return response(fixture.packJson);
@@ -166,7 +195,10 @@ test('catalog discovery finds the newest tax-pack release and verifies its detac
   assert.equal(artifact.pack.id, 'test-dual-rate-pack');
   assert.equal(artifact.pack.version, '1.1.0');
   assert.equal(artifact.signature, fixture.signature);
-  assert.equal(verifyTaxPackSignature(fixture.packJson, fixture.signature, fixture.publicKey), true);
+  assert.equal(
+    verifyTaxPackSignature(fixture.packJson, fixture.signature, fixture.publicKey),
+    true,
+  );
 });
 
 test('download rejects digest mismatches, signature tampering, and non-release URLs', async () => {
@@ -183,29 +215,32 @@ test('download rejects digest mismatches, signature tampering, and non-release U
   );
 
   const tamperedSignature = Buffer.alloc(64, 7).toString('base64');
-  const validBytesFetch: typeof fetch = async (input) => response(
-    String(input) === fixture.entry.downloadUrl ? fixture.packJson : tamperedSignature,
-  );
+  const validBytesFetch: typeof fetch = async (input) =>
+    response(String(input) === fixture.entry.downloadUrl ? fixture.packJson : tamperedSignature);
   await assert.rejects(
     downloadAndVerifyTaxPack(fixture.entry, validBytesFetch, fixture.publicKey),
     /signature verification failed/,
   );
 
   assert.throws(
-    () => parseTaxPackCatalog({
-      ...fixture.catalog,
-      packs: [{ ...fixture.entry, downloadUrl: 'https://example.com/pack.json' }],
-    }),
+    () =>
+      parseTaxPackCatalog({
+        ...fixture.catalog,
+        packs: [{ ...fixture.entry, downloadUrl: 'https://example.com/pack.json' }],
+      }),
     /invalid entry/,
   );
   assert.throws(
-    () => parseTaxPackCatalog({
-      ...fixture.catalog,
-      packs: [{
-        ...fixture.entry,
-        downloadUrl: `https://github.com/FreeOpenSourcePOS/FloCafe/releases/download/${releaseTag}/pack.json`,
-      }],
-    }),
+    () =>
+      parseTaxPackCatalog({
+        ...fixture.catalog,
+        packs: [
+          {
+            ...fixture.entry,
+            downloadUrl: `https://github.com/FreeOpenSourcePOS/FloCafe/releases/download/${releaseTag}/pack.json`,
+          },
+        ],
+      }),
     /invalid entry/,
   );
 });
@@ -213,17 +248,20 @@ test('download rejects digest mismatches, signature tampering, and non-release U
 test('catalog discovery honors a caller cancellation signal', async () => {
   const controller = new AbortController();
   let fetchStarted!: () => void;
-  const fetchStartedPromise = new Promise<void>((resolve) => { fetchStarted = resolve; });
-  const fetchImpl: typeof fetch = async (_input, init) => new Promise<Response>((_resolve, reject) => {
-    fetchStarted();
-    const signal = init?.signal;
-    if (!signal) {
-      reject(new Error('catalog fetch did not receive a signal'));
-      return;
-    }
-    if (signal.aborted) reject(signal.reason);
-    else signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+  const fetchStartedPromise = new Promise<void>((resolve) => {
+    fetchStarted = resolve;
   });
+  const fetchImpl: typeof fetch = async (_input, init) =>
+    new Promise<Response>((_resolve, reject) => {
+      fetchStarted();
+      const signal = init?.signal;
+      if (!signal) {
+        reject(new Error('catalog fetch did not receive a signal'));
+        return;
+      }
+      if (signal.aborted) reject(signal.reason);
+      else signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+    });
   const request = fetchRemoteTaxPackCatalog(fetchImpl, controller.signal);
   await fetchStartedPromise;
   const timeout = new Promise<never>((_resolve, reject) => {
@@ -242,22 +280,29 @@ test('release builder signs exact pack bytes and preserves other catalog entries
   const pack = { ...dualRatePack, version: '1.1.0', publishedAt: '2026-07-30' };
   fs.writeFileSync(path.join(packsDir, 'dual-rate.json'), `${JSON.stringify(pack, null, 2)}\n`);
   const existingCatalogPath = path.join(tempDir, 'catalog.json');
-  fs.writeFileSync(existingCatalogPath, JSON.stringify({
-    schemaVersion: 1,
-    generatedAt: '2026-07-29T00:00:00.000Z',
-    packs: [{
-      id: 'test-flat-rate-pack',
-      publisher: 'FreeOpenSourcePOS',
-      country: 'YY',
-      jurisdiction: '*',
-      version: '1.0.0',
-      publishedAt: '2026-01-01',
-      minFloVersion: '2.4.0',
-      downloadUrl: 'https://github.com/FreeOpenSourcePOS/FloCafe-Plugins/releases/download/tax-pack-test-flat-rate-pack-v1.0.0/test-flat-rate-pack-v1.0.0.json',
-      signatureUrl: 'https://github.com/FreeOpenSourcePOS/FloCafe-Plugins/releases/download/tax-pack-test-flat-rate-pack-v1.0.0/test-flat-rate-pack-v1.0.0.json.sig',
-      digest: '0'.repeat(64),
-    }],
-  }));
+  fs.writeFileSync(
+    existingCatalogPath,
+    JSON.stringify({
+      schemaVersion: 1,
+      generatedAt: '2026-07-29T00:00:00.000Z',
+      packs: [
+        {
+          id: 'test-flat-rate-pack',
+          publisher: 'FreeOpenSourcePOS',
+          country: 'YY',
+          jurisdiction: '*',
+          version: '1.0.0',
+          publishedAt: '2026-01-01',
+          minFloVersion: '2.4.0',
+          downloadUrl:
+            'https://github.com/FreeOpenSourcePOS/FloCafe-Plugins/releases/download/tax-pack-test-flat-rate-pack-v1.0.0/test-flat-rate-pack-v1.0.0.json',
+          signatureUrl:
+            'https://github.com/FreeOpenSourcePOS/FloCafe-Plugins/releases/download/tax-pack-test-flat-rate-pack-v1.0.0/test-flat-rate-pack-v1.0.0.json.sig',
+          digest: '0'.repeat(64),
+        },
+      ],
+    }),
+  );
 
   const { prepareRelease } = require('../scripts/tax-packs/prepare-release.cjs');
   const result = prepareRelease({
@@ -269,21 +314,24 @@ test('release builder signs exact pack bytes and preserves other catalog entries
     generatedAt: '2026-07-30T00:00:00.000Z',
   });
   const emittedPack = fs.readFileSync(path.join(outputDir, result.packAssetName), 'utf8');
-  const emittedSignature = fs.readFileSync(path.join(outputDir, result.signatureAssetName), 'utf8').trim();
+  const emittedSignature = fs
+    .readFileSync(path.join(outputDir, result.signatureAssetName), 'utf8')
+    .trim();
   const emittedCatalog = JSON.parse(fs.readFileSync(path.join(outputDir, 'catalog.json'), 'utf8'));
   assert.equal(verifyTaxPackSignature(emittedPack, emittedSignature, publicKey), true);
-  assert.deepEqual(emittedCatalog.packs.map((entry: TaxPackCatalogEntry) => entry.id), [
-    'test-dual-rate-pack',
-    'test-flat-rate-pack',
-  ]);
+  assert.deepEqual(
+    emittedCatalog.packs.map((entry: TaxPackCatalogEntry) => entry.id),
+    ['test-dual-rate-pack', 'test-flat-rate-pack'],
+  );
   assert.equal(emittedCatalog.packs[0].digest, taxPackSha256(emittedPack));
   assert.throws(
-    () => prepareRelease({
-      tag: 'tax-pack-test-dual-rate-pack-v9.9.9',
-      packsDirectory: packsDir,
-      outputDirectory: outputDir,
-      signingKeyValue: privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
-    }),
+    () =>
+      prepareRelease({
+        tag: 'tax-pack-test-dual-rate-pack-v9.9.9',
+        packsDirectory: packsDir,
+        outputDirectory: outputDir,
+        signingKeyValue: privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
+      }),
     /does not match/,
   );
   const derKey = privateKey.export({ type: 'pkcs8', format: 'der' }).toString('base64');

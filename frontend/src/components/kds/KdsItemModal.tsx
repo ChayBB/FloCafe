@@ -19,16 +19,24 @@ export interface KdsItemModalProps {
   onUpdateStatus: (itemId: number, status: KitchenStatus) => void;
 }
 
-export function KdsItemModal({ item, orderNumber, updating, onClose, onUpdateStatus }: KdsItemModalProps) {
+export function KdsItemModal({
+  item,
+  orderNumber,
+  updating,
+  onClose,
+  onUpdateStatus,
+}: KdsItemModalProps) {
   const t = useTranslations('kds');
   const tCommon = useTranslations('common');
   const statusLabel = (s: KitchenStatus) => t(STATUS_CONFIG[normalizeKitchenStatus(s)].labelKey);
   const currentStatus = normalizeKitchenStatus(item.status);
   // 'voided' status is locked and excluded from sequential status transitions.
   const isVoided = currentStatus === 'voided';
-  const currentIdx = isVoided ? -1 : STATUS_ORDER.indexOf(currentStatus as Exclude<KitchenStatus, 'voided'>);
-  const next = !isVoided ? STATUS_ORDER[currentIdx + 1] ?? null : null;
-  const prev = !isVoided ? STATUS_ORDER[currentIdx - 1] ?? null : null;
+  const currentIdx = isVoided
+    ? -1
+    : STATUS_ORDER.indexOf(currentStatus as Exclude<KitchenStatus, 'voided'>);
+  const next = !isVoided ? (STATUS_ORDER[currentIdx + 1] ?? null) : null;
+  const prev = !isVoided ? (STATUS_ORDER[currentIdx - 1] ?? null) : null;
 
   return (
     <div
@@ -47,12 +55,19 @@ export function KdsItemModal({ item, orderNumber, updating, onClose, onUpdateSta
             <p className="text-xs text-gray-400 font-medium mb-1">
               {t('modalOrderNumber', { orderNumber })}
             </p>
-            <h2 id="kds-item-modal-title" className={`text-2xl font-bold leading-tight ${isVoided ? 'text-gray-400 line-through' : 'text-foreground'}`}>{formatItemHeading(item.product_name, item.variant_selection)}</h2>
+            <h2
+              id="kds-item-modal-title"
+              className={`text-2xl font-bold leading-tight ${isVoided ? 'text-gray-400 line-through' : 'text-foreground'}`}
+            >
+              {formatItemHeading(item.product_name, item.variant_selection)}
+            </h2>
             <div className="flex items-center gap-2 mt-1.5">
               <span className={`text-sm font-bold ${STATUS_CONFIG[currentStatus].text}`}>
                 {item.quantity}×
               </span>
-              <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${STATUS_CONFIG[currentStatus].bg} ${STATUS_CONFIG[currentStatus].text}`}>
+              <span
+                className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${STATUS_CONFIG[currentStatus].bg} ${STATUS_CONFIG[currentStatus].text}`}
+              >
                 <div className={`w-1.5 h-1.5 rounded-full ${STATUS_CONFIG[currentStatus].color}`} />
                 {statusLabel(currentStatus)}
               </span>
@@ -78,7 +93,8 @@ export function KdsItemModal({ item, orderNumber, updating, onClose, onUpdateSta
                   key={`${addon.id ?? addon.name}-${i}`}
                   className="text-sm bg-card text-blue-700 px-2.5 py-1 rounded-lg border border-blue-200 font-medium"
                 >
-                  + {addon.name}{(addon.quantity || 1) > 1 ? ` ×${addon.quantity}` : ''}
+                  + {addon.name}
+                  {(addon.quantity || 1) > 1 ? ` ×${addon.quantity}` : ''}
                 </span>
               ))}
             </div>
@@ -90,7 +106,9 @@ export function KdsItemModal({ item, orderNumber, updating, onClose, onUpdateSta
             <p className="text-xs font-semibold text-red-700 mb-1 uppercase tracking-wide">
               {t('specialInstructionsLabel')}
             </p>
-            <p className="text-sm text-red-700 italic font-medium break-words">{item.special_instructions}</p>
+            <p className="text-sm text-red-700 italic font-medium break-words">
+              {item.special_instructions}
+            </p>
           </div>
         )}
 
@@ -112,7 +130,9 @@ export function KdsItemModal({ item, orderNumber, updating, onClose, onUpdateSta
                   >
                     {statusLabel(s)}
                   </div>
-                  {i < STATUS_ORDER.length - 1 && <ChevronRight size={12} className="text-gray-300 shrink-0 rtl-flip" />}
+                  {i < STATUS_ORDER.length - 1 && (
+                    <ChevronRight size={12} className="text-gray-300 shrink-0 rtl-flip" />
+                  )}
                 </div>
               );
             })}

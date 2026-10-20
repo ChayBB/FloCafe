@@ -31,18 +31,21 @@ function isValidLocalIPv4(alias: os.NetworkInterfaceInfo): boolean {
  * from the till and is unreachable from every phone and tablet in the building,
  * so the QR code looks right and simply never loads.
  */
-const VIRTUAL_ADAPTER_NAME = /virtualbox|vmware|hyper-v|vethernet|docker|wsl|loopback|npcap|tap-windows|tunnelbear|zerotier/i;
+const VIRTUAL_ADAPTER_NAME =
+  /virtualbox|vmware|hyper-v|vethernet|docker|wsl|loopback|npcap|tap-windows|tunnelbear|zerotier/i;
 
 /** Default host-only ranges for the same software, matched when the name is unhelpful. */
 const VIRTUAL_SUBNET = [
-  '192.168.56.',   // VirtualBox host-only
-  '192.168.99.',   // docker-machine
-  '172.17.',       // Docker bridge
-  '192.168.137.',  // Windows Internet Connection Sharing
+  '192.168.56.', // VirtualBox host-only
+  '192.168.99.', // docker-machine
+  '172.17.', // Docker bridge
+  '192.168.137.', // Windows Internet Connection Sharing
 ];
 
 function isVirtualAdapter(name: string, address: string): boolean {
-  return VIRTUAL_ADAPTER_NAME.test(name) || VIRTUAL_SUBNET.some((prefix) => address.startsWith(prefix));
+  return (
+    VIRTUAL_ADAPTER_NAME.test(name) || VIRTUAL_SUBNET.some((prefix) => address.startsWith(prefix))
+  );
 }
 
 /**

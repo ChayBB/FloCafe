@@ -53,6 +53,8 @@ export function chargesForOrderType(
   orderType: string,
 ): ChargeDefinition[] {
   return charges.filter(
-    (charge) => charge.is_active && charge.order_types.includes(orderType as ChargeDefinition['order_types'][number]),
+    (charge) =>
+      charge.is_active &&
+      charge.order_types.includes(orderType as ChargeDefinition['order_types'][number]),
   );
 }

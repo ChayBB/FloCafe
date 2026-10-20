@@ -87,7 +87,10 @@ function serializeCsv(metrics: ReportMetric[], report: CashCloseExportBase): str
   return `${lines.join('\n')}\n`;
 }
 
-async function serializeXlsx(metrics: ReportMetric[], report: CashCloseExportBase): Promise<Buffer> {
+async function serializeXlsx(
+  metrics: ReportMetric[],
+  report: CashCloseExportBase,
+): Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
   const summary = workbook.addWorksheet('Summary');
   summary.columns = [

@@ -15,7 +15,9 @@ export interface CountryProvenance {
 }
 
 function normalizeCountry(value: string | null | undefined): string | null {
-  const code = String(value || '').trim().toUpperCase();
+  const code = String(value || '')
+    .trim()
+    .toUpperCase();
   return /^[A-Z]{2}$/.test(code) ? code : null;
 }
 
@@ -32,15 +34,21 @@ function readOsLocale(): Pick<CountryProvenance, 'osCountry' | 'osLocale' | 'osT
 
   try {
     osCountry = normalizeCountry(app?.getLocaleCountryCode?.());
-  } catch { /* signal unavailable */ }
+  } catch {
+    /* signal unavailable */
+  }
   try {
     const locale = String(app?.getLocale?.() || '').trim();
     osLocale = locale !== '' ? locale.slice(0, 35) : null;
-  } catch { /* signal unavailable */ }
+  } catch {
+    /* signal unavailable */
+  }
   try {
     const zone = String(Intl.DateTimeFormat().resolvedOptions().timeZone || '').trim();
     osTimezone = zone !== '' ? zone.slice(0, 100) : null;
-  } catch { /* signal unavailable */ }
+  } catch {
+    /* signal unavailable */
+  }
 
   return { osCountry, osLocale, osTimezone };
 }
@@ -59,7 +67,7 @@ export function readCountryProvenance(): CountryProvenance {
 export function countryConfirmationPatch(
   submitted: unknown,
   stored: string | null | undefined,
-  explicit?: unknown
+  explicit?: unknown,
 ): Record<string, string> {
   const stamp = { country_confirmed_at: new Date().toISOString() };
   if (explicit === true) return stamp;

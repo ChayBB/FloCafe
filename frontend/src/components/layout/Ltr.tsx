@@ -9,7 +9,12 @@ type LtrProps<T extends ElementType> = {
 
 /** Explicit LTR island with bidi isolation for emails, URLs, IPs,
  * and codes inside RTL pages. */
-export function Ltr<T extends ElementType = 'span'>({ as, className, children, ...props }: LtrProps<T>) {
+export function Ltr<T extends ElementType = 'span'>({
+  as,
+  className,
+  children,
+  ...props
+}: LtrProps<T>) {
   const Comp = (as ?? 'span') as ElementType;
   return (
     <Comp dir="ltr" className={cn('ltr-island', className)} {...props}>

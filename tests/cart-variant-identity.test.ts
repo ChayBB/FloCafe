@@ -16,12 +16,18 @@ const moduleApi = require('module') as {
 };
 const originalResolveFilename = moduleApi._resolveFilename;
 const zustandPath = frontendRequire.resolve('zustand');
-moduleApi._resolveFilename = function (request: string, parent: any, isMain: boolean, options?: any) {
-  const resolvedRequest = request === 'zustand'
-    ? zustandPath
-    : request.startsWith('@/')
-      ? path.resolve(ROOT, 'frontend/src', request.slice(2))
-      : request;
+moduleApi._resolveFilename = function (
+  request: string,
+  parent: any,
+  isMain: boolean,
+  options?: any,
+) {
+  const resolvedRequest =
+    request === 'zustand'
+      ? zustandPath
+      : request.startsWith('@/')
+        ? path.resolve(ROOT, 'frontend/src', request.slice(2))
+        : request;
   return originalResolveFilename.call(this, resolvedRequest, parent, isMain, options);
 };
 
@@ -184,27 +190,77 @@ assert.equal(merged[0].variant?.id, 'var-large', 'the surviving line keeps the t
 
 // normalizeCartItems is the reload path used by held orders.
 const normalized = normalizeCartItems([
-  { id: 'stale-1', product: coffee, quantity: 1, addons: [], special_instructions: '', variant: large },
-  { id: 'stale-2', product: coffee, quantity: 2, addons: [], special_instructions: '', variant: large },
-  { id: 'stale-3', product: coffee, quantity: 4, addons: [], special_instructions: '', variant: small },
+  {
+    id: 'stale-1',
+    product: coffee,
+    quantity: 1,
+    addons: [],
+    special_instructions: '',
+    variant: large,
+  },
+  {
+    id: 'stale-2',
+    product: coffee,
+    quantity: 2,
+    addons: [],
+    special_instructions: '',
+    variant: large,
+  },
+  {
+    id: 'stale-3',
+    product: coffee,
+    quantity: 4,
+    addons: [],
+    special_instructions: '',
+    variant: small,
+  },
 ]);
-assert.equal(normalized.length, 2, 'normalizeCartItems merges by variant and separates distinct variants');
+assert.equal(
+  normalized.length,
+  2,
+  'normalizeCartItems merges by variant and separates distinct variants',
+);
 assert.deepEqual(
   normalized.map((item: any) => [item.variant?.id, item.quantity]),
-  [['var-large', 3], ['var-small', 4]],
+  [
+    ['var-large', 3],
+    ['var-small', 4],
+  ],
   'normalizeCartItems groups and totals lines per variant',
 );
 
 // Lines differing only in add-ons stay separate through the reload path.
-cart().loadItems([
-  { id: 'stale-a', product: coffee, quantity: 1, addons: [shot], special_instructions: '', variant: large },
-  { id: 'stale-b', product: coffee, quantity: 2, addons: [oat], special_instructions: '', variant: large },
-], null, null, 1);
+cart().loadItems(
+  [
+    {
+      id: 'stale-a',
+      product: coffee,
+      quantity: 1,
+      addons: [shot],
+      special_instructions: '',
+      variant: large,
+    },
+    {
+      id: 'stale-b',
+      product: coffee,
+      quantity: 2,
+      addons: [oat],
+      special_instructions: '',
+      variant: large,
+    },
+  ],
+  null,
+  null,
+  1,
+);
 const rescan = cart().items;
 assert.equal(rescan.length, 2, 'lines differing only in add-ons stay separate after a reload');
 assert.deepEqual(
   rescan.map((item: any) => [item.variant?.id, item.addons.map((a: any) => a.id)]),
-  [['var-large', ['addon-shot']], ['var-large', ['addon-oat']]],
+  [
+    ['var-large', ['addon-shot']],
+    ['var-large', ['addon-oat']],
+  ],
   'each reloaded line keeps its own variant and add-ons',
 );
 assert.deepEqual(
@@ -216,9 +272,18 @@ assert.deepEqual(
 // The canonical form grows with the line; the identity stays bounded so the
 // bounded consumers (e.g. POST /held-orders) accept any real cart line.
 const heavyAddons = Array.from({ length: 12 }, (_, index) =>
-  addon(`addon-${index}`, { name: `Side option ${index}`, price: 40 }));
-const heavyLineId = generateCartItemId('prod-heavy', 'var-heavy', heavyAddons, 'no olives '.repeat(10));
-assert.ok(heavyLineId.length <= 64, `a heavy cart line id stays bounded (${heavyLineId.length} characters)`);
+  addon(`addon-${index}`, { name: `Side option ${index}`, price: 40 }),
+);
+const heavyLineId = generateCartItemId(
+  'prod-heavy',
+  'var-heavy',
+  heavyAddons,
+  'no olives '.repeat(10),
+);
+assert.ok(
+  heavyLineId.length <= 64,
+  `a heavy cart line id stays bounded (${heavyLineId.length} characters)`,
+);
 assert.notEqual(
   heavyLineId,
   generateCartItemId('prod-heavy', 'var-heavy', heavyAddons, 'extra cheese'),
@@ -244,17 +309,42 @@ assert.equal(scanned[0].quantity, 1, 'the scanned line is added at quantity 1');
 const restoredWaived = ['service_charge', 'late_fee'];
 const restoredOptedIn = ['optional_packing'];
 cart().clearCart();
-cart().loadItems([], 'tbl-resume', null, 2, 'no sugar', 'ho-resume', restoredWaived, restoredOptedIn);
-assert.deepEqual([...cart().waivedChargeIds], ['service_charge', 'late_fee'], 'a resumed cart restores the waived charges');
-assert.deepEqual([...cart().optedInChargeIds], ['optional_packing'], 'a resumed cart restores the opted-in charges');
+cart().loadItems(
+  [],
+  'tbl-resume',
+  null,
+  2,
+  'no sugar',
+  'ho-resume',
+  restoredWaived,
+  restoredOptedIn,
+);
+assert.deepEqual(
+  [...cart().waivedChargeIds],
+  ['service_charge', 'late_fee'],
+  'a resumed cart restores the waived charges',
+);
+assert.deepEqual(
+  [...cart().optedInChargeIds],
+  ['optional_packing'],
+  'a resumed cart restores the opted-in charges',
+);
 assert.ok(cart().waivedChargeIds instanceof Set, 'restored waivers are live Sets, not arrays');
 assert.equal(cart().orderType, 'dine_in', 'restoring a cart keeps the current order type');
 
 // The Sets are independent of the arrays they were built from.
 restoredWaived.push('courier_fee');
 restoredOptedIn.length = 0;
-assert.equal(cart().waivedChargeIds.has('courier_fee'), false, 'mutating the source array cannot alter the restored waivers');
-assert.equal(cart().optedInChargeIds.size, 1, 'mutating the source array cannot alter the restored opt-ins');
+assert.equal(
+  cart().waivedChargeIds.has('courier_fee'),
+  false,
+  'mutating the source array cannot alter the restored waivers',
+);
+assert.equal(
+  cart().optedInChargeIds.size,
+  1,
+  'mutating the source array cannot alter the restored opt-ins',
+);
 cart().toggleWaiveCharge('late_fee');
 assert.equal(cart().waivedChargeIds.has('late_fee'), false, 'restored waivers stay toggleable');
 
@@ -266,14 +356,27 @@ assert.equal(cart().optedInChargeIds.size, 0, 'a legacy held order restores with
 cart().toggleWaiveCharge('service_charge');
 cart().toggleOptedInCharge('optional_packing');
 cart().loadItems([], 'tbl-next', null, 1, '', 'ho-next', ['gift_wrap'], []);
-assert.deepEqual([...cart().waivedChargeIds], ['gift_wrap'], 'the next restore replaces the previous waivers');
+assert.deepEqual(
+  [...cart().waivedChargeIds],
+  ['gift_wrap'],
+  'the next restore replaces the previous waivers',
+);
 assert.equal(cart().optedInChargeIds.size, 0, 'the next restore replaces the previous opt-ins');
 
 // Leaving the cart clears the decisions with everything else.
 cart().clearCart();
 assert.equal(cart().waivedChargeIds.size, 0, 'clearCart clears waived charges');
 assert.equal(cart().optedInChargeIds.size, 0, 'clearCart clears opted-in charges');
-cart().loadItems([], 'tbl-reset', null, 1, '', 'ho-reset', ['service_charge'], ['optional_packing']);
+cart().loadItems(
+  [],
+  'tbl-reset',
+  null,
+  1,
+  '',
+  'ho-reset',
+  ['service_charge'],
+  ['optional_packing'],
+);
 cart().setOrderType('delivery');
 assert.equal(cart().waivedChargeIds.size, 0, 'a real order-type change resets waived charges');
 assert.equal(cart().optedInChargeIds.size, 0, 'a real order-type change resets opted-in charges');

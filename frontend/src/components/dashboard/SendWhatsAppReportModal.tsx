@@ -6,7 +6,14 @@ import { useTranslations } from 'use-intl';
 import api from '@/lib/api';
 import { dialCodeFor, parsePhone } from '@/lib/phone';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 interface SendWhatsAppReportModalProps {
   open: boolean;
@@ -16,7 +23,13 @@ interface SendWhatsAppReportModalProps {
   onSend: (phoneE164: string) => Promise<boolean>;
 }
 
-export function SendWhatsAppReportModal({ open, country, canViewSettings, onOpenChange, onSend }: SendWhatsAppReportModalProps) {
+export function SendWhatsAppReportModal({
+  open,
+  country,
+  canViewSettings,
+  onOpenChange,
+  onSend,
+}: SendWhatsAppReportModalProps) {
   const t = useTranslations('dashboard');
   const tPos = useTranslations('pos');
   const tCommon = useTranslations('common');
@@ -32,16 +45,21 @@ export function SendWhatsAppReportModal({ open, country, canViewSettings, onOpen
     }
     if (!canViewSettings) return;
     let active = true;
-    api.get('/settings').then(({ data }) => {
-      if (!active || phoneEdited.current) return;
-      const savedPhone = data?.settings?.business_phone;
-      if (typeof savedPhone !== 'string') return;
-      const parsed = parsePhone(savedPhone, country);
-      setPhone(parsed?.countryCode === dialCodeFor(country) ? parsed.digits : savedPhone);
-    }).catch(() => {
-      // Settings may be unavailable to a report-only role; the recipient can still be entered.
-    });
-    return () => { active = false; };
+    api
+      .get('/settings')
+      .then(({ data }) => {
+        if (!active || phoneEdited.current) return;
+        const savedPhone = data?.settings?.business_phone;
+        if (typeof savedPhone !== 'string') return;
+        const parsed = parsePhone(savedPhone, country);
+        setPhone(parsed?.countryCode === dialCodeFor(country) ? parsed.digits : savedPhone);
+      })
+      .catch(() => {
+        // Settings may be unavailable to a report-only role; the recipient can still be entered.
+      });
+    return () => {
+      active = false;
+    };
   }, [open, country, canViewSettings]);
 
   const changeOpen = (nextOpen: boolean) => {
@@ -85,7 +103,14 @@ export function SendWhatsAppReportModal({ open, country, canViewSettings, onOpen
             {t('recipientPhone')}
           </label>
           <div className="flex overflow-hidden rounded-md border border-input focus-within:ring-2 focus-within:ring-ring">
-            {showCountryPrefix && <span className="border-e border-input bg-muted px-3 py-2 text-sm text-muted-foreground" dir="ltr">{dialCodeFor(country)}</span>}
+            {showCountryPrefix && (
+              <span
+                className="border-e border-input bg-muted px-3 py-2 text-sm text-muted-foreground"
+                dir="ltr"
+              >
+                {dialCodeFor(country)}
+              </span>
+            )}
             <input
               id="whatsapp-report-recipient"
               type="tel"
@@ -110,10 +135,21 @@ export function SendWhatsAppReportModal({ open, country, canViewSettings, onOpen
           )}
         </div>
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => changeOpen(false)} disabled={sending}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => changeOpen(false)}
+            disabled={sending}
+          >
             {tCommon('cancel')}
           </Button>
-          <Button type="button" onClick={() => { void send(); }} disabled={sending}>
+          <Button
+            type="button"
+            onClick={() => {
+              void send();
+            }}
+            disabled={sending}
+          >
             {sending ? <Loader2 size={14} className="animate-spin" /> : <MessageCircle size={14} />}
             {t('sendViaWhatsApp')}
           </Button>

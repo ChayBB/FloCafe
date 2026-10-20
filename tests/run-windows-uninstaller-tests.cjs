@@ -20,16 +20,25 @@ function findPowerShellWithPester() {
   };
 
   for (const command of process.platform === 'win32' ? ['pwsh', 'powershell'] : ['pwsh']) {
-    const probe = spawnSync(command, ['-NoProfile', '-NonInteractive', '-Command', '$PSVersionTable.PSVersion.ToString()'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    const probe = spawnSync(
+      command,
+      ['-NoProfile', '-NonInteractive', '-Command', '$PSVersionTable.PSVersion.ToString()'],
+      {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    );
     if (probe.status !== 0) continue;
 
     result.powershellAvailable = true;
     const pesterProbe = spawnSync(
       command,
-      ['-NoProfile', '-NonInteractive', '-Command', "$p = Get-Module -ListAvailable -Name Pester | Sort-Object Version -Descending | Select-Object -First 1; if ($p -and $p.Version.Major -ge 5) { exit 0 } elseif ($p) { exit 78 } else { exit 77 }"],
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        '$p = Get-Module -ListAvailable -Name Pester | Sort-Object Version -Descending | Select-Object -First 1; if ($p -and $p.Version.Major -ge 5) { exit 0 } elseif ($p) { exit 78 } else { exit 77 }',
+      ],
       { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
     );
     if (pesterProbe.status === 0) {
@@ -53,21 +62,29 @@ function findPowerShellWithPester() {
 }
 
 if (process.platform !== 'win32') {
-  console.log('SKIP windows uninstaller Pester tests: Windows runtime required (this runner is not Windows).');
+  console.log(
+    'SKIP windows uninstaller Pester tests: Windows runtime required (this runner is not Windows).',
+  );
   process.exit(0);
 }
 
 const runtime = findPowerShellWithPester();
 if (!runtime.powershellAvailable) {
-  console.log('SKIP windows uninstaller Pester tests: PowerShell is unavailable on this Windows runner.');
+  console.log(
+    'SKIP windows uninstaller Pester tests: PowerShell is unavailable on this Windows runner.',
+  );
   process.exit(0);
 }
 if (runtime.pesterProbeErrors.length > 0) {
-  process.stderr.write(`Unable to inspect the installed Pester module:\n${runtime.pesterProbeErrors.join('\n')}\n`);
+  process.stderr.write(
+    `Unable to inspect the installed Pester module:\n${runtime.pesterProbeErrors.join('\n')}\n`,
+  );
   process.exit(1);
 }
 if (!runtime.command && !runtime.pesterTooOld) {
-  console.log('SKIP windows uninstaller Pester tests: Pester is not installed (Windows-runtime limitation).');
+  console.log(
+    'SKIP windows uninstaller Pester tests: Pester is not installed (Windows-runtime limitation).',
+  );
   process.exit(0);
 }
 if (!runtime.command && runtime.pesterTooOld) {

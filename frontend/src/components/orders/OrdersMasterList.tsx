@@ -11,10 +11,14 @@ import { orderStatusBadge, ORDER_TYPE_KEYS } from './OrderCard';
 function OrderTypeIcon({ type }: { type: Order['type'] }) {
   const cls = 'shrink-0 text-muted-foreground';
   switch (type) {
-    case 'dine_in': return <Utensils size={13} className={cls} />;
-    case 'delivery': return <Truck size={13} className={cls} />;
-    case 'online': return <Globe size={13} className={cls} />;
-    default: return <ShoppingBag size={13} className={cls} />;
+    case 'dine_in':
+      return <Utensils size={13} className={cls} />;
+    case 'delivery':
+      return <Truck size={13} className={cls} />;
+    case 'online':
+      return <Globe size={13} className={cls} />;
+    default:
+      return <ShoppingBag size={13} className={cls} />;
   }
 }
 
@@ -69,7 +73,9 @@ export function OrdersMasterList({
                   #<Ltr>{order.order_number}</Ltr>
                 </span>
                 {badge && (
-                  <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium shrink-0 ${badge.bg} ${badge.text}`}>
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[11px] font-medium shrink-0 ${badge.bg} ${badge.text}`}
+                  >
                     {tOrders(badge.labelKey)}
                   </span>
                 )}

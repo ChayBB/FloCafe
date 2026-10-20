@@ -1,7 +1,12 @@
 'use client';
 
 import { useTranslations, type AppConfig } from 'use-intl';
-import type { CountryLocaleOptions, CurrencyDisplay, DigitMode, CalendarMode } from '@/lib/countries';
+import type {
+  CountryLocaleOptions,
+  CurrencyDisplay,
+  DigitMode,
+  CalendarMode,
+} from '@/lib/countries';
 
 interface Props {
   options?: CountryLocaleOptions;
@@ -9,7 +14,11 @@ interface Props {
   digits: DigitMode;
   calendar: CalendarMode;
   isAdmin: boolean;
-  onChange: (patch: { currencyDisplay?: CurrencyDisplay; digits?: DigitMode; calendar?: CalendarMode }) => void;
+  onChange: (patch: {
+    currencyDisplay?: CurrencyDisplay;
+    digits?: DigitMode;
+    calendar?: CalendarMode;
+  }) => void;
 }
 
 type SettingsKey = keyof AppConfig['Messages']['settings'];
@@ -33,7 +42,14 @@ const CALENDAR_LABELS = {
   gregorian: 'iranCalendarGregorian',
 } as const satisfies Record<CalendarMode, SettingsKey>;
 
-export function LocalePreferencesPanel({ options, currencyDisplay, digits, calendar, isAdmin, onChange }: Props) {
+export function LocalePreferencesPanel({
+  options,
+  currencyDisplay,
+  digits,
+  calendar,
+  isAdmin,
+  onChange,
+}: Props) {
   const t = useTranslations('settings');
 
   const hasAny = Boolean(
@@ -47,7 +63,9 @@ export function LocalePreferencesPanel({ options, currencyDisplay, digits, calen
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {options?.currencyDisplay?.length ? (
           <div>
-            <label className="block text-sm text-muted-foreground mb-1">{t('iranCurrencyDisplay')}</label>
+            <label className="block text-sm text-muted-foreground mb-1">
+              {t('iranCurrencyDisplay')}
+            </label>
             {isAdmin ? (
               <select
                 value={currencyDisplay}
@@ -55,18 +73,24 @@ export function LocalePreferencesPanel({ options, currencyDisplay, digits, calen
                 className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-brand bg-card"
               >
                 {options!.currencyDisplay!.map((mode) => (
-                  <option key={mode} value={mode}>{t(CURRENCY_DISPLAY_LABELS[mode])}</option>
+                  <option key={mode} value={mode}>
+                    {t(CURRENCY_DISPLAY_LABELS[mode])}
+                  </option>
                 ))}
               </select>
             ) : (
-              <p className="font-medium text-foreground">{t(CURRENCY_DISPLAY_LABELS[currencyDisplay])}</p>
+              <p className="font-medium text-foreground">
+                {t(CURRENCY_DISPLAY_LABELS[currencyDisplay])}
+              </p>
             )}
           </div>
         ) : null}
 
         {options?.digits?.length ? (
           <div>
-            <label className="block text-sm text-muted-foreground mb-1">{t('iranNumberDigits')}</label>
+            <label className="block text-sm text-muted-foreground mb-1">
+              {t('iranNumberDigits')}
+            </label>
             {isAdmin ? (
               <select
                 value={digits}
@@ -74,7 +98,9 @@ export function LocalePreferencesPanel({ options, currencyDisplay, digits, calen
                 className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-brand bg-card"
               >
                 {options!.digits!.map((mode) => (
-                  <option key={mode} value={mode}>{t(DIGIT_LABELS[mode])}</option>
+                  <option key={mode} value={mode}>
+                    {t(DIGIT_LABELS[mode])}
+                  </option>
                 ))}
               </select>
             ) : (
@@ -93,7 +119,9 @@ export function LocalePreferencesPanel({ options, currencyDisplay, digits, calen
                 className="w-full px-3 py-2 text-sm border border-border rounded-lg outline-none focus:ring-2 focus:ring-brand bg-card"
               >
                 {options!.calendar!.map((mode) => (
-                  <option key={mode} value={mode}>{t(CALENDAR_LABELS[mode])}</option>
+                  <option key={mode} value={mode}>
+                    {t(CALENDAR_LABELS[mode])}
+                  </option>
                 ))}
               </select>
             ) : (

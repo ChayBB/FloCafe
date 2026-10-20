@@ -65,8 +65,10 @@ interface RawPolicyShape {
   additional?: unknown;
 }
 
-function parsePrimarySelection(raw: unknown, facts: LanguageRegistryFacts):
-  { ok: true; value: PrimaryLanguageSelection } | { ok: false; error: string } {
+function parsePrimarySelection(
+  raw: unknown,
+  facts: LanguageRegistryFacts,
+): { ok: true; value: PrimaryLanguageSelection } | { ok: false; error: string } {
   if (typeof raw !== 'object' || raw === null) {
     return { ok: false, error: 'policy.primary must be an object' };
   }
@@ -75,18 +77,27 @@ function parsePrimarySelection(raw: unknown, facts: LanguageRegistryFacts):
   if (mode === 'fixed') {
     const language = (raw as { language?: unknown }).language;
     if (typeof language !== 'string' || language.length === 0) {
-      return { ok: false, error: 'policy.primary.language must be a non-empty string when mode is "fixed"' };
+      return {
+        ok: false,
+        error: 'policy.primary.language must be a non-empty string when mode is "fixed"',
+      };
     }
     if (!facts.isSelectableLanguage(language)) {
-      return { ok: false, error: `policy.primary.language "${language}" is not a registered selectable language` };
+      return {
+        ok: false,
+        error: `policy.primary.language "${language}" is not a registered selectable language`,
+      };
     }
     return { ok: true, value: { mode: 'fixed', language } };
   }
   return { ok: false, error: 'policy.primary.mode must be "inherit" or "fixed"' };
 }
 
-function parseAdditional(raw: unknown, maxEntries: number, facts: LanguageRegistryFacts):
-  { ok: true; value: readonly PrintLanguageCode[] } | { ok: false; error: string } {
+function parseAdditional(
+  raw: unknown,
+  maxEntries: number,
+  facts: LanguageRegistryFacts,
+): { ok: true; value: readonly PrintLanguageCode[] } | { ok: false; error: string } {
   if (raw === null) {
     return { ok: false, error: 'policy.additional must be an array' };
   }
@@ -94,7 +105,10 @@ function parseAdditional(raw: unknown, maxEntries: number, facts: LanguageRegist
     return { ok: false, error: 'policy.additional must be an array' };
   }
   if (raw.length > maxEntries) {
-    return { ok: false, error: `policy.additional supports at most ${maxEntries} entr${maxEntries === 1 ? 'y' : 'ies'} in v1` };
+    return {
+      ok: false,
+      error: `policy.additional supports at most ${maxEntries} entr${maxEntries === 1 ? 'y' : 'ies'} in v1`,
+    };
   }
   const seen = new Set<string>();
   for (const entry of raw) {
@@ -102,18 +116,28 @@ function parseAdditional(raw: unknown, maxEntries: number, facts: LanguageRegist
       return { ok: false, error: 'policy.additional entries must be non-empty strings' };
     }
     if (!facts.isSelectableLanguage(entry)) {
-      return { ok: false, error: `policy.additional entry "${entry}" is not a registered selectable language` };
+      return {
+        ok: false,
+        error: `policy.additional entry "${entry}" is not a registered selectable language`,
+      };
     }
     if (seen.has(entry)) {
-      return { ok: false, error: `policy.additional entries must be deduped (duplicate "${entry}")` };
+      return {
+        ok: false,
+        error: `policy.additional entries must be deduped (duplicate "${entry}")`,
+      };
     }
     seen.add(entry);
   }
   return { ok: true, value: Object.freeze([...raw]) };
 }
 
-function parsePolicyBody(raw: unknown, maxAdditional: number, facts: LanguageRegistryFacts):
-  { ok: true; primary: PrimaryLanguageSelection; additional: readonly PrintLanguageCode[] }
+function parsePolicyBody(
+  raw: unknown,
+  maxAdditional: number,
+  facts: LanguageRegistryFacts,
+):
+  | { ok: true; primary: PrimaryLanguageSelection; additional: readonly PrintLanguageCode[] }
   | { ok: false; error: string } {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
     return { ok: false, error: 'policy must be a JSON object' };
@@ -129,13 +153,17 @@ function parsePolicyBody(raw: unknown, maxAdditional: number, facts: LanguageReg
   }
   const primary = parsePrimarySelection(shape.primary, facts);
   if (!primary.ok) return primary;
-  const additional = parseAdditional(shape.additional === undefined ? [] : shape.additional, maxAdditional, facts);
+  const additional = parseAdditional(
+    shape.additional === undefined ? [] : shape.additional,
+    maxAdditional,
+    facts,
+  );
   if (!additional.ok) return additional;
-  if (
-    primary.value.mode === 'fixed'
-    && additional.value.includes(primary.value.language)
-  ) {
-    return { ok: false, error: `policy.additional duplicates the fixed primary "${primary.value.language}"` };
+  if (primary.value.mode === 'fixed' && additional.value.includes(primary.value.language)) {
+    return {
+      ok: false,
+      error: `policy.additional duplicates the fixed primary "${primary.value.language}"`,
+    };
   }
   return { ok: true, primary: primary.value, additional: additional.value };
 }
@@ -152,9 +180,10 @@ export function parsePrintLanguagePolicy(
 ): PrintLanguagePolicyParseResult<ReceiptLanguagePolicy> {
   const body = parsePolicyBody(raw, 1, facts);
   if (!body.ok) return body;
-  const policy: ReceiptLanguagePolicy = body.additional.length === 0
-    ? { primary: body.primary, additional: [] as const }
-    : { primary: body.primary, additional: [body.additional[0]] as const };
+  const policy: ReceiptLanguagePolicy =
+    body.additional.length === 0
+      ? { primary: body.primary, additional: [] as const }
+      : { primary: body.primary, additional: [body.additional[0]] as const };
   return { ok: true, policy: Object.freeze(policy) };
 }
 
@@ -174,6 +203,9 @@ export function parseKotLanguagePolicy(
 
 /** Canonical stored form for a freshly defaulted policy (inherit / none). */
 export function defaultPrintLanguagePolicy(): PrintLanguagePolicy<readonly []> {
-  const policy: PrintLanguagePolicy<readonly []> = { primary: { mode: 'inherit' }, additional: [] as const };
+  const policy: PrintLanguagePolicy<readonly []> = {
+    primary: { mode: 'inherit' },
+    additional: [] as const,
+  };
   return Object.freeze(policy);
 }

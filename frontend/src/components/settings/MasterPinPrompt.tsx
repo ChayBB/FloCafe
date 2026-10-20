@@ -26,7 +26,15 @@ interface MasterPinPromptProps {
 
 const PIN_REGEX = /^\d{4}$/;
 
-export function MasterPinPrompt({ open, mode, title, description, currentPinRequired = false, onCancel, onSubmit }: MasterPinPromptProps) {
+export function MasterPinPrompt({
+  open,
+  mode,
+  title,
+  description,
+  currentPinRequired = false,
+  onCancel,
+  onSubmit,
+}: MasterPinPromptProps) {
   const t = useTranslations('settings');
   const tCommon = useTranslations('common');
   const [pin, setPin] = useState('');
@@ -85,9 +93,7 @@ export function MasterPinPrompt({ open, mode, title, description, currentPinRequ
         <DialogHeader>
           <DialogTitle>{title || t('masterPin')}</DialogTitle>
           <DialogDescription>
-            {description || (mode === 'set'
-              ? t('setPinDescription')
-              : t('verifyPinDescription'))}
+            {description || (mode === 'set' ? t('setPinDescription') : t('verifyPinDescription'))}
           </DialogDescription>
         </DialogHeader>
 
@@ -153,7 +159,11 @@ export function MasterPinPrompt({ open, mode, title, description, currentPinRequ
             {tCommon('cancel')}
           </Button>
           <Button onClick={handleSubmit} disabled={submitting || pin.length !== 4}>
-            {submitting ? tCommon('loading') : mode === 'set' ? t('setPinButton') : t('confirmButton')}
+            {submitting
+              ? tCommon('loading')
+              : mode === 'set'
+                ? t('setPinButton')
+                : t('confirmButton')}
           </Button>
         </DialogFooter>
       </DialogContent>

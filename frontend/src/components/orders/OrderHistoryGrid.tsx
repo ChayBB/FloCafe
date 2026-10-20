@@ -1,10 +1,24 @@
 'use client';
 
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+  CardFooter,
+} from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { formatCurrency, getCountryByCode, getCurrencySymbol } from '@/lib/countries';
 import { useAuthStore } from '@/store/auth';
 import { useFormatDate } from '@/hooks/useFormatDate';
@@ -25,73 +39,364 @@ interface HistoryOrder extends Order {
 
 const MOCK_HISTORY: HistoryOrder[] = [
   {
-    id: 981, order_number: 'A-0981', table_id: 'tbl-04', customer_id: null,
-    type: 'dine_in', status: 'completed', subtotal: 890, tax_amount: 44.5,
-    discount_amount: 0, delivery_charge: 0, service_charge: 0, total: 934.5, guest_count: 3,
-    special_instructions: null, created_by: 1, created_at: hoursAgo(2),
-    table: { id: 'tbl-04', name: '4', capacity: 4, status: 'occupied', kitchen_station_id: null, floor: null, section: null, position_x: null, position_y: null, is_active: true },
+    id: 981,
+    order_number: 'A-0981',
+    table_id: 'tbl-04',
+    customer_id: null,
+    type: 'dine_in',
+    status: 'completed',
+    subtotal: 890,
+    tax_amount: 44.5,
+    discount_amount: 0,
+    delivery_charge: 0,
+    service_charge: 0,
+    total: 934.5,
+    guest_count: 3,
+    special_instructions: null,
+    created_by: 1,
+    created_at: hoursAgo(2),
+    table: {
+      id: 'tbl-04',
+      name: '4',
+      capacity: 4,
+      status: 'occupied',
+      kitchen_station_id: null,
+      floor: null,
+      section: null,
+      position_x: null,
+      position_y: null,
+      is_active: true,
+    },
     items: [
-      { id: 1, order_id: 981, product_id: '1', product_name: 'Margherita Pizza', product_sku: null, unit_price: 350, quantity: 2, subtotal: 700, tax_amount: 35, total: 735, addons: null, special_instructions: null, status: 'served' },
-      { id: 2, order_id: 981, product_id: '2', product_name: 'Garlic Bread', product_sku: null, unit_price: 150, quantity: 1, subtotal: 150, tax_amount: 7.5, total: 157.5, addons: null, special_instructions: null, status: 'served' },
-      { id: 3, order_id: 981, product_id: '3', product_name: 'Cold Coffee', product_sku: null, unit_price: 40, quantity: 1, subtotal: 40, tax_amount: 2, total: 42, addons: null, special_instructions: null, status: 'served' },
+      {
+        id: 1,
+        order_id: 981,
+        product_id: '1',
+        product_name: 'Margherita Pizza',
+        product_sku: null,
+        unit_price: 350,
+        quantity: 2,
+        subtotal: 700,
+        tax_amount: 35,
+        total: 735,
+        addons: null,
+        special_instructions: null,
+        status: 'served',
+      },
+      {
+        id: 2,
+        order_id: 981,
+        product_id: '2',
+        product_name: 'Garlic Bread',
+        product_sku: null,
+        unit_price: 150,
+        quantity: 1,
+        subtotal: 150,
+        tax_amount: 7.5,
+        total: 157.5,
+        addons: null,
+        special_instructions: null,
+        status: 'served',
+      },
+      {
+        id: 3,
+        order_id: 981,
+        product_id: '3',
+        product_name: 'Cold Coffee',
+        product_sku: null,
+        unit_price: 40,
+        quantity: 1,
+        subtotal: 40,
+        tax_amount: 2,
+        total: 42,
+        addons: null,
+        special_instructions: null,
+        status: 'served',
+      },
     ],
     bill: {
-      id: 501, bill_number: 'B-0501', order_id: 981, subtotal: 890, tax_amount: 44.5,
-      discount_amount: 0, service_charge: 0, delivery_charge: 0, total: 934.5,
-      paid_amount: 934.5, balance: 0, payment_status: 'paid',
+      id: 501,
+      bill_number: 'B-0501',
+      order_id: 981,
+      subtotal: 890,
+      tax_amount: 44.5,
+      discount_amount: 0,
+      service_charge: 0,
+      delivery_charge: 0,
+      total: 934.5,
+      paid_amount: 934.5,
+      balance: 0,
+      payment_status: 'paid',
       payment_details: [{ method: 'card', amount: 934.5, timestamp: hoursAgo(2) }],
     },
   },
   {
-    id: 976, order_number: 'A-0976', table_id: null, customer_id: null,
-    type: 'takeaway', status: 'cancelled', subtotal: 480, tax_amount: 24,
-    discount_amount: 0, delivery_charge: 0, service_charge: 0, total: 504, guest_count: null,
-    special_instructions: null, created_by: 1, created_at: hoursAgo(5),
+    id: 976,
+    order_number: 'A-0976',
+    table_id: null,
+    customer_id: null,
+    type: 'takeaway',
+    status: 'cancelled',
+    subtotal: 480,
+    tax_amount: 24,
+    discount_amount: 0,
+    delivery_charge: 0,
+    service_charge: 0,
+    total: 504,
+    guest_count: null,
+    special_instructions: null,
+    created_by: 1,
+    created_at: hoursAgo(5),
     items: [
-      { id: 4, order_id: 976, product_id: '4', product_name: 'Chicken Biryani', product_sku: null, unit_price: 280, quantity: 1, subtotal: 280, tax_amount: 14, total: 294, addons: null, special_instructions: null, status: 'cancelled' },
-      { id: 5, order_id: 976, product_id: '5', product_name: 'Raita', product_sku: null, unit_price: 60, quantity: 1, subtotal: 60, tax_amount: 3, total: 63, addons: null, special_instructions: null, status: 'cancelled' },
-      { id: 6, order_id: 976, product_id: '6', product_name: 'Gulab Jamun', product_sku: null, unit_price: 90, quantity: 1, subtotal: 90, tax_amount: 4.5, total: 94.5, addons: null, special_instructions: null, status: 'cancelled' },
-      { id: 7, order_id: 976, product_id: '7', product_name: 'Papad', product_sku: null, unit_price: 30, quantity: 1, subtotal: 30, tax_amount: 1.5, total: 31.5, addons: null, special_instructions: null, status: 'cancelled' },
+      {
+        id: 4,
+        order_id: 976,
+        product_id: '4',
+        product_name: 'Chicken Biryani',
+        product_sku: null,
+        unit_price: 280,
+        quantity: 1,
+        subtotal: 280,
+        tax_amount: 14,
+        total: 294,
+        addons: null,
+        special_instructions: null,
+        status: 'cancelled',
+      },
+      {
+        id: 5,
+        order_id: 976,
+        product_id: '5',
+        product_name: 'Raita',
+        product_sku: null,
+        unit_price: 60,
+        quantity: 1,
+        subtotal: 60,
+        tax_amount: 3,
+        total: 63,
+        addons: null,
+        special_instructions: null,
+        status: 'cancelled',
+      },
+      {
+        id: 6,
+        order_id: 976,
+        product_id: '6',
+        product_name: 'Gulab Jamun',
+        product_sku: null,
+        unit_price: 90,
+        quantity: 1,
+        subtotal: 90,
+        tax_amount: 4.5,
+        total: 94.5,
+        addons: null,
+        special_instructions: null,
+        status: 'cancelled',
+      },
+      {
+        id: 7,
+        order_id: 976,
+        product_id: '7',
+        product_name: 'Papad',
+        product_sku: null,
+        unit_price: 30,
+        quantity: 1,
+        subtotal: 30,
+        tax_amount: 1.5,
+        total: 31.5,
+        addons: null,
+        special_instructions: null,
+        status: 'cancelled',
+      },
     ],
     bill: {
-      id: 496, bill_number: 'B-0496', order_id: 976, subtotal: 480, tax_amount: 24,
-      discount_amount: 0, service_charge: 0, delivery_charge: 0, total: 504,
-      paid_amount: 0, balance: 504, payment_status: 'unpaid', payment_details: null,
+      id: 496,
+      bill_number: 'B-0496',
+      order_id: 976,
+      subtotal: 480,
+      tax_amount: 24,
+      discount_amount: 0,
+      service_charge: 0,
+      delivery_charge: 0,
+      total: 504,
+      paid_amount: 0,
+      balance: 504,
+      payment_status: 'unpaid',
+      payment_details: null,
     },
   },
   {
-    id: 970, order_number: 'A-0970', table_id: 'tbl-09', customer_id: null,
-    type: 'dine_in', status: 'completed', subtotal: 1240, tax_amount: 62,
-    discount_amount: 100, delivery_charge: 0, service_charge: 0, total: 1202, guest_count: 5,
-    special_instructions: null, created_by: 1, created_at: hoursAgo(9),
-    table: { id: 'tbl-09', name: '9', capacity: 6, status: 'occupied', kitchen_station_id: null, floor: null, section: null, position_x: null, position_y: null, is_active: true },
+    id: 970,
+    order_number: 'A-0970',
+    table_id: 'tbl-09',
+    customer_id: null,
+    type: 'dine_in',
+    status: 'completed',
+    subtotal: 1240,
+    tax_amount: 62,
+    discount_amount: 100,
+    delivery_charge: 0,
+    service_charge: 0,
+    total: 1202,
+    guest_count: 5,
+    special_instructions: null,
+    created_by: 1,
+    created_at: hoursAgo(9),
+    table: {
+      id: 'tbl-09',
+      name: '9',
+      capacity: 6,
+      status: 'occupied',
+      kitchen_station_id: null,
+      floor: null,
+      section: null,
+      position_x: null,
+      position_y: null,
+      is_active: true,
+    },
     items: [
-      { id: 8, order_id: 970, product_id: '8', product_name: 'Paneer Tikka', product_sku: null, unit_price: 240, quantity: 2, subtotal: 480, tax_amount: 24, total: 504, addons: null, special_instructions: null, status: 'served' },
-      { id: 9, order_id: 970, product_id: '9', product_name: 'Dal Makhani', product_sku: null, unit_price: 220, quantity: 2, subtotal: 440, tax_amount: 22, total: 462, addons: null, special_instructions: null, status: 'served' },
-      { id: 10, order_id: 970, product_id: '10', product_name: 'Butter Naan', product_sku: null, unit_price: 45, quantity: 4, subtotal: 180, tax_amount: 9, total: 189, addons: null, special_instructions: null, status: 'served' },
-      { id: 11, order_id: 970, product_id: '11', product_name: 'Jeera Rice', product_sku: null, unit_price: 140, quantity: 1, subtotal: 140, tax_amount: 7, total: 147, addons: null, special_instructions: null, status: 'served' },
+      {
+        id: 8,
+        order_id: 970,
+        product_id: '8',
+        product_name: 'Paneer Tikka',
+        product_sku: null,
+        unit_price: 240,
+        quantity: 2,
+        subtotal: 480,
+        tax_amount: 24,
+        total: 504,
+        addons: null,
+        special_instructions: null,
+        status: 'served',
+      },
+      {
+        id: 9,
+        order_id: 970,
+        product_id: '9',
+        product_name: 'Dal Makhani',
+        product_sku: null,
+        unit_price: 220,
+        quantity: 2,
+        subtotal: 440,
+        tax_amount: 22,
+        total: 462,
+        addons: null,
+        special_instructions: null,
+        status: 'served',
+      },
+      {
+        id: 10,
+        order_id: 970,
+        product_id: '10',
+        product_name: 'Butter Naan',
+        product_sku: null,
+        unit_price: 45,
+        quantity: 4,
+        subtotal: 180,
+        tax_amount: 9,
+        total: 189,
+        addons: null,
+        special_instructions: null,
+        status: 'served',
+      },
+      {
+        id: 11,
+        order_id: 970,
+        product_id: '11',
+        product_name: 'Jeera Rice',
+        product_sku: null,
+        unit_price: 140,
+        quantity: 1,
+        subtotal: 140,
+        tax_amount: 7,
+        total: 147,
+        addons: null,
+        special_instructions: null,
+        status: 'served',
+      },
     ],
     bill: {
-      id: 490, bill_number: 'B-0490', order_id: 970, subtotal: 1240, tax_amount: 62,
-      discount_amount: 100, discount_type: 'flat', discount_value: 100, discount_reason: 'Loyalty reward',
-      service_charge: 0, delivery_charge: 0, total: 1202,
-      paid_amount: 1202, balance: 0, payment_status: 'paid',
+      id: 490,
+      bill_number: 'B-0490',
+      order_id: 970,
+      subtotal: 1240,
+      tax_amount: 62,
+      discount_amount: 100,
+      discount_type: 'flat',
+      discount_value: 100,
+      discount_reason: 'Loyalty reward',
+      service_charge: 0,
+      delivery_charge: 0,
+      total: 1202,
+      paid_amount: 1202,
+      balance: 0,
+      payment_status: 'paid',
       payment_details: [{ method: 'Google Pay', amount: 1202, timestamp: hoursAgo(9) }],
     },
   },
   {
-    id: 964, order_number: 'A-0964', table_id: null, customer_id: null,
-    type: 'delivery', status: 'completed', subtotal: 360, tax_amount: 18,
-    discount_amount: 0, delivery_charge: 40, service_charge: 0, total: 418, guest_count: null,
-    special_instructions: null, created_by: 1, created_at: hoursAgo(26),
+    id: 964,
+    order_number: 'A-0964',
+    table_id: null,
+    customer_id: null,
+    type: 'delivery',
+    status: 'completed',
+    subtotal: 360,
+    tax_amount: 18,
+    discount_amount: 0,
+    delivery_charge: 40,
+    service_charge: 0,
+    total: 418,
+    guest_count: null,
+    special_instructions: null,
+    created_by: 1,
+    created_at: hoursAgo(26),
     items: [
-      { id: 12, order_id: 964, product_id: '12', product_name: 'Veg Hakka Noodles', product_sku: null, unit_price: 200, quantity: 1, subtotal: 200, tax_amount: 10, total: 210, addons: null, special_instructions: null, status: 'served' },
-      { id: 13, order_id: 964, product_id: '13', product_name: 'Spring Rolls', product_sku: null, unit_price: 160, quantity: 1, subtotal: 160, tax_amount: 8, total: 168, addons: null, special_instructions: null, status: 'served' },
+      {
+        id: 12,
+        order_id: 964,
+        product_id: '12',
+        product_name: 'Veg Hakka Noodles',
+        product_sku: null,
+        unit_price: 200,
+        quantity: 1,
+        subtotal: 200,
+        tax_amount: 10,
+        total: 210,
+        addons: null,
+        special_instructions: null,
+        status: 'served',
+      },
+      {
+        id: 13,
+        order_id: 964,
+        product_id: '13',
+        product_name: 'Spring Rolls',
+        product_sku: null,
+        unit_price: 160,
+        quantity: 1,
+        subtotal: 160,
+        tax_amount: 8,
+        total: 168,
+        addons: null,
+        special_instructions: null,
+        status: 'served',
+      },
     ],
     bill: {
-      id: 484, bill_number: 'B-0484', order_id: 964, subtotal: 360, tax_amount: 18,
-      discount_amount: 0, service_charge: 0, delivery_charge: 40, total: 418,
-      paid_amount: 418, balance: 0, payment_status: 'paid',
+      id: 484,
+      bill_number: 'B-0484',
+      order_id: 964,
+      subtotal: 360,
+      tax_amount: 18,
+      discount_amount: 0,
+      service_charge: 0,
+      delivery_charge: 40,
+      total: 418,
+      paid_amount: 418,
+      balance: 0,
+      payment_status: 'paid',
       payment_details: [{ method: 'cash', amount: 418, timestamp: hoursAgo(26) }],
     },
   },
@@ -119,7 +424,15 @@ const ORDER_TYPE_KEYS = {
   online: 'online',
 } as const satisfies Record<Order['type'], OrdersKey>;
 
-function HistoryOrderCard({ order, currency, locale }: { order: HistoryOrder; currency: string; locale: string }) {
+function HistoryOrderCard({
+  order,
+  currency,
+  locale,
+}: {
+  order: HistoryOrder;
+  currency: string;
+  locale: string;
+}) {
   const tOrders = useTranslations('orders');
   const tCommon = useTranslations('common');
   const tPrintTest = useTranslations('printTest');
@@ -133,11 +446,23 @@ function HistoryOrderCard({ order, currency, locale }: { order: HistoryOrder; cu
       <CardHeader className="px-4 pt-4 pb-3 border-b gap-1">
         <div className="flex items-start justify-between gap-2">
           <div>
-            <CardTitle className="text-base font-bold">#<Ltr>{order.order_number}</Ltr></CardTitle>
-            <CardDescription>{formatDate(order.created_at, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</CardDescription>
+            <CardTitle className="text-base font-bold">
+              #<Ltr>{order.order_number}</Ltr>
+            </CardTitle>
+            <CardDescription>
+              {formatDate(order.created_at, {
+                month: 'short',
+                day: 'numeric',
+                hour: 'numeric',
+                minute: '2-digit',
+              })}
+            </CardDescription>
           </div>
           <Badge className={STATUS_BADGE[order.status] ?? ''} variant="outline">
-            {(() => { const key = STATUS_LABEL_KEY[order.status]; return key ? tOrders(key) : order.status; })()}
+            {(() => {
+              const key = STATUS_LABEL_KEY[order.status];
+              return key ? tOrders(key) : order.status;
+            })()}
           </Badge>
         </div>
         <p className="text-sm text-muted-foreground">
@@ -161,9 +486,15 @@ function HistoryOrderCard({ order, currency, locale }: { order: HistoryOrder; cu
             {items.map((item) => (
               <TableRow key={item.id} className="hover:bg-transparent">
                 <TableCell className="px-0 py-1.5 text-sm">{item.product_name}</TableCell>
-                <TableCell className="px-0 py-1.5 text-sm text-center tabular-nums">{item.quantity}</TableCell>
-                <TableCell className="px-0 py-1.5 text-sm text-end tabular-nums">{fmt(item.unit_price)}</TableCell>
-                <TableCell className="px-0 py-1.5 text-sm text-end tabular-nums">{fmt(item.subtotal)}</TableCell>
+                <TableCell className="px-0 py-1.5 text-sm text-center tabular-nums">
+                  {item.quantity}
+                </TableCell>
+                <TableCell className="px-0 py-1.5 text-sm text-end tabular-nums">
+                  {fmt(item.unit_price)}
+                </TableCell>
+                <TableCell className="px-0 py-1.5 text-sm text-end tabular-nums">
+                  {fmt(item.subtotal)}
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -182,7 +513,10 @@ function HistoryOrderCard({ order, currency, locale }: { order: HistoryOrder; cu
           </div>
           {order.discount_amount > 0 && (
             <div className="flex justify-between text-muted-foreground">
-              <span>{tCommon('discount')}{bill?.discount_reason ? ` (${bill.discount_reason})` : ''}</span>
+              <span>
+                {tCommon('discount')}
+                {bill?.discount_reason ? ` (${bill.discount_reason})` : ''}
+              </span>
               <span className="tabular-nums">−{fmt(order.discount_amount)}</span>
             </div>
           )}
@@ -201,11 +535,17 @@ function HistoryOrderCard({ order, currency, locale }: { order: HistoryOrder; cu
       </CardContent>
 
       <CardFooter className="px-4 pb-4 pt-3 border-t flex flex-wrap gap-2">
-        <Button variant="outline" size="sm">{tOrders('printReceiptTitle')}</Button>
+        <Button variant="outline" size="sm">
+          {tOrders('printReceiptTitle')}
+        </Button>
         {order.status === 'completed' && (
-          <Button variant="outline" size="sm">{tOrders('reopenOrder')}</Button>
+          <Button variant="outline" size="sm">
+            {tOrders('reopenOrder')}
+          </Button>
         )}
-        <Button variant="ghost" size="sm">{tOrders('viewLogs')}</Button>
+        <Button variant="ghost" size="sm">
+          {tOrders('viewLogs')}
+        </Button>
       </CardFooter>
     </Card>
   );

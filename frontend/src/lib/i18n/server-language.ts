@@ -32,7 +32,11 @@ export async function fetchServerInfo(
       language: isLanguage(data.language) ? data.language : null,
       country: data.country || null,
       kdsDefaultView:
-        data.kds_default_view === 'kanban' ? 'kanban' : data.kds_default_view === 'tabs' ? 'tabs' : null,
+        data.kds_default_view === 'kanban'
+          ? 'kanban'
+          : data.kds_default_view === 'tabs'
+            ? 'tabs'
+            : null,
     };
   } catch {
     return empty;

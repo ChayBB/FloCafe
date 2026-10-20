@@ -13,7 +13,9 @@ type ApprovableUsbDevice = {
 
 /** Identifies unique physical USB device via vendorId, productId, and serialNumber. */
 function persistableDeviceKey(device: ApprovableUsbDevice): string | null {
-  return device.serialNumber ? `${device.vendorId}:${device.productId}:${device.serialNumber}` : null;
+  return device.serialNumber
+    ? `${device.vendorId}:${device.productId}:${device.serialNumber}`
+    : null;
 }
 
 function approvalsFilePath(): string {
@@ -78,22 +80,25 @@ export function registerUsbDevicePermissions(session: Session, trustedOrigin: st
       ? `${device.productName}${device.manufacturerName ? ` (${device.manufacturerName})` : ''}`
       : `USB device ${device.vendorId.toString(16).padStart(4, '0')}:${device.productId.toString(16).padStart(4, '0')}`;
 
-    dialog.showMessageBox({
-      type: 'question',
-      buttons: ['Allow', 'Deny'],
-      defaultId: 0,
-      cancelId: 1,
-      title: 'Connect USB printer',
-      message: 'FloCafe wants to connect to a USB device',
-      detail: deviceLabel,
-    }).then((result) => {
-      if (result.response === 0) {
-        markApproved(device);
-        callback(device.deviceId);
-      } else {
-        callback();
-      }
-    }).catch(() => callback());
+    dialog
+      .showMessageBox({
+        type: 'question',
+        buttons: ['Allow', 'Deny'],
+        defaultId: 0,
+        cancelId: 1,
+        title: 'Connect USB printer',
+        message: 'FloCafe wants to connect to a USB device',
+        detail: deviceLabel,
+      })
+      .then((result) => {
+        if (result.response === 0) {
+          markApproved(device);
+          callback(device.deviceId);
+        } else {
+          callback();
+        }
+      })
+      .catch(() => callback());
   });
 
   session.setDevicePermissionHandler((details) => {

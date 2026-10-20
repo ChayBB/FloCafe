@@ -1,7 +1,14 @@
 'use client';
 import { useState } from 'react';
 import { Ltr } from '@/components/layout/Ltr';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Loader2, Lock, Printer, AlertTriangle } from 'lucide-react';
 import type { CashSessionModel } from '@/hooks/useCashSession';
@@ -11,9 +18,23 @@ import type { CashSessionModel } from '@/hooks/useCashSession';
  *  result with a print button. */
 export function ShiftCloseModal({ model }: { model: CashSessionModel }) {
   const {
-    closeModalOpen, setCloseModalOpen, session, countedInput, setCountedInput,
-    submitting, submitError, closedResult, setClosedResult, printing,
-    variancePreviewCents, minorFactor, fmt, t, tCommon, closeShift, printClosure,
+    closeModalOpen,
+    setCloseModalOpen,
+    session,
+    countedInput,
+    setCountedInput,
+    submitting,
+    submitError,
+    closedResult,
+    setClosedResult,
+    printing,
+    variancePreviewCents,
+    minorFactor,
+    fmt,
+    t,
+    tCommon,
+    closeShift,
+    printClosure,
     setSubmitError,
   } = model;
   // Tracks the first successful print so retries carry the REPRINT banner
@@ -32,7 +53,10 @@ export function ShiftCloseModal({ model }: { model: CashSessionModel }) {
   };
   return (
     <Dialog open={closeModalOpen} onOpenChange={closeModal}>
-      <DialogContent className="sm:max-w-md max-h-[90vh] flex flex-col" onInteractOutside={(e) => e.preventDefault()}>
+      <DialogContent
+        className="sm:max-w-md max-h-[90vh] flex flex-col"
+        onInteractOutside={(e) => e.preventDefault()}
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Lock size={18} className="text-foreground" />
@@ -51,10 +75,15 @@ export function ShiftCloseModal({ model }: { model: CashSessionModel }) {
             <>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">{t('expectedCash')}</span>
-                <span className="font-semibold text-foreground"><Ltr>{fmt(session.expected_cash_cents / minorFactor)}</Ltr></span>
+                <span className="font-semibold text-foreground">
+                  <Ltr>{fmt(session.expected_cash_cents / minorFactor)}</Ltr>
+                </span>
               </div>
               <div>
-                <label htmlFor="shift-counted-cash" className="block text-sm text-muted-foreground mb-1">
+                <label
+                  htmlFor="shift-counted-cash"
+                  className="block text-sm text-muted-foreground mb-1"
+                >
                   {t('countedCash')}
                 </label>
                 <input
@@ -71,7 +100,9 @@ export function ShiftCloseModal({ model }: { model: CashSessionModel }) {
               {variancePreviewCents !== null && (
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">{t('variance')}</span>
-                  <span className="font-semibold text-foreground"><Ltr>{fmt(variancePreviewCents / minorFactor)}</Ltr></span>
+                  <span className="font-semibold text-foreground">
+                    <Ltr>{fmt(variancePreviewCents / minorFactor)}</Ltr>
+                  </span>
                 </div>
               )}
             </>
@@ -80,15 +111,21 @@ export function ShiftCloseModal({ model }: { model: CashSessionModel }) {
             <div className="space-y-2 text-sm">
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">{t('expectedCash')}</span>
-                <span className="font-semibold text-foreground"><Ltr>{fmt(closedResult.expected_cash_cents / minorFactor)}</Ltr></span>
+                <span className="font-semibold text-foreground">
+                  <Ltr>{fmt(closedResult.expected_cash_cents / minorFactor)}</Ltr>
+                </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">{t('countedCash')}</span>
-                <span className="font-semibold text-foreground"><Ltr>{fmt(closedResult.counted_cash_cents / minorFactor)}</Ltr></span>
+                <span className="font-semibold text-foreground">
+                  <Ltr>{fmt(closedResult.counted_cash_cents / minorFactor)}</Ltr>
+                </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">{t('variance')}</span>
-                <span className="font-semibold text-foreground"><Ltr>{fmt(closedResult.variance_cents / minorFactor)}</Ltr></span>
+                <span className="font-semibold text-foreground">
+                  <Ltr>{fmt(closedResult.variance_cents / minorFactor)}</Ltr>
+                </span>
               </div>
             </div>
           )}

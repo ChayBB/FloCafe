@@ -7,8 +7,7 @@ export interface BetaChannelApi {
 
 /** True only when BOTH sides of the contract are callable on the exposed API. */
 export function betaChannelApiSupported(api: BetaChannelApi | null | undefined): boolean {
-  return typeof api?.getBetaChannel === 'function'
-    && typeof api?.setBetaChannel === 'function';
+  return typeof api?.getBetaChannel === 'function' && typeof api?.setBetaChannel === 'function';
 }
 
 /** Coerces get/set payload into boolean or null when missing/malformed. */
@@ -32,7 +31,10 @@ export interface WriteBetaChannelResult {
 }
 
 /** Normalize a set-beta-channel response into an optimistic-update decision. */
-export function normalizeBetaChannelWriteResult(raw: unknown, requested: boolean): WriteBetaChannelResult {
+export function normalizeBetaChannelWriteResult(
+  raw: unknown,
+  requested: boolean,
+): WriteBetaChannelResult {
   if (raw === undefined) {
     // Legacy void resolution: assume the request landed with the asked-for value.
     return { ok: true, enabled: requested };
@@ -42,9 +44,8 @@ export function normalizeBetaChannelWriteResult(raw: unknown, requested: boolean
   }
   const record = raw as Record<string, unknown>;
   if (record.success === false) {
-    const error = typeof record.error === 'string' && record.error.length > 0
-      ? record.error
-      : undefined;
+    const error =
+      typeof record.error === 'string' && record.error.length > 0 ? record.error : undefined;
     return { ok: false, enabled: null, error };
   }
   const enabled = 'enabled' in record ? normalizeBetaChannelValue(record.enabled) : requested;
@@ -57,7 +58,9 @@ export interface ReadBetaChannelResult {
 }
 
 /** Read the current channel state; unsupported/unreadable APIs report supported=false. */
-export async function readBetaChannelState(api: BetaChannelApi | null | undefined): Promise<ReadBetaChannelResult> {
+export async function readBetaChannelState(
+  api: BetaChannelApi | null | undefined,
+): Promise<ReadBetaChannelResult> {
   if (!betaChannelApiSupported(api)) return { supported: false, enabled: null };
   try {
     const enabled = normalizeBetaChannelValue(await api!.getBetaChannel!());
@@ -79,6 +82,10 @@ export async function writeBetaChannelState(
   try {
     return normalizeBetaChannelWriteResult(await api!.setBetaChannel!(enabled), enabled);
   } catch (error) {
-    return { ok: false, enabled: null, error: error instanceof Error ? error.message : String(error) };
+    return {
+      ok: false,
+      enabled: null,
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
 }

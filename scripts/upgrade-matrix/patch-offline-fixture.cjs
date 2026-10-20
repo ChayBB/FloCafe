@@ -72,12 +72,14 @@ function main() {
     }
   }
 
-  console.log(JSON.stringify({
-    fixture: 'offline',
-    telemetry_replacements: counts.telemetry,
-    cloud_replacements: counts.cloud,
-    endpoint: 'http://127.0.0.1:9',
-  }));
+  console.log(
+    JSON.stringify({
+      fixture: 'offline',
+      telemetry_replacements: counts.telemetry,
+      cloud_replacements: counts.cloud,
+      endpoint: 'http://127.0.0.1:9',
+    }),
+  );
 }
 
 try {

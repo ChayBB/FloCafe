@@ -23,13 +23,17 @@ const path = require('path');
 
 const activeTestDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-jwt-secret-'));
 Module._load = function (request: string, parent: unknown, isMain: boolean) {
-  if (request === 'electron') return { app: { isPackaged: true, getPath: () => activeTestDir, getVersion: () => 'test' } };
+  if (request === 'electron')
+    return { app: { isPackaged: true, getPath: () => activeTestDir, getVersion: () => 'test' } };
   return originalLoad.apply(this, arguments as any);
 };
 
 const { initDatabase, getDatabase, closeDatabase, now } = require('../main/db');
 const {
-  assertOrThrow, assertEqualOrThrow, getResults, resetCounters,
+  assertOrThrow,
+  assertEqualOrThrow,
+  getResults,
+  resetCounters,
 } = require('./helpers/test-setup');
 const { toPosixPath } = require('./helpers/posix-path');
 const { getJWTSecret, clearJWTSecretCache } = require('../main/security/jwt-secret');
@@ -49,7 +53,13 @@ const isProductionFile = (file: string): boolean => toPosixPath(file).startsWith
 function collectSourceFiles(dir: string): string[] {
   const found: string[] = [];
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name === '.next' || entry.name.startsWith('.')) continue;
+    if (
+      entry.name === 'node_modules' ||
+      entry.name === 'dist' ||
+      entry.name === '.next' ||
+      entry.name.startsWith('.')
+    )
+      continue;
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) found.push(...collectSourceFiles(full));
     else if (/\.tsx?$/.test(entry.name)) found.push(full);
@@ -68,10 +78,14 @@ function secretImportSpecifiersIn(source: string): string[] {
   const specifiers = new Set<string>();
 
   for (const match of source.matchAll(/import\s*\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/g)) {
-    if (SECRET_EXPORTS.some((name) => new RegExp(`\\b${name}\\b`).test(match[1]))) specifiers.add(match[2]);
+    if (SECRET_EXPORTS.some((name) => new RegExp(`\\b${name}\\b`).test(match[1])))
+      specifiers.add(match[2]);
   }
-  for (const match of source.matchAll(/(?:const|let|var)\s*\{([^}]*)\}\s*=\s*require\(\s*['"]([^'"]+)['"]\s*\)/g)) {
-    if (SECRET_EXPORTS.some((name) => new RegExp(`\\b${name}\\b`).test(match[1]))) specifiers.add(match[2]);
+  for (const match of source.matchAll(
+    /(?:const|let|var)\s*\{([^}]*)\}\s*=\s*require\(\s*['"]([^'"]+)['"]\s*\)/g,
+  )) {
+    if (SECRET_EXPORTS.some((name) => new RegExp(`\\b${name}\\b`).test(match[1])))
+      specifiers.add(match[2]);
   }
   return [...specifiers];
 }
@@ -91,8 +105,14 @@ function main() {
   resetCounters();
 
   // ── 1. The re-export shim is the same function object, not a copy ──────────
-  assertOrThrow(authReExport.getJWTSecret === getJWTSecret, 'auth.ts re-exports the very same getJWTSecret function');
-  assertOrThrow(authReExport.clearJWTSecretCache === clearJWTSecretCache, 'auth.ts re-exports the very same clearJWTSecretCache function');
+  assertOrThrow(
+    authReExport.getJWTSecret === getJWTSecret,
+    'auth.ts re-exports the very same getJWTSecret function',
+  );
+  assertOrThrow(
+    authReExport.clearJWTSecretCache === clearJWTSecretCache,
+    'auth.ts re-exports the very same clearJWTSecretCache function',
+  );
 
   // ── 2. Cache identity across clearJWTSecretCache ───────────────────────────
   // The env override short-circuits before the database, so it has to be out
@@ -103,22 +123,37 @@ function main() {
   try {
     initDatabase();
     const db = getDatabase();
-    db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('jwt_secret', 'secret-one', ?)")
-      .run(now());
+    db.prepare(
+      "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('jwt_secret', 'secret-one', ?)",
+    ).run(now());
 
     clearJWTSecretCache();
-    assertEqualOrThrow(getJWTSecret(), 'secret-one', 'first read populates the cache from settings.jwt_secret');
+    assertEqualOrThrow(
+      getJWTSecret(),
+      'secret-one',
+      'first read populates the cache from settings.jwt_secret',
+    );
     assertEqualOrThrow(getJWTSecret(), 'secret-one', 'second read is served by the cache');
 
     // Rotate the stored secret the way a restore or a forced re-key would.
-    db.prepare("UPDATE settings SET value = 'secret-two', updated_at = ? WHERE key = 'jwt_secret'").run(now());
-    assertEqualOrThrow(getJWTSecret(), 'secret-one', 'a cached secret survives a database rotation until the cache is cleared');
+    db.prepare(
+      "UPDATE settings SET value = 'secret-two', updated_at = ? WHERE key = 'jwt_secret'",
+    ).run(now());
+    assertEqualOrThrow(
+      getJWTSecret(),
+      'secret-one',
+      'a cached secret survives a database rotation until the cache is cleared',
+    );
 
     // The failure this pins: if clearJWTSecretCache() nulled a different
     // module's copy than getJWTSecret() reads, this read would still return
     // 'secret-one' and pre-rotation tokens would keep validating.
     clearJWTSecretCache();
-    assertEqualOrThrow(getJWTSecret(), 'secret-two', 'clearJWTSecretCache() invalidates the same cache getJWTSecret() reads');
+    assertEqualOrThrow(
+      getJWTSecret(),
+      'secret-two',
+      'clearJWTSecretCache() invalidates the same cache getJWTSecret() reads',
+    );
 
     closeDatabase();
   } finally {
@@ -148,8 +183,14 @@ function main() {
       `a ${separator === '\\' ? 'backslash' : 'posix'}-separated owner path equals the owner constant`,
     );
   }
-  assertOrThrow(!isProductionFile('tests/security-hardening.test.ts'), 'a tests/ path is not classified as production');
-  assertOrThrow(!isProductionFile('shared/role-permissions.ts'), 'a shared/ path is not classified as production');
+  assertOrThrow(
+    !isProductionFile('tests/security-hardening.test.ts'),
+    'a tests/ path is not classified as production',
+  );
+  assertOrThrow(
+    !isProductionFile('shared/role-permissions.ts'),
+    'a shared/ path is not classified as production',
+  );
 
   // ── 4. Both quote styles are audited ────────────────────────────────────────
   // A single-quote-only pattern let a double-quoted importer slip through the
@@ -168,7 +209,11 @@ function main() {
       1,
       `quote audit finds exactly one source in: ${source.slice(0, 46)}...`,
     );
-    assertEqualOrThrow(found[0], expected, `quote audit resolves the right specifier in: ${source.slice(0, 46)}...`);
+    assertEqualOrThrow(
+      found[0],
+      expected,
+      `quote audit resolves the right specifier in: ${source.slice(0, 46)}...`,
+    );
   }
   assertEqualOrThrow(
     secretImportSpecifiersIn('const { isValidEmail } from "./auth";').length,
@@ -192,14 +237,20 @@ function main() {
     if (path.resolve(file) === __filename) continue;
     const specifiers = secretImportSpecifiers(file);
     if (specifiers.length === 0) continue;
-    const resolved = specifiers.map((specifier) => relativeToRepo(path.resolve(path.dirname(file), specifier)));
+    const resolved = specifiers.map((specifier) =>
+      relativeToRepo(path.resolve(path.dirname(file), specifier)),
+    );
     resolvedImporters.push({ file: relativeToRepo(file), resolved });
   }
 
   assertOrThrow(resolvedImporters.length > 0, 'the audit found files importing the JWT secret');
 
   for (const { file, resolved } of resolvedImporters) {
-    assertEqualOrThrow(resolved.length, 1, `${file} imports the JWT secret from a single module (found ${resolved.join(', ')})`);
+    assertEqualOrThrow(
+      resolved.length,
+      1,
+      `${file} imports the JWT secret from a single module (found ${resolved.join(', ')})`,
+    );
     const [owner] = resolved;
     if (owner === OWNER_MODULE || owner === LEGACY_SHIM_MODULE) continue;
     assertOrThrow(false, `${file} imports the JWT secret from unknown module "${owner}"`);
@@ -218,10 +269,17 @@ function main() {
   }
 
   const productionImporters = resolvedImporters.filter(({ file }) => isProductionFile(file));
-  assertOrThrow(productionImporters.length > 0, 'production modules import the secret from the security module');
+  assertOrThrow(
+    productionImporters.length > 0,
+    'production modules import the secret from the security module',
+  );
 
-  const legacyTestImporters = resolvedImporters.filter(({ file, resolved }) => !isProductionFile(file) && resolved[0] === LEGACY_SHIM_MODULE);
-  console.log(`  · ${resolvedImporters.length} importers audited; ${productionImporters.length} production, ${legacyTestImporters.length} tests still on the auth.ts shim`);
+  const legacyTestImporters = resolvedImporters.filter(
+    ({ file, resolved }) => !isProductionFile(file) && resolved[0] === LEGACY_SHIM_MODULE,
+  );
+  console.log(
+    `  · ${resolvedImporters.length} importers audited; ${productionImporters.length} production, ${legacyTestImporters.length} tests still on the auth.ts shim`,
+  );
 
   const results = getResults();
   console.log(`\nJWT secret cache identity: ${results.passed}/${results.total} checks passed.`);

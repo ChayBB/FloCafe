@@ -43,10 +43,7 @@ export function labelWidth(text: string): number {
  *
  * Callers test this at 32/36/42/48 columns (58mm…80mm paper).
  */
-export function selectBilingualFit(
-  label: BilingualLabel,
-  columns: number,
-): BilingualFitStrategy {
+export function selectBilingualFit(label: BilingualLabel, columns: number): BilingualFitStrategy {
   if (label.secondary === undefined) return 'inline';
   if (!Number.isFinite(columns) || columns <= 0) return 'stacked';
   const total = labelWidth(label.primary) + INLINE_SEPARATOR_COLUMNS + labelWidth(label.secondary);

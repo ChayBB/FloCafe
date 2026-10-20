@@ -32,17 +32,21 @@ export type PublicMenu = {
 /** Menu rows trimmed to what a customer may see — no cost, stock or supplier data. */
 export function publicMenu(): PublicMenu {
   const db = getDatabase();
-  const categories = db.prepare(`
+  const categories = db
+    .prepare(`
     SELECT id, name FROM categories WHERE is_active = 1 ORDER BY sort_order, name
-  `).all() as PublicCategory[];
-  const products = db.prepare(`
+  `)
+    .all() as PublicCategory[];
+  const products = db
+    .prepare(`
     SELECT p.id, p.category_id, p.name, p.description, p.price, p.updated_at,
       CASE WHEN p.image_url IS NULL OR p.image_url = '' THEN 0 ELSE 1 END AS has_image
     FROM products p
     LEFT JOIN categories c ON c.id = p.category_id
     WHERE p.deleted_at IS NULL AND p.is_active = 1 AND (c.id IS NULL OR c.is_active = 1)
     ORDER BY p.sort_order, p.name
-  `).all() as Record<string, unknown>[];
+  `)
+    .all() as Record<string, unknown>[];
   return {
     categories,
     products: products.map((product) => ({
@@ -70,11 +74,13 @@ export type PublicTable = {
  * to the right table without ever holding a working QR token.
  */
 export function publicTables(): PublicTable[] {
-  const rows = getDatabase().prepare(`
+  const rows = getDatabase()
+    .prepare(`
     SELECT id, number, guest_token FROM tables
     WHERE is_active = 1 AND guest_token IS NOT NULL AND guest_token <> ''
     ORDER BY number
-  `).all() as { id: string; number: string; guest_token: string }[];
+  `)
+    .all() as { id: string; number: string; guest_token: string }[];
   return rows.map((row) => ({
     id: row.id,
     number: row.number,

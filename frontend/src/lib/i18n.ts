@@ -12,21 +12,11 @@ export {
   type Locale,
 } from './i18n/languages';
 
-export {
-  loadLocaleMessages,
-  getCachedMessages,
-  isLocaleLoaded,
-} from './i18n/loader';
+export { loadLocaleMessages, getCachedMessages, isLocaleLoaded } from './i18n/loader';
 
-export {
-  getBrowserLanguage,
-} from './i18n/browser-language';
+export { getBrowserLanguage } from './i18n/browser-language';
 
-export {
-  fetchServerInfo,
-  useSyncServerLanguage,
-  type ServerInfo,
-} from './i18n/server-language';
+export { fetchServerInfo, useSyncServerLanguage, type ServerInfo } from './i18n/server-language';
 
 export {
   ORDER_TYPE_LABEL_KEYS,

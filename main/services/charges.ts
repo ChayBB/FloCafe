@@ -50,7 +50,10 @@ export const CUSTOM_CHARGES_SETTING_KEY = 'custom_charges';
 /** Configured charges for the tenant; unreadable or malformed storage reads as none. */
 export function getChargeDefinitions(): ChargeDefinition[] {
   const currencyDecimals = getCurrencyFractionDigits(getSettingValue('currency') || 'USD');
-  return parseStoredChargeDefinitions(getSettingValue(CUSTOM_CHARGES_SETTING_KEY), currencyDecimals);
+  return parseStoredChargeDefinitions(
+    getSettingValue(CUSTOM_CHARGES_SETTING_KEY),
+    currencyDecimals,
+  );
 }
 
 export interface ResolveOrderChargesInput {
@@ -118,17 +121,24 @@ export function resolveOrderCharges(input: ResolveOrderChargesInput): ResolvedOr
   const charges = [...activeCharges, ...retainedCharges];
 
   const columns = toStandardChargeColumns(charges, getCurrencyFractionDigits(currency));
-  const ownsStandardColumn = (id: string) => charges.some((charge) => charge.id === id)
-    || existing.some((charge) => charge.id === id)
-    || definitions.some((definition) => definition.id === id
-      && definition.is_active
-      && definition.is_default_active
-      && definition.order_types.includes(orderType as ChargeOrderType));
-  const configured = retainedCharges.length > 0 || definitions.some(
-    (definition) => definition.is_active
-      && (definition.is_default_active || optedInIds.includes(definition.id))
-      && definition.order_types.includes(orderType as ChargeOrderType),
-  );
+  const ownsStandardColumn = (id: string) =>
+    charges.some((charge) => charge.id === id) ||
+    existing.some((charge) => charge.id === id) ||
+    definitions.some(
+      (definition) =>
+        definition.id === id &&
+        definition.is_active &&
+        definition.is_default_active &&
+        definition.order_types.includes(orderType as ChargeOrderType),
+    );
+  const configured =
+    retainedCharges.length > 0 ||
+    definitions.some(
+      (definition) =>
+        definition.is_active &&
+        (definition.is_default_active || optedInIds.includes(definition.id)) &&
+        definition.order_types.includes(orderType as ChargeOrderType),
+    );
 
   return {
     charges,

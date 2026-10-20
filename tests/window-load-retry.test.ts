@@ -89,7 +89,11 @@ async function run(): Promise<void> {
   assert.equal(isTransientLoadError(-106), true, '-106 (ERR_INTERNET_DISCONNECTED) is transient');
   assert.equal(isTransientLoadError(-118), true, '-118 (ERR_CONNECTION_TIMED_OUT) is transient');
   assert.equal(isTransientLoadError(-300), false, '-300 (ERR_INVALID_URL) is non-transient');
-  assert.equal(isTransientLoadError(-200), false, '-200 (ERR_CERT_COMMON_NAME_INVALID) is non-transient');
+  assert.equal(
+    isTransientLoadError(-200),
+    false,
+    '-200 (ERR_CERT_COMMON_NAME_INVALID) is non-transient',
+  );
   assert.equal(isTransientLoadError(0), false, '0 is non-transient');
 
   const delays = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((attempt) => calculateRetryDelay(attempt));
@@ -147,9 +151,24 @@ async function run(): Promise<void> {
     getRetryDelay: () => 5,
     log: testLogger,
   });
-  subframeWin.webContents.emit('did-fail-load', {}, -102, 'ERR_CONNECTION_REFUSED', targetUrl, false);
-  assert.equal(subframeController.getRetries(), 0, 'Subframe failures do not trigger main document retries');
-  assert.equal(subframeController.getPendingTimer(), null, 'Subframe failures do not set a retry timer');
+  subframeWin.webContents.emit(
+    'did-fail-load',
+    {},
+    -102,
+    'ERR_CONNECTION_REFUSED',
+    targetUrl,
+    false,
+  );
+  assert.equal(
+    subframeController.getRetries(),
+    0,
+    'Subframe failures do not trigger main document retries',
+  );
+  assert.equal(
+    subframeController.getPendingTimer(),
+    null,
+    'Subframe failures do not set a retry timer',
+  );
   log('  ✓ Subframe failures are ignored.');
 
   // ── 4. Max Retries Capping (Bounded at 10) ──────────────────────────
@@ -167,7 +186,12 @@ async function run(): Promise<void> {
   assert.equal(maxController.getRetries(), 10, 'Retries are strictly capped at 10');
   log('  ✓ Retry ceiling prevents infinite loops during permanent server outage.');
 
-  const exhaustionEvents: Array<{ errorCode: number; errorDescription: string; retries: number; validatedURL?: string }> = [];
+  const exhaustionEvents: Array<{
+    errorCode: number;
+    errorDescription: string;
+    retries: number;
+    validatedURL?: string;
+  }> = [];
   const exhaustedWin = new MockBrowserWindow();
   const exhaustedController = setupWindowLoadRetry(exhaustedWin, () => targetUrl, {
     maxRetries: 2,
@@ -179,13 +203,23 @@ async function run(): Promise<void> {
   exhaustedWin.webContents.emit('did-fail-load', {}, -102, 'ERR_CONNECTION_REFUSED', targetUrl);
   exhaustedWin.webContents.emit('did-fail-load', {}, -102, 'ERR_CONNECTION_REFUSED', targetUrl);
   exhaustedWin.webContents.emit('did-fail-load', {}, -102, 'ERR_CONNECTION_REFUSED', targetUrl);
-  assert.deepEqual(exhaustionEvents, [{
-    errorCode: -102,
-    errorDescription: 'ERR_CONNECTION_REFUSED',
-    validatedURL: targetUrl,
-    retries: 2,
-  }], 'Retry exhaustion is reported once with the terminal load details');
-  assert.equal(exhaustedController.getPendingTimer(), null, 'Retry exhaustion clears the pending retry timer');
+  assert.deepEqual(
+    exhaustionEvents,
+    [
+      {
+        errorCode: -102,
+        errorDescription: 'ERR_CONNECTION_REFUSED',
+        validatedURL: targetUrl,
+        retries: 2,
+      },
+    ],
+    'Retry exhaustion is reported once with the terminal load details',
+  );
+  assert.equal(
+    exhaustedController.getPendingTimer(),
+    null,
+    'Retry exhaustion clears the pending retry timer',
+  );
   exhaustedController.cancel();
   log('  ✓ Retry exhaustion escalates once after the bounded retry budget.');
 
@@ -269,8 +303,7 @@ async function run(): Promise<void> {
 
   // Write evidence file
   const evidenceDir =
-    process.env.EVIDENCE_DIR ||
-    path.join(os.tmpdir(), 'flo-window-load-retry-evidence');
+    process.env.EVIDENCE_DIR || path.join(os.tmpdir(), 'flo-window-load-retry-evidence');
   try {
     fs.mkdirSync(evidenceDir, { recursive: true });
     const evidencePath = path.join(evidenceDir, 'window-load-retry-resilience.log');

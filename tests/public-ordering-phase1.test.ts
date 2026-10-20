@@ -30,7 +30,9 @@ async function getFreeTcpPort(): Promise<number> {
   const address = probe.address();
   assert(address && typeof address !== 'string');
   const port = address.port;
-  await new Promise<void>((resolve, reject) => probe.close((error) => error ? reject(error) : resolve()));
+  await new Promise<void>((resolve, reject) =>
+    probe.close((error) => (error ? reject(error) : resolve())),
+  );
   return port;
 }
 
@@ -41,11 +43,13 @@ async function main() {
   process.env.PORT = String(await getFreeTcpPort());
   process.env.GUEST_PORT = String(await getFreeTcpPort());
 
-  const { initDatabase, getDatabase, closeDatabase, now, upsertSettings } = await import('../main/db');
+  const { initDatabase, getDatabase, closeDatabase, now, upsertSettings } =
+    await import('../main/db');
   const { startServer, stopServer } = await import('../main/server');
   const { startGuestServer, stopGuestServer, getGuestPort } = await import('../main/guest-server');
   const tokens = await import('../main/services/guest-tokens');
-  const { publicOrderingSnapshot, publicTables, snapshotDigest } = await import('../main/services/public-menu');
+  const { publicOrderingSnapshot, publicTables, snapshotDigest } =
+    await import('../main/services/public-menu');
 
   initDatabase();
   const db = getDatabase();
@@ -61,39 +65,86 @@ async function main() {
   `).run(now(), now());
   // Order creation resolves a regional snapshot and refuses when the shop's
   // country is unset, so a bare test database cannot place one.
-  db.prepare("INSERT INTO settings (key, value, updated_at) VALUES ('country', 'TH', ?) ON CONFLICT(key) DO UPDATE SET value='TH', updated_at=excluded.updated_at").run(now());
-  db.prepare("INSERT INTO settings (key, value, updated_at) VALUES ('currency', 'THB', ?) ON CONFLICT(key) DO UPDATE SET value='THB', updated_at=excluded.updated_at").run(now());
+  db.prepare(
+    "INSERT INTO settings (key, value, updated_at) VALUES ('country', 'TH', ?) ON CONFLICT(key) DO UPDATE SET value='TH', updated_at=excluded.updated_at",
+  ).run(now());
+  db.prepare(
+    "INSERT INTO settings (key, value, updated_at) VALUES ('currency', 'THB', ?) ON CONFLICT(key) DO UPDATE SET value='THB', updated_at=excluded.updated_at",
+  ).run(now());
 
   upsertSettings({ guest_ordering_enabled: 'true' });
 
   await startServer();
   await startGuestServer();
   const guestUrl = `http://127.0.0.1:${getGuestPort()}`;
-  const session = (token: string) => fetch(`${guestUrl}/api/guest/${encodeURIComponent(token)}/session`);
+  const session = (token: string) =>
+    fetch(`${guestUrl}/api/guest/${encodeURIComponent(token)}/session`);
 
   try {
     // ---- Token parsing --------------------------------------------------
-    assert.deepEqual(tokens.parseGuestToken(secret), { storeRef: '', secret }, 'a bare code parses as ours-by-default');
-    assert.deepEqual(tokens.parseGuestToken(`shop7.${secret}`), { storeRef: 'shop7', secret }, 'a qualified code splits on the first dot');
-    for (const rubbish of ['', 'short', '.', `.${secret}`, `shop7.`, `sh op.${secret}`, `shop7.${secret}!`, null, 42]) {
-      assert.equal(tokens.parseGuestToken(rubbish as unknown), null, `rejected: ${String(rubbish)}`);
+    assert.deepEqual(
+      tokens.parseGuestToken(secret),
+      { storeRef: '', secret },
+      'a bare code parses as ours-by-default',
+    );
+    assert.deepEqual(
+      tokens.parseGuestToken(`shop7.${secret}`),
+      { storeRef: 'shop7', secret },
+      'a qualified code splits on the first dot',
+    );
+    for (const rubbish of [
+      '',
+      'short',
+      '.',
+      `.${secret}`,
+      `shop7.`,
+      `sh op.${secret}`,
+      `shop7.${secret}!`,
+      null,
+      42,
+    ]) {
+      assert.equal(
+        tokens.parseGuestToken(rubbish as unknown),
+        null,
+        `rejected: ${String(rubbish)}`,
+      );
     }
 
     // ---- Before the cloud has issued a store reference -------------------
     assert.equal(tokens.getStoreRef(), '', 'an unregistered shop has no store reference');
-    assert.equal(tokens.qualifyGuestToken(secret), secret, 'codes stay bare until there is a reference to add');
+    assert.equal(
+      tokens.qualifyGuestToken(secret),
+      secret,
+      'codes stay bare until there is a reference to add',
+    );
     assert.equal((await session(secret)).status, 200, 'a bare printed code opens the menu');
-    assert.equal((await session(`shop7.${secret}`)).status, 404, 'a prefixed code is refused by a shop with no reference');
+    assert.equal(
+      (await session(`shop7.${secret}`)).status,
+      404,
+      'a prefixed code is refused by a shop with no reference',
+    );
 
     // ---- Once registered -------------------------------------------------
     upsertSettings({ cloud_store_ref: 'shop7' });
     assert.equal(tokens.getStoreRef(), 'shop7');
-    assert.equal(tokens.qualifyGuestToken(secret), `shop7.${secret}`, 'new printouts carry the store reference');
+    assert.equal(
+      tokens.qualifyGuestToken(secret),
+      `shop7.${secret}`,
+      'new printouts carry the store reference',
+    );
 
     assert.equal((await session(`shop7.${secret}`)).status, 200, 'our own qualified code works');
-    assert.equal((await session(secret)).status, 200, 'codes printed before registration keep working');
+    assert.equal(
+      (await session(secret)).status,
+      200,
+      'codes printed before registration keep working',
+    );
     // The isolation rule this whole format exists for.
-    assert.equal((await session(`shop8.${secret}`)).status, 404, "another shop's prefix opens nothing, even with a valid secret");
+    assert.equal(
+      (await session(`shop8.${secret}`)).status,
+      404,
+      "another shop's prefix opens nothing, even with a valid secret",
+    );
 
     // A store reference that is not a valid reference must not be honoured.
     upsertSettings({ cloud_store_ref: 'not a ref!' });
@@ -105,7 +156,11 @@ async function main() {
     const product = snapshot.products.find((item) => item.id === 'prod-mt');
     assert.ok(product, 'the sellable product is in the snapshot');
     for (const forbidden of ['cost', 'cost_price', 'stock_quantity', 'sku', 'supplier_id']) {
-      assert.equal(forbidden in (product as Record<string, unknown>), false, `${forbidden} never reaches the cloud`);
+      assert.equal(
+        forbidden in (product as Record<string, unknown>),
+        false,
+        `${forbidden} never reaches the cloud`,
+      );
     }
 
     const [table] = publicTables();
@@ -118,17 +173,34 @@ async function main() {
     const asText = JSON.stringify(snapshot);
     assert.equal(asText.includes(secret), false, 'the token itself is never in the snapshot');
     assert.equal(asText.includes('SKU-MT-1'), false, 'no stray SKU anywhere in the payload');
-    assert.equal(asText.includes('Snapshot Coffee'), true, 'sanity: the snapshot does carry the menu');
+    assert.equal(
+      asText.includes('Snapshot Coffee'),
+      true,
+      'sanity: the snapshot does carry the menu',
+    );
 
-    assert.equal(snapshotDigest(snapshot), snapshotDigest(publicOrderingSnapshot('THB', 'th', 'TH')), 'an unchanged menu digests identically');
+    assert.equal(
+      snapshotDigest(snapshot),
+      snapshotDigest(publicOrderingSnapshot('THB', 'th', 'TH')),
+      'an unchanged menu digests identically',
+    );
     db.prepare("UPDATE products SET price = 75 WHERE id = 'prod-mt'").run();
-    assert.notEqual(snapshotDigest(snapshot), snapshotDigest(publicOrderingSnapshot('THB', 'th', 'TH')), 'a price change changes the digest');
+    assert.notEqual(
+      snapshotDigest(snapshot),
+      snapshotDigest(publicOrderingSnapshot('THB', 'th', 'TH')),
+      'a price change changes the digest',
+    );
 
     // ---- The portal stays read-only --------------------------------------
     // Phase 1 adds no way for the cloud to write into this POS. If a write
     // command ever appears, it has to be a deliberate, reviewed change.
-    const cloudSyncSource = fs.readFileSync(path.join(__dirname, '..', 'main', 'services', 'cloud-sync.ts'), 'utf8');
-    const handledCommands = [...cloudSyncSource.matchAll(/case '([a-z_]+\.[a-z_]+)':/g)].map((match) => match[1]);
+    const cloudSyncSource = fs.readFileSync(
+      path.join(__dirname, '..', 'main', 'services', 'cloud-sync.ts'),
+      'utf8',
+    );
+    const handledCommands = [...cloudSyncSource.matchAll(/case '([a-z_]+\.[a-z_]+)':/g)].map(
+      (match) => match[1],
+    );
     assert.ok(handledCommands.length > 0, 'sanity: the command switch was found');
     for (const command of handledCommands) {
       assert.match(

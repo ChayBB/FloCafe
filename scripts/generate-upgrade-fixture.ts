@@ -44,31 +44,37 @@ let dbModule: any;
 try {
   dbModule = require('../main/db');
 
-// MIGRATIONS is a top-level `export const` array — mutating it in place
-// (rather than reassigning) keeps the same reference that runMigrations()
-// closes over internally, so capping it here actually caps what
-// initDatabase() applies.
-const allMigrations = dbModule.MIGRATIONS.slice();
-const capped = allMigrations.filter((m: { version: number }) => m.version <= capVersion);
-if (capped.length === allMigrations.length) {
-  throw new Error(`Version ${capVersion} is >= the latest migration; nothing would be capped.`);
-}
-dbModule.MIGRATIONS.length = 0;
-dbModule.MIGRATIONS.push(...capped);
+  // MIGRATIONS is a top-level `export const` array — mutating it in place
+  // (rather than reassigning) keeps the same reference that runMigrations()
+  // closes over internally, so capping it here actually caps what
+  // initDatabase() applies.
+  const allMigrations = dbModule.MIGRATIONS.slice();
+  const capped = allMigrations.filter((m: { version: number }) => m.version <= capVersion);
+  if (capped.length === allMigrations.length) {
+    throw new Error(`Version ${capVersion} is >= the latest migration; nothing would be capped.`);
+  }
+  dbModule.MIGRATIONS.length = 0;
+  dbModule.MIGRATIONS.push(...capped);
 
-dbModule.initDatabase();
-const reached = dbModule.getCurrentSchemaVersion();
-dbModule.closeDatabase();
+  dbModule.initDatabase();
+  const reached = dbModule.getCurrentSchemaVersion();
+  dbModule.closeDatabase();
 
-if (reached !== capVersion) {
-  throw new Error(`Expected to land on schema v${capVersion}, actually reached v${reached}.`);
-}
+  if (reached !== capVersion) {
+    throw new Error(`Expected to land on schema v${capVersion}, actually reached v${reached}.`);
+  }
 
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
   fs.copyFileSync(path.join(outDir, 'flo.db'), outPath);
-  console.log(`Fixture written to ${outPath} (schema v${reached}, ${fs.statSync(outPath).size} bytes)`);
+  console.log(
+    `Fixture written to ${outPath} (schema v${reached}, ${fs.statSync(outPath).size} bytes)`,
+  );
 } finally {
-  try { dbModule?.closeDatabase(); } catch { /* best effort */ }
+  try {
+    dbModule?.closeDatabase();
+  } catch {
+    /* best effort */
+  }
   Module._load = originalLoad;
   fs.rmSync(outDir, { recursive: true, force: true });
 }

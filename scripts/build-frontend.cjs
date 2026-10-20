@@ -16,7 +16,9 @@ function hasCurrentFrontendDependencies() {
   if (!fs.existsSync(nodeModulesDir) || !fs.existsSync(installedLockPath)) return false;
 
   try {
-    const lockfile = JSON.parse(fs.readFileSync(path.join(frontendDir, 'package-lock.json'), 'utf8'));
+    const lockfile = JSON.parse(
+      fs.readFileSync(path.join(frontendDir, 'package-lock.json'), 'utf8'),
+    );
     const installedLockfile = JSON.parse(fs.readFileSync(installedLockPath, 'utf8'));
     if (lockfile.lockfileVersion !== installedLockfile.lockfileVersion) return false;
 
@@ -26,7 +28,11 @@ function hasCurrentFrontendDependencies() {
 
     for (const [packagePath, installedPackage] of Object.entries(installedPackages)) {
       if (packagePath === '') continue;
-      if (!lockedPackages[packagePath] || !isDeepStrictEqual(installedPackage, lockedPackages[packagePath])) return false;
+      if (
+        !lockedPackages[packagePath] ||
+        !isDeepStrictEqual(installedPackage, lockedPackages[packagePath])
+      )
+        return false;
     }
 
     for (const [packagePath, lockedPackage] of Object.entries(lockedPackages)) {

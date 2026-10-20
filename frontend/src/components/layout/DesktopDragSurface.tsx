@@ -4,7 +4,8 @@ import { useEffect, useSyncExternalStore } from 'react';
 import WindowControls from './WindowControls';
 
 const subscribeToElectronCapability = () => () => {};
-const getElectronCapability = () => typeof window !== 'undefined' && Boolean(window.electronAPI?.getStatus);
+const getElectronCapability = () =>
+  typeof window !== 'undefined' && Boolean(window.electronAPI?.getStatus);
 const getServerElectronCapability = () => false;
 
 export default function DesktopDragSurface() {

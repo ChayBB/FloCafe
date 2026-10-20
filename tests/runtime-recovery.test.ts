@@ -98,11 +98,7 @@ assert.equal(
   true,
   'a relaunched process carries the marker its own relaunch appended',
 );
-assert.equal(
-  hasRelaunchAttemptFlag([], FLAG),
-  false,
-  'an empty argv is treated as a first launch',
-);
+assert.equal(hasRelaunchAttemptFlag([], FLAG), false, 'an empty argv is treated as a first launch');
 
 // createRelaunchAttemptGuard: a successful recovery must not permanently
 // disable a later, independent relaunch attempt (issue #568 #1) — the marker
@@ -118,7 +114,11 @@ assert.equal(
 {
   // A relaunched process that fails again before ever recovering is exhausted.
   const failedRelaunch = createRelaunchAttemptGuard(true);
-  assert.equal(failedRelaunch.hasExhaustedAttempt(), true, 'a relaunched process is exhausted until it recovers');
+  assert.equal(
+    failedRelaunch.hasExhaustedAttempt(),
+    true,
+    'a relaunched process is exhausted until it recovers',
+  );
 }
 {
   // A relaunched process that recovers, then later hits an unrelated failure,

@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 
 import { localDateInTimezone } from '../main/db';
-import { businessDateForInstant, dayBoundsInTimezone, normalizeBusinessDayStartTime } from '../shared/business-date';
+import {
+  businessDateForInstant,
+  dayBoundsInTimezone,
+  normalizeBusinessDayStartTime,
+} from '../shared/business-date';
 
 /** The backend and the renderer each answer "what is today's business date?" for the same
  *  instant, tenant timezone and `business_day_start_time`. The two copies of that rule were

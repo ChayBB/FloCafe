@@ -30,7 +30,11 @@ Module._load = function (requestName: string, parent: unknown, isMain: boolean) 
 };
 
 const {
-  initTestDb, closeDatabase, assertEqual, getResults, seedOwnerUser,
+  initTestDb,
+  closeDatabase,
+  assertEqual,
+  getResults,
+  seedOwnerUser,
 } = require('./helpers/test-setup');
 
 async function main() {
@@ -55,40 +59,66 @@ async function main() {
     const defaults = await request(app).get('/api/settings/order-numbering');
     assertEqual(defaults.status, 200, 'returns 200');
     assertEqual(defaults.body.invoice_number_prefix, 'INV', 'default invoice prefix is INV');
-    assertEqual(defaults.body.invoice_number_include_period, true, 'default invoice period is included');
-    assertEqual(defaults.body.invoice_number_reset_period, 'daily', 'default invoice reset is daily');
-    assertEqual(defaults.body.invoice_financial_year_start_month, 4, 'default FY start month is April');
+    assertEqual(
+      defaults.body.invoice_number_include_period,
+      true,
+      'default invoice period is included',
+    );
+    assertEqual(
+      defaults.body.invoice_number_reset_period,
+      'daily',
+      'default invoice reset is daily',
+    );
+    assertEqual(
+      defaults.body.invoice_financial_year_start_month,
+      4,
+      'default FY start month is April',
+    );
     assertEqual(defaults.body.invoice_financial_year_start_day, 1, 'default FY start day is 1');
 
     console.log('\n2. PUT /settings/order-numbering persists invoice numbering');
-    const updated = await request(app)
-      .put('/api/settings/order-numbering')
-      .send({
-        invoice_number_prefix: 'BILL',
-        invoice_number_include_period: false,
-        invoice_number_reset_period: 'financial_year',
-        invoice_financial_year_start_month: 7,
-        invoice_financial_year_start_day: 15,
-      });
+    const updated = await request(app).put('/api/settings/order-numbering').send({
+      invoice_number_prefix: 'BILL',
+      invoice_number_include_period: false,
+      invoice_number_reset_period: 'financial_year',
+      invoice_financial_year_start_month: 7,
+      invoice_financial_year_start_day: 15,
+    });
     assertEqual(updated.status, 200, 'returns 200');
     assertEqual(updated.body.invoice_number_prefix, 'BILL', 'invoice prefix updates');
     assertEqual(updated.body.invoice_number_include_period, false, 'invoice period toggle updates');
-    assertEqual(updated.body.invoice_number_reset_period, 'financial_year', 'invoice reset period updates');
+    assertEqual(
+      updated.body.invoice_number_reset_period,
+      'financial_year',
+      'invoice reset period updates',
+    );
     assertEqual(updated.body.invoice_financial_year_start_month, 7, 'FY month updates');
     assertEqual(updated.body.invoice_financial_year_start_day, 15, 'FY day updates');
 
     console.log('\n3. PUT /settings/order-numbering rejects invalid invoice values');
-    const badPrefix = await request(app).put('/api/settings/order-numbering').send({ invoice_number_prefix: 'TOO LONG PREFIX' });
+    const badPrefix = await request(app)
+      .put('/api/settings/order-numbering')
+      .send({ invoice_number_prefix: 'TOO LONG PREFIX' });
     assertEqual(badPrefix.status, 400, 'rejects invalid invoice prefix');
-    const dashPrefix = await request(app).put('/api/settings/order-numbering').send({ invoice_number_prefix: 'FAC-' });
+    const dashPrefix = await request(app)
+      .put('/api/settings/order-numbering')
+      .send({ invoice_number_prefix: 'FAC-' });
     assertEqual(dashPrefix.status, 400, 'rejects invoice prefix containing a dash');
-    const underscorePrefix = await request(app).put('/api/settings/order-numbering').send({ order_number_prefix: 'ORD_' });
+    const underscorePrefix = await request(app)
+      .put('/api/settings/order-numbering')
+      .send({ order_number_prefix: 'ORD_' });
     assertEqual(underscorePrefix.status, 400, 'rejects order prefix containing an underscore');
-    const badPeriod = await request(app).put('/api/settings/order-numbering').send({ invoice_number_reset_period: 'quarterly' });
+    const badPeriod = await request(app)
+      .put('/api/settings/order-numbering')
+      .send({ invoice_number_reset_period: 'quarterly' });
     assertEqual(badPeriod.status, 400, 'rejects invalid reset period');
-    const badMonth = await request(app).put('/api/settings/order-numbering').send({ invoice_financial_year_start_month: 13 });
+    const badMonth = await request(app)
+      .put('/api/settings/order-numbering')
+      .send({ invoice_financial_year_start_month: 13 });
     assertEqual(badMonth.status, 400, 'rejects invalid FY month');
-    const badDay = await request(app).put('/api/settings/order-numbering').send({ invoice_financial_year_start_day: 0 });
+    const badDay = await request(app)
+      .put('/api/settings/order-numbering')
+      .send({ invoice_financial_year_start_day: 0 });
     assertEqual(badDay.status, 400, 'rejects invalid FY day');
 
     console.log('\n' + '='.repeat(50));

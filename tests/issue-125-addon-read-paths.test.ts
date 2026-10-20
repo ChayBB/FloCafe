@@ -21,16 +21,25 @@ const os = require('os');
 const path = require('path');
 const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-issue-125-'));
 Module._load = function (request: string, parent: unknown, isMain: boolean) {
-  if (request === 'electron') return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
+  if (request === 'electron')
+    return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
   return originalLoad.apply(this, arguments as any);
 };
 
 process.env.JWT_SECRET = 'test-secret-issue-125';
 
 const {
-  initTestDb, createApp, startServer,
-  seedOwnerUser, seedCategory, seedProduct,
-  api, assert, assertEqual, getResults, closeDatabase,
+  initTestDb,
+  createApp,
+  startServer,
+  seedOwnerUser,
+  seedCategory,
+  seedProduct,
+  api,
+  assert,
+  assertEqual,
+  getResults,
+  closeDatabase,
 } = require('./helpers/test-setup');
 
 const { orderRoutes } = require('../main/routes/orders');
@@ -49,8 +58,12 @@ async function main() {
   seedCategory(db, 'cat-125', 'Food');
   seedProduct(db, 'prod-125', 'cat-125', 'Tea', 50);
   db.prepare(`INSERT INTO addon_groups (id, name) VALUES ('ag-125', 'Extras')`).run();
-  db.prepare(`INSERT INTO addons (id, addon_group_id, name, price, is_active) VALUES ('addon-125-sugar', 'ag-125', 'Extra Sugar', 5, 1)`).run();
-  db.prepare(`INSERT INTO addon_group_product (product_id, addon_group_id) VALUES ('prod-125', 'ag-125')`).run();
+  db.prepare(
+    `INSERT INTO addons (id, addon_group_id, name, price, is_active) VALUES ('addon-125-sugar', 'ag-125', 'Extra Sugar', 5, 1)`,
+  ).run();
+  db.prepare(
+    `INSERT INTO addon_group_product (product_id, addon_group_id) VALUES ('prod-125', 'ag-125')`,
+  ).run();
 
   const app = createApp({
     '/api/orders': orderRoutes,
@@ -70,7 +83,16 @@ async function main() {
     {
       const res = await api(baseUrl, '/api/orders', {
         method: 'POST',
-        body: { type: 'takeaway', items: [{ product_id: 'prod-125', quantity: 1, addons: [{ id: 'addon-125-sugar', name: 'Extra Sugar', price: 5 }] }] },
+        body: {
+          type: 'takeaway',
+          items: [
+            {
+              product_id: 'prod-125',
+              quantity: 1,
+              addons: [{ id: 'addon-125-sugar', name: 'Extra Sugar', price: 5 }],
+            },
+          ],
+        },
         headers: authHeader,
       });
       assertEqual(res.status, 201, 'order with addon created');
@@ -83,9 +105,14 @@ async function main() {
         headers: authHeader,
       });
       bareOrderId = bareRes.data.order.id;
-      bareItemId = (db.prepare('SELECT id FROM order_items WHERE order_id = ?').get(bareOrderId) as any).id;
+      bareItemId = (
+        db.prepare('SELECT id FROM order_items WHERE order_id = ?').get(bareOrderId) as any
+      ).id;
 
-      const columns = db.prepare("PRAGMA table_info(order_items)").all().map((c: any) => c.name);
+      const columns = db
+        .prepare('PRAGMA table_info(order_items)')
+        .all()
+        .map((c: any) => c.name);
       assert(!columns.includes('addons'), 'setup: order_items.addons column does not exist');
     }
 
@@ -113,7 +140,10 @@ async function main() {
       const order = res.data.orders.find((o: any) => o.id === orderId);
       assert(!!order, 'C: order found on KDS feed');
       const item = order.items.find((i: any) => i.id === itemId);
-      assert(Array.isArray(item.addons), 'C: addons is a real array (kds.ts never called parseItemJson before)');
+      assert(
+        Array.isArray(item.addons),
+        'C: addons is a real array (kds.ts never called parseItemJson before)',
+      );
       assertEqual(item.addons[0].name, 'Extra Sugar', 'C: KDS /orders shows the addon');
     }
 
@@ -136,13 +166,22 @@ async function main() {
       });
       assertEqual(res.status, 200, 'E: item status updated');
       const item = res.data.order.items.find((i: any) => i.id === itemId);
-      assertEqual(item.addons[0].name, 'Extra Sugar', 'E: order-items.ts response includes the addon');
+      assertEqual(
+        item.addons[0].name,
+        'Extra Sugar',
+        'E: order-items.ts response includes the addon',
+      );
     }
 
-    console.log('\n─── Scenario F: an item with no selected addons gets an empty array everywhere ───');
+    console.log(
+      '\n─── Scenario F: an item with no selected addons gets an empty array everywhere ───',
+    );
     {
       const detail = await api(baseUrl, `/api/orders/${bareOrderId}`, { headers: authHeader });
-      assert(Array.isArray(detail.data.order.items[0].addons), 'F: order detail — addons is an array');
+      assert(
+        Array.isArray(detail.data.order.items[0].addons),
+        'F: order detail — addons is an array',
+      );
       assertEqual(detail.data.order.items[0].addons.length, 0, 'F: order detail — empty, not null');
 
       const kitchen = await api(baseUrl, '/api/kitchen/orders', { headers: authHeader });
@@ -151,7 +190,9 @@ async function main() {
       assertEqual(bareOrder.items[0].addons.length, 0, 'F: kitchen feed — empty, not null');
     }
 
-    console.log('\n─── Scenario G: item-discount calculation includes addon price via order_item_addons ───');
+    console.log(
+      '\n─── Scenario G: item-discount calculation includes addon price via order_item_addons ───',
+    );
     {
       // itemBaseTotal should be unit_price*qty + addon price = 50 + 5 = 55.
       // A 10% discount on that base is 5.5.
@@ -160,27 +201,45 @@ async function main() {
         body: { discount_type: 'percentage', discount_value: 10 },
         headers: authHeader,
       });
-      assertEqual(res.status, 200, `G: discount applied (got ${res.status}, ${JSON.stringify(res.data)})`);
-      const updatedItem = db.prepare('SELECT discount_amount FROM order_items WHERE id = ?').get(itemId) as any;
-      assertEqual(updatedItem.discount_amount, 5.5, 'G: discount_amount correctly includes the addon price in its base (50+5=55, 10% = 5.5)');
+      assertEqual(
+        res.status,
+        200,
+        `G: discount applied (got ${res.status}, ${JSON.stringify(res.data)})`,
+      );
+      const updatedItem = db
+        .prepare('SELECT discount_amount FROM order_items WHERE id = ?')
+        .get(itemId) as any;
+      assertEqual(
+        updatedItem.discount_amount,
+        5.5,
+        'G: discount_amount correctly includes the addon price in its base (50+5=55, 10% = 5.5)',
+      );
     }
 
-    console.log('\n─── Scenario H: attachEffectiveAddons unit behavior (no JSON fallback anymore) ───');
+    console.log(
+      '\n─── Scenario H: attachEffectiveAddons unit behavior (no JSON fallback anymore) ───',
+    );
     {
       const withAddon = attachEffectiveAddons(db, [{ id: itemId }]);
       assertEqual(withAddon[0].addons.length, 1, 'H: item with a normalized row returns it');
 
       const withoutAddon = attachEffectiveAddons(db, [{ id: bareItemId }]);
-      assert(Array.isArray(withoutAddon[0].addons), 'H: item with no normalized rows still gets an array');
+      assert(
+        Array.isArray(withoutAddon[0].addons),
+        'H: item with no normalized rows still gets an array',
+      );
       assertEqual(withoutAddon[0].addons.length, 0, 'H: ...and it is empty, not null');
 
       const empty = attachEffectiveAddons(db, []);
       assertEqual(empty.length, 0, 'H: empty input returns empty output without querying');
 
       const printerItems = getEffectiveOrderItems(db, String(orderId));
-      assertEqual(printerItems[0].addons.length, 1, 'H: printer bill/KOT item hydration includes normalized add-ons');
+      assertEqual(
+        printerItems[0].addons.length,
+        1,
+        'H: printer bill/KOT item hydration includes normalized add-ons',
+      );
     }
-
   } finally {
     server.close();
     closeDatabase();

@@ -33,7 +33,14 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const request = require('supertest');
-const { initDatabase, getDatabase, closeDatabase, now, localDateInTimezone, parseDbTimestamp } = require('../main/db');
+const {
+  initDatabase,
+  getDatabase,
+  closeDatabase,
+  now,
+  localDateInTimezone,
+  parseDbTimestamp,
+} = require('../main/db');
 const { getJWTSecret } = require('../main/routes/auth');
 const { reportRoutes } = require('../main/routes/reports');
 
@@ -63,12 +70,17 @@ function assertEqual(actual: any, expected: any, message: string) {
     console.log(`  ✓ ${message}`);
   } else {
     failed++;
-    console.error(`  ✗ ${message} — expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+    console.error(
+      `  ✗ ${message} — expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`,
+    );
   }
 }
 
 function isNativeAbiMismatch(error: any): boolean {
-  return error?.code === 'ERR_DLOPEN_FAILED' && String(error?.message || '').includes('NODE_MODULE_VERSION');
+  return (
+    error?.code === 'ERR_DLOPEN_FAILED' &&
+    String(error?.message || '').includes('NODE_MODULE_VERSION')
+  );
 }
 
 async function main() {
@@ -87,29 +99,69 @@ async function main() {
 
   const db = getDatabase();
   db.prepare(`UPDATE settings SET value = 'Asia/Kolkata' WHERE key = 'timezone'`).run();
-  if ((db.prepare(`SELECT COUNT(*) as c FROM settings WHERE key = 'timezone'`).get() as any).c === 0) {
+  if (
+    (db.prepare(`SELECT COUNT(*) as c FROM settings WHERE key = 'timezone'`).get() as any).c === 0
+  ) {
     db.prepare(`INSERT INTO settings (key, value) VALUES ('timezone', 'Asia/Kolkata')`).run();
   }
   // Regional settings come from signup, never a fallback; seed one
   // explicitly so resolveRegionalSnapshot() resolves.
-  db.prepare(`INSERT INTO settings (key, value, updated_at) VALUES ('country', 'IN', ?) ON CONFLICT(key) DO UPDATE SET value='IN', updated_at=excluded.updated_at`).run(now());
+  db.prepare(
+    `INSERT INTO settings (key, value, updated_at) VALUES ('country', 'IN', ?) ON CONFLICT(key) DO UPDATE SET value='IN', updated_at=excluded.updated_at`,
+  ).run(now());
 
   // ── Seed staff ────────────────────────────────────────────────────────
   const ownerId = 'owner-insights';
-  db.prepare(`INSERT INTO users (id, name, email, password, role, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)`)
-    .run(ownerId, 'Owner', 'owner-insights@test.local', bcrypt.hashSync('pw', 10), 'owner', now(), now());
+  db.prepare(
+    `INSERT INTO users (id, name, email, password, role, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
+  ).run(
+    ownerId,
+    'Owner',
+    'owner-insights@test.local',
+    bcrypt.hashSync('pw', 10),
+    'owner',
+    now(),
+    now(),
+  );
   const cashierId = 'cashier-insights';
-  db.prepare(`INSERT INTO users (id, name, email, password, role, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)`)
-    .run(cashierId, 'Top Cashier', 'cashier-insights@test.local', bcrypt.hashSync('pw', 10), 'cashier', now(), now());
+  db.prepare(
+    `INSERT INTO users (id, name, email, password, role, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
+  ).run(
+    cashierId,
+    'Top Cashier',
+    'cashier-insights@test.local',
+    bcrypt.hashSync('pw', 10),
+    'cashier',
+    now(),
+    now(),
+  );
   const waiterId = 'server-insights';
-  db.prepare(`INSERT INTO users (id, name, email, password, role, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)`)
-    .run(waiterId, 'Server', 'server-insights@test.local', bcrypt.hashSync('pw', 10), 'server', now(), now());
+  db.prepare(
+    `INSERT INTO users (id, name, email, password, role, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
+  ).run(
+    waiterId,
+    'Server',
+    'server-insights@test.local',
+    bcrypt.hashSync('pw', 10),
+    'server',
+    now(),
+    now(),
+  );
   // Dedicated to the hour/day bucketing fixtures below, kept separate from
   // cashier/server so its order count doesn't skew the top-staff-by-revenue
   // assertions (its orders are zero-value — only their created_at matters).
   const bucketUserId = 'bucket-fixtures-insights';
-  db.prepare(`INSERT INTO users (id, name, email, password, role, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)`)
-    .run(bucketUserId, 'Bucket Fixtures', 'bucket-insights@test.local', bcrypt.hashSync('pw', 10), 'server', now(), now());
+  db.prepare(
+    `INSERT INTO users (id, name, email, password, role, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
+  ).run(
+    bucketUserId,
+    'Bucket Fixtures',
+    'bucket-insights@test.local',
+    bcrypt.hashSync('pw', 10),
+    'server',
+    now(),
+    now(),
+  );
 
   // Keep rolling-window fixtures safely within the insights query window,
   // while placing them on Wed–Sat at Kolkata hours that cannot affect the
@@ -122,26 +174,42 @@ async function main() {
   // stay within the endpoint's 90-day trailing window, so timestamps are
   // computed relative to "now" rather than pinned to a fixed calendar date
   // that would eventually age out of that window.
-  const relativeWeekdayTimestamp = (weekday: number, utcHour: number, utcMinute: number, weeksAgo: number) => {
+  const relativeWeekdayTimestamp = (
+    weekday: number,
+    utcHour: number,
+    utcMinute: number,
+    weeksAgo: number,
+  ) => {
     const date = new Date();
     const daysSinceWeekday = (date.getUTCDay() - weekday + 7) % 7;
     date.setUTCDate(date.getUTCDate() - daysSinceWeekday - weeksAgo * 7);
     date.setUTCHours(utcHour, utcMinute, 0, 0);
     return dbTimestamp(date);
   };
-  const recentWeekdayTimestamp = (weekday: number, utcHour: number) => relativeWeekdayTimestamp(weekday, utcHour, 0, 1);
+  const recentWeekdayTimestamp = (weekday: number, utcHour: number) =>
+    relativeWeekdayTimestamp(weekday, utcHour, 0, 1);
   const prepOneCreatedAt = recentWeekdayTimestamp(3, 4); // Wed, 09:30 Kolkata
   const prepTwoCreatedAt = recentWeekdayTimestamp(4, 5); // Thu, 10:30 Kolkata
   const cashierRevenueCreatedAt = recentWeekdayTimestamp(5, 6); // Fri, 11:30 Kolkata
   const waiterRevenueCreatedAt = recentWeekdayTimestamp(6, 7); // Sat, 12:30 Kolkata
 
   // ── Seed categories + products ───────────────────────────────────────
-  db.prepare(`INSERT INTO categories (id, name, sort_order) VALUES (?, ?, ?)`).run('cat-drinks', 'Drinks', 1);
-  db.prepare(`INSERT INTO categories (id, name, sort_order) VALUES (?, ?, ?)`).run('cat-food', 'Food', 2);
-  db.prepare(`INSERT INTO products (id, category_id, name, price, is_active, sort_order) VALUES (?, ?, ?, ?, 1, 1)`)
-    .run('prod-tea', 'cat-drinks', 'Tea', 20);
-  db.prepare(`INSERT INTO products (id, category_id, name, price, is_active, sort_order) VALUES (?, ?, ?, ?, 1, 2)`)
-    .run('prod-burger', 'cat-food', 'Burger', 200);
+  db.prepare(`INSERT INTO categories (id, name, sort_order) VALUES (?, ?, ?)`).run(
+    'cat-drinks',
+    'Drinks',
+    1,
+  );
+  db.prepare(`INSERT INTO categories (id, name, sort_order) VALUES (?, ?, ?)`).run(
+    'cat-food',
+    'Food',
+    2,
+  );
+  db.prepare(
+    `INSERT INTO products (id, category_id, name, price, is_active, sort_order) VALUES (?, ?, ?, ?, 1, 1)`,
+  ).run('prod-tea', 'cat-drinks', 'Tea', 20);
+  db.prepare(
+    `INSERT INTO products (id, category_id, name, price, is_active, sort_order) VALUES (?, ?, ?, ?, 1, 2)`,
+  ).run('prod-burger', 'cat-food', 'Burger', 200);
 
   // ── Seed orders for hour/day-of-week bucketing ───────────────────────
   // Expected (precomputed): busiest hour=14 (3 orders), idlest hour=8 (1),
@@ -181,19 +249,25 @@ async function main() {
   };
   const hourDayFixtures: { id: string; createdAt: string }[] = [
     { id: 'ORD-INS-1', createdAt: bucketTimestamp(0, 8, 30) }, // Mon 14:00 Kolkata
-    { id: 'ORD-INS-2', createdAt: bucketTimestamp(0, 9, 0) },  // Mon 14:30 Kolkata
+    { id: 'ORD-INS-2', createdAt: bucketTimestamp(0, 9, 0) }, // Mon 14:30 Kolkata
     { id: 'ORD-INS-3', createdAt: bucketTimestamp(0, 9, 15) }, // Mon 14:45 Kolkata
-    { id: 'ORD-INS-4', createdAt: bucketTimestamp(2, 4, 0) },  // Wed 09:30 Kolkata
-    { id: 'ORD-INS-5', createdAt: bucketTimestamp(3, 3, 0) },  // Thu 08:30 Kolkata
-    { id: 'ORD-INS-6', createdAt: bucketTimestamp(4, 5, 0) },  // Fri 10:30 Kolkata
-    { id: 'ORD-INS-7', createdAt: bucketTimestamp(5, 6, 0) },  // Sat 11:30 Kolkata
-    { id: 'ORD-INS-8', createdAt: bucketTimestamp(6, 7, 0) },  // Sun 12:30 Kolkata
+    { id: 'ORD-INS-4', createdAt: bucketTimestamp(2, 4, 0) }, // Wed 09:30 Kolkata
+    { id: 'ORD-INS-5', createdAt: bucketTimestamp(3, 3, 0) }, // Thu 08:30 Kolkata
+    { id: 'ORD-INS-6', createdAt: bucketTimestamp(4, 5, 0) }, // Fri 10:30 Kolkata
+    { id: 'ORD-INS-7', createdAt: bucketTimestamp(5, 6, 0) }, // Sat 11:30 Kolkata
+    { id: 'ORD-INS-8', createdAt: bucketTimestamp(6, 7, 0) }, // Sun 12:30 Kolkata
   ];
   // Tenant-local calendar dates of the Monday/Wednesday fixtures above,
   // reused by the recentOrders date-scoping assertions (section 9) instead
   // of hardcoding the dates a second time.
-  const bucketMondayDate = localDateInTimezone(parseDbTimestamp(hourDayFixtures[0].createdAt), 'Asia/Kolkata');
-  const bucketWednesdayDate = localDateInTimezone(parseDbTimestamp(hourDayFixtures[3].createdAt), 'Asia/Kolkata');
+  const bucketMondayDate = localDateInTimezone(
+    parseDbTimestamp(hourDayFixtures[0].createdAt),
+    'Asia/Kolkata',
+  );
+  const bucketWednesdayDate = localDateInTimezone(
+    parseDbTimestamp(hourDayFixtures[3].createdAt),
+    'Asia/Kolkata',
+  );
   // Zero-value on purpose — only created_at matters for bucketing, and this
   // keeps these 8 orders from perturbing the top-staff revenue ranking below.
   const insertOrder = db.prepare(`
@@ -210,11 +284,25 @@ async function main() {
   db.prepare(`
     INSERT INTO orders (order_number, user_id, type, status, subtotal, total, created_at, updated_at, cooking_started_at, ready_at)
     VALUES (?, ?, 'takeaway', 'completed', 50, 50, ?, ?, ?, ?)
-  `).run('ORD-PREP-1', cashierId, prepOneCreatedAt, prepOneCreatedAt, prepOneCreatedAt, dbTimestamp(new Date(parseDbTimestamp(prepOneCreatedAt).getTime() + 10 * 60 * 1000)));
+  `).run(
+    'ORD-PREP-1',
+    cashierId,
+    prepOneCreatedAt,
+    prepOneCreatedAt,
+    prepOneCreatedAt,
+    dbTimestamp(new Date(parseDbTimestamp(prepOneCreatedAt).getTime() + 10 * 60 * 1000)),
+  );
   db.prepare(`
     INSERT INTO orders (order_number, user_id, type, status, subtotal, total, created_at, updated_at, cooking_started_at, ready_at)
     VALUES (?, ?, 'takeaway', 'completed', 50, 50, ?, ?, ?, ?)
-  `).run('ORD-PREP-2', waiterId, prepTwoCreatedAt, prepTwoCreatedAt, prepTwoCreatedAt, dbTimestamp(new Date(parseDbTimestamp(prepTwoCreatedAt).getTime() + 20 * 60 * 1000)));
+  `).run(
+    'ORD-PREP-2',
+    waiterId,
+    prepTwoCreatedAt,
+    prepTwoCreatedAt,
+    prepTwoCreatedAt,
+    dbTimestamp(new Date(parseDbTimestamp(prepTwoCreatedAt).getTime() + 20 * 60 * 1000)),
+  );
 
   // ── Seed top-staff orders: cashier earns more than server ────────────
   db.prepare(`
@@ -233,7 +321,9 @@ async function main() {
   `).run('ORD-CANCELLED', cashierId, now(), now());
 
   // ── Seed top-category order_items: Food (Burger) outsells Drinks (Tea) ──
-  const categoryOrderId = (db.prepare(`SELECT id FROM orders WHERE order_number = 'ORD-STAFF-CASHIER'`).get() as any).id;
+  const categoryOrderId = (
+    db.prepare(`SELECT id FROM orders WHERE order_number = 'ORD-STAFF-CASHIER'`).get() as any
+  ).id;
   db.prepare(`
     INSERT INTO order_items (order_id, product_id, product_name, unit_price, quantity, subtotal, tax_amount, total, status, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, 0, ?, 'served', ?, ?)
@@ -244,8 +334,12 @@ async function main() {
   `).run(categoryOrderId, 'prod-tea', 'Tea', 20, 5, 100, 100, now(), now());
 
   // ── Seed AOV: two paid bills totaling 300 across 2 bills -> AOV 150 ──
-  const billOrderId1 = (db.prepare(`SELECT id FROM orders WHERE order_number = 'ORD-STAFF-CASHIER'`).get() as any).id;
-  const billOrderId2 = (db.prepare(`SELECT id FROM orders WHERE order_number = 'ORD-STAFF-WAITER'`).get() as any).id;
+  const billOrderId1 = (
+    db.prepare(`SELECT id FROM orders WHERE order_number = 'ORD-STAFF-CASHIER'`).get() as any
+  ).id;
+  const billOrderId2 = (
+    db.prepare(`SELECT id FROM orders WHERE order_number = 'ORD-STAFF-WAITER'`).get() as any
+  ).id;
   db.prepare(`
     INSERT INTO bills (bill_number, order_id, total, paid_amount, balance, payment_status, paid_at, created_at, updated_at)
     VALUES (?, ?, 100, 100, 0, 'paid', ?, ?, ?)
@@ -256,34 +350,45 @@ async function main() {
   `).run('BILL-INS-2', billOrderId2, now(), now(), now());
 
   const categorizedSnapshot = JSON.stringify({
-    lines: [{
-      lineId: 'burger',
-      components: [
-        { ruleId: 'state-tax', label: 'State Tax', rate: '2.5', amount: '5' },
-        { ruleId: 'local-tax', label: 'Local Tax', rate: '2.5', amount: '5' },
-      ],
-    }],
+    lines: [
+      {
+        lineId: 'burger',
+        components: [
+          { ruleId: 'state-tax', label: 'State Tax', rate: '2.5', amount: '5' },
+          { ruleId: 'local-tax', label: 'Local Tax', rate: '2.5', amount: '5' },
+        ],
+      },
+    ],
   });
-  db.prepare(`UPDATE order_items SET tax_amount = 10, tax_snapshot = ?, tax_breakdown = ? WHERE order_id = ? AND product_id = ?`)
-    .run(categorizedSnapshot, JSON.stringify([{ title: 'WRONG', rate: 99, amount: 99 }]), billOrderId1, 'prod-burger');
-  db.prepare(`UPDATE order_items SET tax_amount = 1.4, tax_snapshot = NULL, tax_breakdown = ? WHERE order_id = ? AND product_id = ?`)
-    .run(JSON.stringify([{ title: 'VAT', rate: 7, amount: 1.4 }]), billOrderId1, 'prod-tea');
-  db.prepare(`UPDATE bills SET tax_amount = 11.4, tax_snapshot = ?, tax_breakdown = ? WHERE bill_number = ?`)
-    .run(
-      JSON.stringify([JSON.parse(categorizedSnapshot)]),
-      JSON.stringify([
-        { title: 'State Tax', rate: 2.5, amount: 5 },
-        { title: 'Local Tax', rate: 2.5, amount: 5 },
-        { title: 'VAT', rate: 7, amount: 1.4 },
-      ]),
-      'BILL-INS-1',
-    );
+  db.prepare(
+    `UPDATE order_items SET tax_amount = 10, tax_snapshot = ?, tax_breakdown = ? WHERE order_id = ? AND product_id = ?`,
+  ).run(
+    categorizedSnapshot,
+    JSON.stringify([{ title: 'WRONG', rate: 99, amount: 99 }]),
+    billOrderId1,
+    'prod-burger',
+  );
+  db.prepare(
+    `UPDATE order_items SET tax_amount = 1.4, tax_snapshot = NULL, tax_breakdown = ? WHERE order_id = ? AND product_id = ?`,
+  ).run(JSON.stringify([{ title: 'VAT', rate: 7, amount: 1.4 }]), billOrderId1, 'prod-tea');
+  db.prepare(
+    `UPDATE bills SET tax_amount = 11.4, tax_snapshot = ?, tax_breakdown = ? WHERE bill_number = ?`,
+  ).run(
+    JSON.stringify([JSON.parse(categorizedSnapshot)]),
+    JSON.stringify([
+      { title: 'State Tax', rate: 2.5, amount: 5 },
+      { title: 'Local Tax', rate: 2.5, amount: 5 },
+      { title: 'VAT', rate: 7, amount: 1.4 },
+    ]),
+    'BILL-INS-1',
+  );
 
   const app = express();
   app.use(express.json());
   app.use((req: any, res: any, next: any) => {
     const authHeader = req.headers.authorization;
-    if (!authHeader?.startsWith('Bearer ')) return res.status(401).json({ error: 'Authentication required' });
+    if (!authHeader?.startsWith('Bearer '))
+      return res.status(401).json({ error: 'Authentication required' });
     try {
       req.user = jwt.verify(authHeader.split(' ')[1], getJWTSecret());
       next();
@@ -293,18 +398,30 @@ async function main() {
   });
   app.use('/api/reports', reportRoutes);
 
-  const ownerToken = jwt.sign({ userId: ownerId, email: 'owner-insights@test.local', role: 'owner' }, getJWTSecret(), { expiresIn: '1h' });
-  const waiterToken = jwt.sign({ userId: waiterId, email: 'server-insights@test.local', role: 'server' }, getJWTSecret(), { expiresIn: '1h' });
+  const ownerToken = jwt.sign(
+    { userId: ownerId, email: 'owner-insights@test.local', role: 'owner' },
+    getJWTSecret(),
+    { expiresIn: '1h' },
+  );
+  const waiterToken = jwt.sign(
+    { userId: waiterId, email: 'server-insights@test.local', role: 'server' },
+    getJWTSecret(),
+    { expiresIn: '1h' },
+  );
 
   try {
     console.log('\n1. Role gating');
     {
-      const forbidden = await request(app).get('/api/reports/insights').set('Authorization', `Bearer ${waiterToken}`);
+      const forbidden = await request(app)
+        .get('/api/reports/insights')
+        .set('Authorization', `Bearer ${waiterToken}`);
       assertEqual(forbidden.status, 403, `server is forbidden (got ${forbidden.status})`);
     }
 
     console.log('\n2. GET /api/reports/insights?days=90');
-    const res = await request(app).get('/api/reports/insights?days=90').set('Authorization', `Bearer ${ownerToken}`);
+    const res = await request(app)
+      .get('/api/reports/insights?days=90')
+      .set('Authorization', `Bearer ${ownerToken}`);
     assertEqual(res.status, 200, `owner gets 200 (got ${res.status}, ${JSON.stringify(res.body)})`);
     const body = res.body;
 
@@ -316,9 +433,17 @@ async function main() {
 
     console.log('\n5. Top staff (cancelled order excluded, cashier ranks above server)');
     assertEqual(body.topStaff?.[0]?.user_id, cashierId, 'cashier is #1 by revenue');
-    assertEqual(body.topStaff?.[0]?.revenue, 550, 'cashier revenue is 500 (ORD-STAFF-CASHIER) + 50 (ORD-PREP-1) = 550');
+    assertEqual(
+      body.topStaff?.[0]?.revenue,
+      550,
+      'cashier revenue is 500 (ORD-STAFF-CASHIER) + 50 (ORD-PREP-1) = 550',
+    );
     assertEqual(body.topStaff?.[1]?.user_id, waiterId, 'server is #2 by revenue');
-    assertEqual(body.topStaff?.[1]?.revenue, 100, 'server revenue is 50 (ORD-STAFF-WAITER) + 50 (ORD-PREP-2) = 100');
+    assertEqual(
+      body.topStaff?.[1]?.revenue,
+      100,
+      'server revenue is 50 (ORD-STAFF-WAITER) + 50 (ORD-PREP-2) = 100',
+    );
     const cancelledCounted = (body.topStaff ?? []).some((s: any) => s.revenue >= 99999);
     assert(!cancelledCounted, 'the cancelled order revenue (99999) is excluded from top staff');
 
@@ -336,27 +461,62 @@ async function main() {
     console.log('\n8. Busiest/idlest day of week (Asia/Kolkata)');
     assertEqual(body.busiestDayOfWeek?.dayIndex, 1, 'busiest day is Monday (index 1)');
     assertEqual(body.busiestDayOfWeek?.orderCount, 3, 'Monday has 3 orders');
-    assertEqual(body.idlestDayOfWeek?.dayIndex, 2, 'idlest day is Tuesday (index 2), with zero orders — a real signal, unlike hour zeros');
+    assertEqual(
+      body.idlestDayOfWeek?.dayIndex,
+      2,
+      'idlest day is Tuesday (index 2), with zero orders — a real signal, unlike hour zeros',
+    );
     assertEqual(body.idlestDayOfWeek?.orderCount, 0, 'Tuesday has 0 orders in the fixture window');
 
-    console.log('\n9. GET /api/reports/recentOrders?date=X scopes to that day (dashboard date picker)');
+    console.log(
+      '\n9. GET /api/reports/recentOrders?date=X scopes to that day (dashboard date picker)',
+    );
     {
-      const dated = await request(app).get(`/api/reports/recentOrders?date=${bucketMondayDate}&limit=10`).set('Authorization', `Bearer ${ownerToken}`);
+      const dated = await request(app)
+        .get(`/api/reports/recentOrders?date=${bucketMondayDate}&limit=10`)
+        .set('Authorization', `Bearer ${ownerToken}`);
       assertEqual(dated.status, 200, `owner gets 200 (got ${dated.status})`);
       const numbers = (dated.body.recentOrders ?? []).map((o: any) => o.order_number).sort();
-      assertEqual(JSON.stringify(numbers), JSON.stringify(['ORD-INS-1', 'ORD-INS-2', 'ORD-INS-3']), `only the 3 orders created on ${bucketMondayDate} are returned`);
+      assertEqual(
+        JSON.stringify(numbers),
+        JSON.stringify(['ORD-INS-1', 'ORD-INS-2', 'ORD-INS-3']),
+        `only the 3 orders created on ${bucketMondayDate} are returned`,
+      );
 
-      const ranged = await request(app).get(`/api/reports/recentOrders?start_date=${bucketMondayDate}&end_date=${bucketWednesdayDate}&limit=10`).set('Authorization', `Bearer ${ownerToken}`);
-      assertEqual(ranged.status, 200, `owner can request a month-style date range (got ${ranged.status})`);
+      const ranged = await request(app)
+        .get(
+          `/api/reports/recentOrders?start_date=${bucketMondayDate}&end_date=${bucketWednesdayDate}&limit=10`,
+        )
+        .set('Authorization', `Bearer ${ownerToken}`);
+      assertEqual(
+        ranged.status,
+        200,
+        `owner can request a month-style date range (got ${ranged.status})`,
+      );
       const rangedNumbers = (ranged.body.recentOrders ?? []).map((o: any) => o.order_number).sort();
-      assertEqual(JSON.stringify(rangedNumbers), JSON.stringify(['ORD-INS-1', 'ORD-INS-2', 'ORD-INS-3', 'ORD-INS-4']), 'date range includes orders from both boundary dates');
+      assertEqual(
+        JSON.stringify(rangedNumbers),
+        JSON.stringify(['ORD-INS-1', 'ORD-INS-2', 'ORD-INS-3', 'ORD-INS-4']),
+        'date range includes orders from both boundary dates',
+      );
 
-      const mixedRange = await request(app).get('/api/reports/recentOrders?date=2026-06-01&start_date=2026-06-01').set('Authorization', `Bearer ${ownerToken}`);
+      const mixedRange = await request(app)
+        .get('/api/reports/recentOrders?date=2026-06-01&start_date=2026-06-01')
+        .set('Authorization', `Bearer ${ownerToken}`);
       assertEqual(mixedRange.status, 400, 'single-date and range filters cannot be combined');
 
-      const undated = await request(app).get('/api/reports/recentOrders?limit=1').set('Authorization', `Bearer ${ownerToken}`);
-      assertEqual(undated.status, 200, `omitting date still works — most-recent-overall behavior preserved (got ${undated.status})`);
-      assert(Array.isArray(undated.body.recentOrders) && undated.body.recentOrders.length === 1, 'no date param still returns most-recent-overall, unaffected by the new filter');
+      const undated = await request(app)
+        .get('/api/reports/recentOrders?limit=1')
+        .set('Authorization', `Bearer ${ownerToken}`);
+      assertEqual(
+        undated.status,
+        200,
+        `omitting date still works — most-recent-overall behavior preserved (got ${undated.status})`,
+      );
+      assert(
+        Array.isArray(undated.body.recentOrders) && undated.body.recentOrders.length === 1,
+        'no date param still returns most-recent-overall, unaffected by the new filter',
+      );
     }
 
     console.log('\n10. Dynamic tax component report handles mixed categorized + legacy items');
@@ -371,14 +531,32 @@ async function main() {
         .get(`/api/reports/tax-components?start_date=${today}&end_date=${today}`)
         .set('Authorization', `Bearer ${ownerToken}`);
       assertEqual(taxReport.status, 200, `owner gets tax report (got ${taxReport.status})`);
-      assertEqual(taxReport.body.taxComponents?.taxAmount, 11.4, 'tax total is summed across bills in range');
+      assertEqual(
+        taxReport.body.taxComponents?.taxAmount,
+        11.4,
+        'tax total is summed across bills in range',
+      );
       const components = taxReport.body.taxComponents?.components ?? [];
-      assertEqual(components.find((part: any) => part.title === 'State Tax')?.amount, 5, 'categorized State Tax is read from snapshot');
-      assertEqual(components.find((part: any) => part.title === 'Local Tax')?.amount, 5, 'categorized Local Tax is read from snapshot');
-      assertEqual(components.find((part: any) => part.title === 'VAT')?.amount, 1.4, 'legacy VAT is included once');
-      assert(!components.some((part: any) => part.title === 'WRONG'), 'categorized legacy copy is not double-counted');
+      assertEqual(
+        components.find((part: any) => part.title === 'State Tax')?.amount,
+        5,
+        'categorized State Tax is read from snapshot',
+      );
+      assertEqual(
+        components.find((part: any) => part.title === 'Local Tax')?.amount,
+        5,
+        'categorized Local Tax is read from snapshot',
+      );
+      assertEqual(
+        components.find((part: any) => part.title === 'VAT')?.amount,
+        1.4,
+        'legacy VAT is included once',
+      );
+      assert(
+        !components.some((part: any) => part.title === 'WRONG'),
+        'categorized legacy copy is not double-counted',
+      );
     }
-
   } finally {
     closeDatabase();
   }

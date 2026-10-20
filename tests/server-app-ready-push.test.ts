@@ -26,7 +26,10 @@ function messageQueue(ws: WebSocket) {
         if (position >= 0) waiting.splice(position, 1);
         reject(new Error(`Timed out waiting for ${type}`));
       }, 5000);
-      entry.resolve = (message: any) => { clearTimeout(timer); resolve(message); };
+      entry.resolve = (message: any) => {
+        clearTimeout(timer);
+        resolve(message);
+      };
       waiting.push(entry);
     });
   };
@@ -52,7 +55,9 @@ async function getFreeTcpPort(): Promise<number> {
   const address = probe.address();
   assert(address && typeof address !== 'string');
   const port = address.port;
-  await new Promise<void>((resolve, reject) => probe.close((error) => error ? reject(error) : resolve()));
+  await new Promise<void>((resolve, reject) =>
+    probe.close((error) => (error ? reject(error) : resolve())),
+  );
   return port;
 }
 
@@ -72,8 +77,12 @@ async function main() {
   initDatabase();
   const db = getDatabase();
 
-  db.prepare("INSERT INTO settings (key, value, updated_at) VALUES ('country', 'TH', ?) ON CONFLICT(key) DO UPDATE SET value='TH', updated_at=excluded.updated_at").run(now());
-  db.prepare("INSERT INTO settings (key, value, updated_at) VALUES ('currency', 'THB', ?) ON CONFLICT(key) DO UPDATE SET value='THB', updated_at=excluded.updated_at").run(now());
+  db.prepare(
+    "INSERT INTO settings (key, value, updated_at) VALUES ('country', 'TH', ?) ON CONFLICT(key) DO UPDATE SET value='TH', updated_at=excluded.updated_at",
+  ).run(now());
+  db.prepare(
+    "INSERT INTO settings (key, value, updated_at) VALUES ('currency', 'THB', ?) ON CONFLICT(key) DO UPDATE SET value='THB', updated_at=excluded.updated_at",
+  ).run(now());
 
   const passwordHash = bcrypt.hashSync('ReadyPush123!', 10);
   db.prepare(`
@@ -95,9 +104,15 @@ async function main() {
   await startKdsServer();
   const baseUrl = `http://127.0.0.1:${getServerPort()}`;
 
-  const events: { itemId: number; status: string; tableId: string | null; productName: string }[] = [];
+  const events: { itemId: number; status: string; tableId: string | null; productName: string }[] =
+    [];
   const unsubscribe = onOrderItemStatus((event) => {
-    events.push({ itemId: event.itemId, status: event.status, tableId: event.tableId, productName: event.productName });
+    events.push({
+      itemId: event.itemId,
+      status: event.status,
+      tableId: event.tableId,
+      productName: event.productName,
+    });
   });
 
   async function request(pathName: string, init: RequestInit = {}) {
@@ -107,7 +122,11 @@ async function main() {
     });
     const text = await response.text();
     let body: any = text;
-    try { body = JSON.parse(text); } catch { /* non-JSON error page */ }
+    try {
+      body = JSON.parse(text);
+    } catch {
+      /* non-JSON error page */
+    }
     return { status: response.status, body };
   }
 
@@ -144,12 +163,16 @@ async function main() {
     });
     assert.equal(viaKds.status, 200, 'the KDS route marks the line ready');
     assert.equal(events.length, 1, 'the KDS route pushes exactly one status event');
-    assert.deepEqual(events[0], {
-      itemId: kdsItemId,
-      status: 'ready',
-      tableId: 'rp-table',
-      productName: 'Ready Push Latte',
-    }, 'the KDS push carries the table and product the waiter needs');
+    assert.deepEqual(
+      events[0],
+      {
+        itemId: kdsItemId,
+        status: 'ready',
+        tableId: 'rp-table',
+        productName: 'Ready Push Latte',
+      },
+      'the KDS push carries the table and product the waiter needs',
+    );
 
     // The in-app KDS uses the other route; both must stay wired.
     const itemsItemId = await placeOrder();
@@ -174,7 +197,11 @@ async function main() {
       body: JSON.stringify({ status: 'preparing' }),
     });
     assert.equal(staged.status, 200, 'the KDS route moves the line to preparing');
-    assert.deepEqual(events.map((event) => event.status), ['preparing'], 'preparing is pushed too');
+    assert.deepEqual(
+      events.map((event) => event.status),
+      ['preparing'],
+      'preparing is pushed too',
+    );
 
     // The KDS tablet marks items ready over its WebSocket, not the REST route, so
     // this is the path that actually carries a real kitchen's traffic.
@@ -186,17 +213,23 @@ async function main() {
     ws.send(JSON.stringify({ type: 'auth', token: loggedIn.body.access_token }));
     await nextMessage('auth_success');
     await nextMessage('initial_data');
-    ws.send(JSON.stringify({ type: 'status_update', order_item_id: socketItemId, status: 'ready' }));
+    ws.send(
+      JSON.stringify({ type: 'status_update', order_item_id: socketItemId, status: 'ready' }),
+    );
     await nextMessage('status_updated');
     ws.close();
     await once(ws, 'close');
     assert.equal(events.length, 1, 'the KDS WebSocket pushes exactly one status event');
-    assert.deepEqual(events[0], {
-      itemId: socketItemId,
-      status: 'ready',
-      tableId: 'rp-table',
-      productName: 'Ready Push Latte',
-    }, 'the WebSocket push carries the table and product the waiter needs');
+    assert.deepEqual(
+      events[0],
+      {
+        itemId: socketItemId,
+        status: 'ready',
+        tableId: 'rp-table',
+        productName: 'Ready Push Latte',
+      },
+      'the WebSocket push carries the table and product the waiter needs',
+    );
 
     console.log('\nAll ready-push assertions passed.');
   } finally {

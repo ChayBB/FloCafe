@@ -19,16 +19,24 @@ const os = require('os');
 const path = require('path');
 const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-happy-path-'));
 Module._load = function (request: string, parent: unknown, isMain: boolean) {
-  if (request === 'electron') return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
+  if (request === 'electron')
+    return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
   return originalLoad.apply(this, arguments as any);
 };
 
 const {
-  initTestDb, createApp, startServer,
-  seedOwnerUser, seedCategory, seedProduct,
+  initTestDb,
+  createApp,
+  startServer,
+  seedOwnerUser,
+  seedCategory,
+  seedProduct,
   installAndActivateTestTaxPack,
-  api, assert, assertEqual,
-  getResults, closeDatabase,
+  api,
+  assert,
+  assertEqual,
+  getResults,
+  closeDatabase,
 } = require('./helpers/test-setup');
 
 const { orderRoutes } = require('../main/routes/orders');
@@ -37,7 +45,13 @@ const dualRatePackData = require('./fixtures/synthetic-dual-rate-pack.json');
 // Country/currency stay IN/INR (the default test business country) so
 // getActiveCountryPack() actually resolves this pack instead of falling
 // through to the generic no-tax default.
-const testTaxPack = { ...dualRatePackData, id: 'test-in-pack', country: 'IN', currency: 'INR', publisher: 'FreeOpenSourcePOS' };
+const testTaxPack = {
+  ...dualRatePackData,
+  id: 'test-in-pack',
+  country: 'IN',
+  currency: 'INR',
+  publisher: 'FreeOpenSourcePOS',
+};
 
 async function main() {
   console.log('Integration Test: Happy Path');
@@ -119,7 +133,11 @@ async function main() {
     const billId = billRes.data.bill.id;
     assert(billId > 0, `bill has valid id (${billId})`);
     assertEqual(billRes.data.bill.payment_status, 'unpaid', 'bill is unpaid');
-    assertEqual(billRes.data.bill.total, discountedTotal, `bill total matches order total (${discountedTotal})`);
+    assertEqual(
+      billRes.data.bill.total,
+      discountedTotal,
+      `bill total matches order total (${discountedTotal})`,
+    );
     assertEqual(billRes.data.bill.balance, discountedTotal, `bill balance = ${discountedTotal}`);
     assertEqual(billRes.data.bill.discount_amount, 80, 'bill shows discount of 80');
 
@@ -147,11 +165,12 @@ async function main() {
     const orderRes = await api(baseUrl, `/api/orders/${orderId}`, { headers: authHeader });
     assertEqual(orderRes.status, 200, 'order fetch returns 200');
     assertEqual(orderRes.data.order.status, 'completed', 'order status = completed');
-
   } finally {
     server.close();
     closeDatabase();
-    try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
+    try {
+      fs.rmSync(testDir, { recursive: true, force: true });
+    } catch {}
   }
 
   const { passed, failed, total } = getResults();

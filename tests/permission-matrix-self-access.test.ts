@@ -34,13 +34,22 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-const { assertOrThrow, assertEqualOrThrow, assertGreaterThanOrThrow } = require('./helpers/test-setup');
+const {
+  assertOrThrow,
+  assertEqualOrThrow,
+  assertGreaterThanOrThrow,
+} = require('./helpers/test-setup');
 
 const ROOT = path.resolve(__dirname, '..');
 const MATRIX = path.join(ROOT, 'frontend/src/components/settings/PermissionMatrix.tsx');
 
 /** Locales the matrix surfaces the refusal copy in, beyond the row warnings. */
-const REFUSAL_KEYS = ['administrationUnreachable', 'selfPrivilegeChangeTitle', 'selfPrivilegeChangePrompt', 'selfPrivilegeNotConfirmed'] as const;
+const REFUSAL_KEYS = [
+  'administrationUnreachable',
+  'selfPrivilegeChangeTitle',
+  'selfPrivilegeChangePrompt',
+  'selfPrivilegeNotConfirmed',
+] as const;
 
 function readLocaleNames(): string[] {
   const source = fs.readFileSync(path.join(ROOT, 'frontend/src/lib/i18n/languages.ts'), 'utf8');
@@ -53,7 +62,9 @@ function readMatrixSource(): string {
 
 function selfAccessKeys(source: string): string[] {
   const block = source.slice(source.indexOf('const ADMINISTRATIVE_SURFACE_KEYS'));
-  return [...block.slice(0, block.indexOf('};')).matchAll(/'(selfAccessWarning\w+)'/g)].map(([, key]) => key);
+  return [...block.slice(0, block.indexOf('};')).matchAll(/'(selfAccessWarning\w+)'/g)].map(
+    ([, key]) => key,
+  );
 }
 
 function administrativeIds(source: string): string[] {
@@ -64,28 +75,44 @@ function administrativeIds(source: string): string[] {
 function run(): void {
   console.log('Permission matrix self-access copy:');
   const source = readMatrixSource();
-  const en = JSON.parse(fs.readFileSync(path.join(ROOT, 'frontend/src/lib/i18n/messages/en.json'), 'utf8'));
+  const en = JSON.parse(
+    fs.readFileSync(path.join(ROOT, 'frontend/src/lib/i18n/messages/en.json'), 'utf8'),
+  );
   const matrixMessages = en.permissionMatrix as Record<string, string>;
 
   // 1. The four administrative capabilities each name a distinct message key.
   const ids = administrativeIds(source);
   assertEqualOrThrow(ids.length, 4, 'the matrix warns on four administrative capabilities');
   assertOrThrow(
-    ['authorization.manage', 'staff.privileged.manage', 'staff.operational.manage', 'settings.manage']
-      .every((id) => ids.includes(id)),
+    [
+      'authorization.manage',
+      'staff.privileged.manage',
+      'staff.operational.manage',
+      'settings.manage',
+    ].every((id) => ids.includes(id)),
     `the matrix warns on the backend floor's capabilities, got ${ids.join(', ')}`,
   );
 
   const keys = selfAccessKeys(source);
-  assertEqualOrThrow(new Set(keys).size, keys.length, 'each administrative capability names a distinct warning');
+  assertEqualOrThrow(
+    new Set(keys).size,
+    keys.length,
+    'each administrative capability names a distinct warning',
+  );
   assertEqualOrThrow(keys.length, 4, 'each of the four capabilities carries its own warning copy');
 
   // 2. Every key the matrix uses for these paths is a real, non-empty message.
   const required = [...keys, ...REFUSAL_KEYS];
   for (const key of required) {
-    assertOrThrow(typeof matrixMessages[key] === 'string' && matrixMessages[key].length > 0, `en.json defines permissionMatrix.${key}`);
+    assertOrThrow(
+      typeof matrixMessages[key] === 'string' && matrixMessages[key].length > 0,
+      `en.json defines permissionMatrix.${key}`,
+    );
   }
-  assertOrThrow(typeof en.settings.viewOnlyNotice === 'string' && en.settings.viewOnlyNotice.length > 0, 'en.json defines settings.viewOnlyNotice');
+  assertOrThrow(
+    typeof en.settings.viewOnlyNotice === 'string' && en.settings.viewOnlyNotice.length > 0,
+    'en.json defines settings.viewOnlyNotice',
+  );
 
   // 3. Coverage is derived from the language registry, not a list kept here.
   const locales = readLocaleNames();
@@ -96,21 +123,29 @@ function run(): void {
     const messages = JSON.parse(fs.readFileSync(file, 'utf8'));
     for (const key of required) {
       const value = messages.permissionMatrix?.[key];
-      assertOrThrow(typeof value === 'string' && value.trim().length > 0, `${locale}.json carries permissionMatrix.${key}`);
+      assertOrThrow(
+        typeof value === 'string' && value.trim().length > 0,
+        `${locale}.json carries permissionMatrix.${key}`,
+      );
     }
     assertOrThrow(
-      typeof messages.settings?.viewOnlyNotice === 'string' && messages.settings.viewOnlyNotice.trim().length > 0,
+      typeof messages.settings?.viewOnlyNotice === 'string' &&
+        messages.settings.viewOnlyNotice.trim().length > 0,
       `${locale}.json carries settings.viewOnlyNotice`,
     );
   }
-  console.log(`  ✓ ${required.length} permission-matrix keys + settings.viewOnlyNotice resolve in all ${locales.length} locales`);
+  console.log(
+    `  ✓ ${required.length} permission-matrix keys + settings.viewOnlyNotice resolve in all ${locales.length} locales`,
+  );
 
   // 4. A refusal renders localized copy, never the server's English error text.
   for (const code of ['administration_unreachable', 'self_privilege_change_requires_factor']) {
     assertOrThrow(source.includes(`'${code}'`), `the matrix handles the ${code} refusal`);
   }
   assertOrThrow(
-    /administration_unreachable' && status === 400\) \{\s*const message = t\('administrationUnreachable'\)/.test(source),
+    /administration_unreachable' && status === 400\) \{\s*const message = t\('administrationUnreachable'\)/.test(
+      source,
+    ),
     'the 400 refusal renders the translated remedy rather than the server error string',
   );
   assertOrThrow(
@@ -132,7 +167,7 @@ function run(): void {
   // break-glass factor. A third spelling would 428 forever with no way out.
   assertOrThrow(
     /override_pin: pin/.test(source),
-    'the 428 re-submission carries the staff PIN in the repository\'s override_pin field',
+    "the 428 re-submission carries the staff PIN in the repository's override_pin field",
   );
   assertOrThrow(
     !/\{\s*pin\s*\}\s*\}/.test(source) && !/\bpin:\s*pin\b/.test(source),

@@ -14,14 +14,21 @@ test.describe('product cost price round trip', () => {
     productId = undefined;
   });
 
-  test('shows the stored cost when editing and preserves or intentionally updates it', async ({ page }) => {
+  test('shows the stored cost when editing and preserves or intentionally updates it', async ({
+    page,
+  }) => {
     const token = getE2eToken();
     const headers = { Authorization: `Bearer ${token}` };
     const suffix = Math.random().toString(36).slice(2, 8);
     const productName = `Cost Round Trip ${suffix}`;
     const categoriesResponse = await page.request.get(`${BASE}/api/categories`, { headers });
-    expect(categoriesResponse.status(), 'active categories are available for the product').toBe(200);
-    const categories = (await categoriesResponse.json()).categories as { id: string; is_active: boolean }[];
+    expect(categoriesResponse.status(), 'active categories are available for the product').toBe(
+      200,
+    );
+    const categories = (await categoriesResponse.json()).categories as {
+      id: string;
+      is_active: boolean;
+    }[];
     const category = categories.find((candidate) => candidate.is_active);
     expect(category, 'an active category exists for the product').toBeTruthy();
 
@@ -51,8 +58,15 @@ test.describe('product cost price round trip', () => {
     expect(productResponse.status()).toBe(200);
     expect((await productResponse.json()).product.cost).toBe(60.25);
 
-    await page.getByRole('row').filter({ hasText: `${productName} Updated` }).getByRole('button').first().click();
-    await expect(costInput, 'the stored cost is still present after an unrelated edit').toHaveValue('60.25');
+    await page
+      .getByRole('row')
+      .filter({ hasText: `${productName} Updated` })
+      .getByRole('button')
+      .first()
+      .click();
+    await expect(costInput, 'the stored cost is still present after an unrelated edit').toHaveValue(
+      '60.25',
+    );
     await costInput.fill('70.5');
     await page.getByRole('button', { name: 'Update Product', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Edit Product' })).toHaveCount(0);
@@ -60,15 +74,27 @@ test.describe('product cost price round trip', () => {
     expect(productResponse.status()).toBe(200);
     expect((await productResponse.json()).product.cost).toBe(70.5);
 
-    await page.getByRole('row').filter({ hasText: `${productName} Updated` }).getByRole('button').first().click();
-    await expect(costInput, 'an intentional cost change appears when editing again').toHaveValue('70.50');
+    await page
+      .getByRole('row')
+      .filter({ hasText: `${productName} Updated` })
+      .getByRole('button')
+      .first()
+      .click();
+    await expect(costInput, 'an intentional cost change appears when editing again').toHaveValue(
+      '70.50',
+    );
     await costInput.fill('0');
     await page.getByRole('button', { name: 'Update Product', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Edit Product' })).toHaveCount(0);
     productResponse = await page.request.get(`${BASE}/api/products/${productId}`, { headers });
     expect(productResponse.status()).toBe(200);
     expect((await productResponse.json()).product.cost).toBe(0);
-    await page.getByRole('row').filter({ hasText: `${productName} Updated` }).getByRole('button').first().click();
+    await page
+      .getByRole('row')
+      .filter({ hasText: `${productName} Updated` })
+      .getByRole('button')
+      .first()
+      .click();
     await expect(costInput, 'zero remains an explicitly stored cost price').toHaveValue('0.00');
   });
 });

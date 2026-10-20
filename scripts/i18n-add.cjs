@@ -17,14 +17,17 @@ if (!code || process.argv.length > 3) {
 // Regional variants use the same lowercase key convention (for example,
 // zh-tw) while the registry's `locale` field carries the canonical BCP-47 tag.
 if (!/^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$/.test(code)) {
-  console.error(`Invalid language code "${code}". Use a lowercase language code, optionally with region or script subtags.`);
+  console.error(
+    `Invalid language code "${code}". Use a lowercase language code, optionally with region or script subtags.`,
+  );
   process.exit(1);
 }
 
 try {
   const parsed = new Intl.Locale(code);
   const canonical = parsed.toString().toLowerCase();
-  if (canonical !== code || parsed.baseName.toLowerCase() !== code) throw new Error('not a canonical locale identifier');
+  if (canonical !== code || parsed.baseName.toLowerCase() !== code)
+    throw new Error('not a canonical locale identifier');
 } catch {
   console.error(`Invalid language code "${code}". It must be a valid canonical BCP-47 identifier.`);
   process.exit(1);
@@ -48,13 +51,19 @@ try {
   if (error && error.code === 'EEXIST') {
     console.error(`Refusing to overwrite existing messages file: ${path.relative(root, target)}`);
   } else {
-    console.error(`Could not create ${path.relative(root, target)}: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(
+      `Could not create ${path.relative(root, target)}: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
   process.exit(1);
 }
 
 console.log(`Created ${path.relative(root, target)} from the English canonical schema.`);
 console.log('Next steps:');
-console.log(`  1. Add a "${code}" entry to frontend/src/lib/i18n/languages.ts (locale, nativeName, direction, selectable, and dynamic load()).`);
-console.log(`  2. Translate every leaf in frontend/src/lib/i18n/messages/${code}.json while preserving ICU arguments and tags.`);
+console.log(
+  `  1. Add a "${code}" entry to frontend/src/lib/i18n/languages.ts (locale, nativeName, direction, selectable, and dynamic load()).`,
+);
+console.log(
+  `  2. Translate every leaf in frontend/src/lib/i18n/messages/${code}.json while preserving ICU arguments and tags.`,
+);
 console.log('  3. Run npm run i18n:check before opening the PR.');

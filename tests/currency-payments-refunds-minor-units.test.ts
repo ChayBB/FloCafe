@@ -5,13 +5,24 @@ const os = require('os');
 const path = require('path');
 const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-currency-pay-'));
 Module._load = function (request: string, parent: unknown, isMain: boolean) {
-  if (request === 'electron') return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
+  if (request === 'electron')
+    return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
   return originalLoad.apply(this, arguments as any);
 };
 
 const {
-  initTestDb, createApp, startServer, seedOwnerUser, seedManagerUser, seedCategory, seedProduct,
-  api, assert, assertEqual, getResults, now,
+  initTestDb,
+  createApp,
+  startServer,
+  seedOwnerUser,
+  seedManagerUser,
+  seedCategory,
+  seedProduct,
+  api,
+  assert,
+  assertEqual,
+  getResults,
+  now,
 } = require('./helpers/test-setup');
 const { orderRoutes } = require('../main/routes/orders');
 const { billRoutes, paymentAmountMinorUnits, getTenantCurrency } = require('../main/routes/bills');
@@ -27,15 +38,26 @@ async function main() {
   console.log('\n1. Payment Amount Minor Unit Validation:');
 
   // JPY: 0 decimals, factor 1
-  assertEqual(paymentAmountMinorUnits(1500, 'JPY'), 1500, 'JPY number 1500 returns 1500 minor units');
-  assertEqual(paymentAmountMinorUnits('1500', 'JPY'), 1500, 'JPY string 1500 returns 1500 minor units');
+  assertEqual(
+    paymentAmountMinorUnits(1500, 'JPY'),
+    1500,
+    'JPY number 1500 returns 1500 minor units',
+  );
+  assertEqual(
+    paymentAmountMinorUnits('1500', 'JPY'),
+    1500,
+    'JPY string 1500 returns 1500 minor units',
+  );
   let errThrown = false;
   try {
     paymentAmountMinorUnits('1500.5', 'JPY');
   } catch (err: any) {
     errThrown = true;
     assertEqual(err.statusCode, 400, 'JPY fractional payment returns 400');
-    assert(err.message.includes('without decimals'), 'Error message specifies without decimals for JPY');
+    assert(
+      err.message.includes('without decimals'),
+      'Error message specifies without decimals for JPY',
+    );
   }
   assert(errThrown, 'JPY fractional amount was rejected');
 
@@ -49,27 +71,49 @@ async function main() {
   } catch (err: any) {
     errThrown = true;
     assertEqual(err.statusCode, 400, 'USD 3-decimal payment returns 400');
-    assert(err.message.includes('at most 2 decimal places'), 'Error specifies at most 2 decimal places for USD');
+    assert(
+      err.message.includes('at most 2 decimal places'),
+      'Error specifies at most 2 decimal places for USD',
+    );
   }
   assert(errThrown, 'USD >2 decimals was rejected');
 
   // KWD: 3 decimals, factor 1000
   assertEqual(paymentAmountMinorUnits(1.255, 'KWD'), 1255, 'KWD 1.255 returns 1255 minor units');
-  assertEqual(paymentAmountMinorUnits('1.255', 'KWD'), 1255, 'KWD string 1.255 returns 1255 minor units');
-  assertEqual(paymentAmountMinorUnits('1.25', 'KWD'), 1250, 'KWD string 1.25 returns 1250 minor units');
+  assertEqual(
+    paymentAmountMinorUnits('1.255', 'KWD'),
+    1255,
+    'KWD string 1.255 returns 1255 minor units',
+  );
+  assertEqual(
+    paymentAmountMinorUnits('1.25', 'KWD'),
+    1250,
+    'KWD string 1.25 returns 1250 minor units',
+  );
   errThrown = false;
   try {
     paymentAmountMinorUnits('1.2555', 'KWD');
   } catch (err: any) {
     errThrown = true;
     assertEqual(err.statusCode, 400, 'KWD 4-decimal payment returns 400');
-    assert(err.message.includes('at most 3 decimal places'), 'Error specifies at most 3 decimal places for KWD');
+    assert(
+      err.message.includes('at most 3 decimal places'),
+      'Error specifies at most 3 decimal places for KWD',
+    );
   }
   assert(errThrown, 'KWD >3 decimals was rejected');
 
   // IRR: 2 decimals, factor 100 (Rial)
-  assertEqual(paymentAmountMinorUnits(50000, 'IRR'), 5000000, 'IRR 50000 rials returns 5000000 minor units');
-  assertEqual(paymentAmountMinorUnits('50000.00', 'IRR'), 5000000, 'IRR 50000.00 returns 5000000 minor units');
+  assertEqual(
+    paymentAmountMinorUnits(50000, 'IRR'),
+    5000000,
+    'IRR 50000 rials returns 5000000 minor units',
+  );
+  assertEqual(
+    paymentAmountMinorUnits('50000.00', 'IRR'),
+    5000000,
+    'IRR 50000.00 returns 5000000 minor units',
+  );
 
   // ── 2. Integration Tests with Test Database & HTTP Server ────────
   console.log('\n2. Full Payment & Refund Flow Verification:');
@@ -80,7 +124,7 @@ async function main() {
   seedCategory(db, 'cat-main', 'Main Category');
   seedProduct(db, 'prod-jpy', 'cat-main', 'JPY Item', 1500);
   seedProduct(db, 'prod-kwd', 'cat-main', 'KWD Item', 1.255);
-  seedProduct(db, 'prod-usd', 'cat-main', 'USD Item', 10.50);
+  seedProduct(db, 'prod-usd', 'cat-main', 'USD Item', 10.5);
 
   const app = createApp({
     '/api/orders': orderRoutes,
@@ -94,7 +138,9 @@ async function main() {
     // ── Test A: JPY Payment & Refund Flow ────────────────────────────
     console.log('\n  Testing JPY Flow (0 decimals):');
     // Set tenant currency to JPY
-    db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('currency', 'JPY', ?)").run(now());
+    db.prepare(
+      "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('currency', 'JPY', ?)",
+    ).run(now());
     assertEqual(getTenantCurrency(db), 'JPY', 'Tenant currency is JPY');
 
     // Create JPY order and bill
@@ -152,7 +198,9 @@ async function main() {
     assertEqual(failJpyRefund.status, 400, 'Fractional JPY refund rejected with 400');
 
     // Advance order item status so it is refund eligible
-    const jpyOrderItem = db.prepare('SELECT * FROM order_items WHERE order_id = ?').get(jpyOrderRes.data.order.id) as any;
+    const jpyOrderItem = db
+      .prepare('SELECT * FROM order_items WHERE order_id = ?')
+      .get(jpyOrderRes.data.order.id) as any;
     db.prepare("UPDATE order_items SET status = 'ready' WHERE id = ?").run(jpyOrderItem.id);
 
     // Process item refund in JPY
@@ -169,16 +217,30 @@ async function main() {
       headers: managerAuth,
     });
     assertEqual(successJpyRefund.status, 201, 'JPY item refund succeeded');
-    assertEqual(successJpyRefund.data.refund.amount_cents, 1500, 'JPY refund stored 1500 minor units');
-    assertEqual(successJpyRefund.data.bill.payment_status, 'refunded', 'JPY bill payment status updated to refunded');
+    assertEqual(
+      successJpyRefund.data.refund.amount_cents,
+      1500,
+      'JPY refund stored 1500 minor units',
+    );
+    assertEqual(
+      successJpyRefund.data.bill.payment_status,
+      'refunded',
+      'JPY bill payment status updated to refunded',
+    );
 
     const jpyBalanceAfter = getRefundableBalance(db, jpyBillId, 'JPY');
-    assertEqual(jpyBalanceAfter.refundableCents, 0, 'JPY refundable balance is 0 after full refund');
+    assertEqual(
+      jpyBalanceAfter.refundableCents,
+      0,
+      'JPY refundable balance is 0 after full refund',
+    );
 
     // ── Test B: KWD Payment & Refund Flow ────────────────────────────
     console.log('\n  Testing KWD Flow (3 decimals):');
     // Set tenant currency to KWD
-    db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('currency', 'KWD', ?)").run(now());
+    db.prepare(
+      "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('currency', 'KWD', ?)",
+    ).run(now());
     assertEqual(getTenantCurrency(db), 'KWD', 'Tenant currency is KWD');
 
     // Create KWD order and bill
@@ -212,7 +274,11 @@ async function main() {
       headers: ownerAuth,
     });
     assertEqual(successKwdPay.status, 200, '3-decimal KWD payment accepted');
-    assertEqual(Number(successKwdPay.data.bill.paid_amount), 1.255, 'KWD paid_amount is exactly 1.255');
+    assertEqual(
+      Number(successKwdPay.data.bill.paid_amount),
+      1.255,
+      'KWD paid_amount is exactly 1.255',
+    );
     assertEqual(Number(successKwdPay.data.bill.balance), 0, 'KWD balance is 0');
     assertEqual(successKwdPay.data.bill.payment_status, 'paid', 'KWD bill is paid');
 
@@ -222,7 +288,9 @@ async function main() {
     assertEqual(kwdBalanceBefore.refundableCents, 1255, 'KWD refundable minor units is 1255 fils');
 
     // Advance order item status
-    const kwdOrderItem = db.prepare('SELECT * FROM order_items WHERE order_id = ?').get(kwdOrderRes.data.order.id) as any;
+    const kwdOrderItem = db
+      .prepare('SELECT * FROM order_items WHERE order_id = ?')
+      .get(kwdOrderRes.data.order.id) as any;
     db.prepare("UPDATE order_items SET status = 'ready' WHERE id = ?").run(kwdOrderItem.id);
 
     // Process item refund in KWD for 1.255
@@ -239,15 +307,29 @@ async function main() {
       headers: managerAuth,
     });
     assertEqual(successKwdRefund.status, 201, 'KWD item refund succeeded');
-    assertEqual(successKwdRefund.data.refund.amount_cents, 1255, 'KWD refund stored 1255 minor units (fils)');
-    assertEqual(successKwdRefund.data.bill.payment_status, 'refunded', 'KWD bill payment status updated to refunded');
+    assertEqual(
+      successKwdRefund.data.refund.amount_cents,
+      1255,
+      'KWD refund stored 1255 minor units (fils)',
+    );
+    assertEqual(
+      successKwdRefund.data.bill.payment_status,
+      'refunded',
+      'KWD bill payment status updated to refunded',
+    );
 
     const kwdBalanceAfter = getRefundableBalance(db, kwdBillId, 'KWD');
-    assertEqual(kwdBalanceAfter.refundableCents, 0, 'KWD refundable balance is 0 after full refund');
+    assertEqual(
+      kwdBalanceAfter.refundableCents,
+      0,
+      'KWD refundable balance is 0 after full refund',
+    );
 
     // ── Test C: USD Regression Invariance (2 decimals) ───────────────
     console.log('\n  Testing USD Flow (2 decimals regression check):');
-    db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('currency', 'USD', ?)").run(now());
+    db.prepare(
+      "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('currency', 'USD', ?)",
+    ).run(now());
     assertEqual(getTenantCurrency(db), 'USD', 'Tenant currency is USD');
 
     const usdOrderRes = await api(baseUrl, '/api/orders', {
@@ -263,16 +345,16 @@ async function main() {
     });
     assertEqual(usdBillRes.status, 201, 'USD bill generated');
     const usdBillId = usdBillRes.data.bill.id;
-    assertEqual(Number(usdBillRes.data.bill.total), 10.50, 'USD bill total is 10.50');
+    assertEqual(Number(usdBillRes.data.bill.total), 10.5, 'USD bill total is 10.50');
 
     // Pay with 2-decimal amount
     const successUsdPay = await api(baseUrl, `/api/bills/${usdBillId}/payment`, {
       method: 'POST',
-      body: { method: 'cash', amount: 10.50 },
+      body: { method: 'cash', amount: 10.5 },
       headers: ownerAuth,
     });
     assertEqual(successUsdPay.status, 200, '2-decimal USD payment accepted');
-    assertEqual(Number(successUsdPay.data.bill.paid_amount), 10.50, 'USD paid_amount is 10.50');
+    assertEqual(Number(successUsdPay.data.bill.paid_amount), 10.5, 'USD paid_amount is 10.50');
     assertEqual(successUsdPay.data.bill.payment_status, 'paid', 'USD bill is paid');
 
     const usdBalanceBefore = getRefundableBalance(db, usdBillId, 'USD');

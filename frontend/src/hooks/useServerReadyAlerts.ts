@@ -73,7 +73,9 @@ export function useServerReadyAlerts({
     if (mutedRef.current) return;
     playWhenReady(
       () => audioRef.current,
-      (context) => { audioRef.current = context; },
+      (context) => {
+        audioRef.current = context;
+      },
       play,
     );
   }
@@ -115,7 +117,9 @@ export function useServerReadyAlerts({
      * screen wakes: nobody needs to hear about a plate that went up long ago.
      */
     async function poll(options: { maxAgeMs?: number } = {}) {
-      const visible = new Map(tablesRef.current.map((table) => [table.id, table.name || table.number || table.id]));
+      const visible = new Map(
+        tablesRef.current.map((table) => [table.id, table.name || table.number || table.id]),
+      );
       if (visible.size === 0) return;
       try {
         const { data } = await api!.get('/api/orders', {
@@ -133,7 +137,8 @@ export function useServerReadyAlerts({
           for (const item of order.items || []) {
             next.set(item.id, item.status);
             const previous = statusesRef.current.get(item.id);
-            if (!seededRef.current || !previous || previous === 'ready' || item.status !== 'ready') continue;
+            if (!seededRef.current || !previous || previous === 'ready' || item.status !== 'ready')
+              continue;
             if (options.maxAgeMs !== undefined) {
               const changedAt = parseDbTimestamp(item.updated_at).getTime();
               if (!Number.isFinite(changedAt) || deviceNow - changedAt > options.maxAgeMs) continue;
@@ -150,7 +155,9 @@ export function useServerReadyAlerts({
     }
 
     void poll();
-    const timer = setInterval(() => { void poll(); }, POLL_INTERVAL_MS);
+    const timer = setInterval(() => {
+      void poll();
+    }, POLL_INTERVAL_MS);
 
     // Live push: the same alert, without waiting for the next poll.
     let socket: WebSocket | null = null;
@@ -162,14 +169,22 @@ export function useServerReadyAlerts({
       if (!token) return;
       const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
       try {
-        socket = new WebSocket(`${scheme}://${window.location.host}/server-app?token=${encodeURIComponent(token)}`);
+        socket = new WebSocket(
+          `${scheme}://${window.location.host}/server-app?token=${encodeURIComponent(token)}`,
+        );
       } catch {
         return;
       }
       socket.onmessage = (message) => {
         let payload: {
-          type?: string; item_id?: number; product_name?: string; table_id?: string; status?: string;
-          table_name?: string; item_count?: number; appended?: boolean;
+          type?: string;
+          item_id?: number;
+          product_name?: string;
+          table_id?: string;
+          status?: string;
+          table_name?: string;
+          item_count?: number;
+          appended?: boolean;
         };
         try {
           payload = JSON.parse(String(message.data));
@@ -182,7 +197,8 @@ export function useServerReadyAlerts({
           const table = tablesRef.current.find((row) => row.id === String(payload.table_id));
           chime((context) => playChime(context, ORDER_TONES));
           onGuestOrderRef.current?.({
-            tableName: table?.name || table?.number || String(payload.table_name ?? payload.table_id ?? ''),
+            tableName:
+              table?.name || table?.number || String(payload.table_name ?? payload.table_id ?? ''),
             itemCount: Number(payload.item_count ?? 0),
             appended: payload.appended === true,
           });
@@ -204,7 +220,9 @@ export function useServerReadyAlerts({
         socket = null;
         if (!cancelled) reconnect = setTimeout(connect, RECONNECT_DELAY_MS);
       };
-      socket.onerror = () => { socket?.close(); };
+      socket.onerror = () => {
+        socket?.close();
+      };
     }
 
     connect();
@@ -236,5 +254,10 @@ export function useServerReadyAlerts({
     };
   }, [api, enabled]);
 
-  useEffect(() => () => { void audioRef.current?.close(); }, []);
+  useEffect(
+    () => () => {
+      void audioRef.current?.close();
+    },
+    [],
+  );
 }

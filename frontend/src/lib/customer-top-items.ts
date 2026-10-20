@@ -30,11 +30,14 @@ export type CustomerTopItemsView =
  * Pairs history entries with catalog products at current pricing.
  * Unavailable or missing products stay listed without an addable product.
  */
-export function resolveCustomerTopItems(items: CustomerTopItem[], products: Product[]): ResolvedCustomerTopItem[] {
+export function resolveCustomerTopItems(
+  items: CustomerTopItem[],
+  products: Product[],
+): ResolvedCustomerTopItem[] {
   const catalog = new Map(products.map((product) => [String(product.id), product]));
   return items.map((item) => ({
     ...item,
-    product: item.available ? catalog.get(String(item.product_id)) ?? null : null,
+    product: item.available ? (catalog.get(String(item.product_id)) ?? null) : null,
   }));
 }
 
@@ -51,7 +54,10 @@ export function customerTopItemsView(
   return { kind: 'items', items: resolveCustomerTopItems(result.items, products) };
 }
 
-type TopItemsGet = (url: string, config: { signal: AbortSignal }) => Promise<{ data?: { items?: unknown } }>;
+type TopItemsGet = (
+  url: string,
+  config: { signal: AbortSignal },
+) => Promise<{ data?: { items?: unknown } }>;
 
 /** Settles once for `customerId`, unless the request was aborted because the customer changed. */
 export async function fetchCustomerTopItems(

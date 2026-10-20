@@ -40,7 +40,11 @@ const Database = require('better-sqlite3');
 const { initDatabase, getDatabase, closeDatabase } = require('../main/db');
 const { getJWTSecret, clearJWTSecretCache } = require('../main/security/jwt-secret');
 const {
-  assertOrThrow, assertEqualOrThrow, assertIncludesOrThrow, resetCounters, getResults,
+  assertOrThrow,
+  assertEqualOrThrow,
+  assertIncludesOrThrow,
+  resetCounters,
+  getResults,
 } = require('./helpers/test-setup');
 
 const CHILD_RESULT = '__JWT_CHILD__';
@@ -55,7 +59,10 @@ type ChildRun = { code: number | null; signal: NodeJS.Signals | null; output: st
 function childEnv(extra: Record<string, string> = {}): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
-    if (typeof value === 'string' && !['JWT_SECRET', 'FLO_E2E_DB_PATH', 'FLO_JWT_BARRIER_PARTICIPANTS'].includes(key)) {
+    if (
+      typeof value === 'string' &&
+      !['JWT_SECRET', 'FLO_E2E_DB_PATH', 'FLO_JWT_BARRIER_PARTICIPANTS'].includes(key)
+    ) {
       env[key] = value;
     }
   }
@@ -64,22 +71,35 @@ function childEnv(extra: Record<string, string> = {}): Record<string, string> {
   return { ...env, ELECTRON_RUN_AS_NODE: '1', ...extra };
 }
 
-function startChild(args: string[], extraEnv: Record<string, string> = {}): { child: ChildProcess; done: Promise<ChildRun> } {
+function startChild(
+  args: string[],
+  extraEnv: Record<string, string> = {},
+): { child: ChildProcess; done: Promise<ChildRun> } {
   const child = spawn(process.execPath, [CHILD, ...args], {
     cwd: REPO_ROOT,
     env: childEnv(extraEnv),
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let output = '';
-  child.stdout.on('data', (chunk: Buffer) => { output += chunk.toString(); });
-  child.stderr.on('data', (chunk: Buffer) => { output += chunk.toString(); });
+  child.stdout.on('data', (chunk: Buffer) => {
+    output += chunk.toString();
+  });
+  child.stderr.on('data', (chunk: Buffer) => {
+    output += chunk.toString();
+  });
   const done = new Promise<ChildRun>((resolve, reject) => {
     const timer = setTimeout(() => {
       child.kill('SIGKILL');
       reject(new Error(`jwt-secret child [${args.join(' ')}] timed out: ${output}`));
     }, CHILD_TIMEOUT_MS);
-    child.once('error', (error) => { clearTimeout(timer); reject(error); });
-    child.once('exit', (code, signal) => { clearTimeout(timer); resolve({ code, signal, output }); });
+    child.once('error', (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.once('exit', (code, signal) => {
+      clearTimeout(timer);
+      resolve({ code, signal, output });
+    });
   });
   return { child, done };
 }
@@ -89,16 +109,23 @@ async function runChild(args: string[], extraEnv: Record<string, string> = {}): 
 }
 
 function childResult(run: ChildRun, args: string[]): any {
-  const line = run.output.split('\n').filter((entry) => entry.startsWith(CHILD_RESULT)).at(-1);
-  if (!line) throw new Error(`jwt-secret child [${args.join(' ')}] printed no result (exit ${run.code}/${run.signal}): ${run.output}`);
+  const line = run.output
+    .split('\n')
+    .filter((entry) => entry.startsWith(CHILD_RESULT))
+    .at(-1);
+  if (!line)
+    throw new Error(
+      `jwt-secret child [${args.join(' ')}] printed no result (exit ${run.code}/${run.signal}): ${run.output}`,
+    );
   return JSON.parse(line.slice(CHILD_RESULT.length));
 }
 
 function readSecretRow(dbPath: string): { value: string; updatedAt: string } | null {
   const reader = new Database(dbPath, { readonly: true, fileMustExist: true });
   try {
-    const row = reader.prepare("SELECT value, updated_at FROM settings WHERE key = 'jwt_secret'").get() as
-      { value: string; updated_at: string } | undefined;
+    const row = reader
+      .prepare("SELECT value, updated_at FROM settings WHERE key = 'jwt_secret'")
+      .get() as { value: string; updated_at: string } | undefined;
     return row ? { value: row.value, updatedAt: row.updated_at } : null;
   } finally {
     reader.close();
@@ -122,9 +149,12 @@ async function waitForFile(file: string, child: ChildProcess, args: string[]): P
   const deadline = Date.now() + CHILD_TIMEOUT_MS;
   while (!fs.existsSync(file)) {
     if (child.exitCode !== null || child.signalCode !== null) {
-      throw new Error(`child [${args.join(' ')}] exited before it finished initialising its database`);
+      throw new Error(
+        `child [${args.join(' ')}] exited before it finished initialising its database`,
+      );
     }
-    if (Date.now() > deadline) throw new Error(`child [${args.join(' ')}] never wrote ${path.basename(file)}`);
+    if (Date.now() > deadline)
+      throw new Error(`child [${args.join(' ')}] never wrote ${path.basename(file)}`);
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
 }
@@ -146,15 +176,25 @@ async function scenarioCrashInTheWriteCacheWindow(): Promise<void> {
   // and as a non-zero exit code on Windows, so assert the death, not the
   // mechanism.
   assertOrThrow(
-    (run.signal === 'SIGKILL') || (run.signal === null && run.code !== 0 && run.code !== 3),
+    run.signal === 'SIGKILL' || (run.signal === null && run.code !== 0 && run.code !== 3),
     `the child died in the write/cache window (exit ${run.code}, signal ${run.signal})`,
   );
 
   const evidencePath = path.join(dir, 'crash-evidence.json');
-  assertOrThrow(fs.existsSync(evidencePath), 'the killed child recorded evidence from inside the write/cache window');
+  assertOrThrow(
+    fs.existsSync(evidencePath),
+    'the killed child recorded evidence from inside the write/cache window',
+  );
   const evidence = JSON.parse(fs.readFileSync(evidencePath, 'utf8'));
-  assertOrThrow(SECRET_PATTERN.test(evidence.inserted), `the child generated one 32-byte hex secret (${evidence.inserted})`);
-  assertEqualOrThrow(evidence.row, evidence.inserted, 'the secret reached disk before the process was killed');
+  assertOrThrow(
+    SECRET_PATTERN.test(evidence.inserted),
+    `the child generated one 32-byte hex secret (${evidence.inserted})`,
+  );
+  assertEqualOrThrow(
+    evidence.row,
+    evidence.inserted,
+    'the secret reached disk before the process was killed',
+  );
   assertEqualOrThrow(
     evidence.probe,
     'threw',
@@ -163,13 +203,25 @@ async function scenarioCrashInTheWriteCacheWindow(): Promise<void> {
 
   const dbPath = path.join(dir, 'flo.db');
   const rowAfterCrash = readSecretRow(dbPath);
-  assertEqualOrThrow(rowAfterCrash?.value, evidence.inserted, 'the killed process left exactly one secret on disk');
+  assertEqualOrThrow(
+    rowAfterCrash?.value,
+    evidence.inserted,
+    'the killed process left exactly one secret on disk',
+  );
 
   const firstRun = await runChild([dir, 'read']);
   assertEqualOrThrow(firstRun.code, 0, `the next start ran cleanly: ${firstRun.output}`);
   const first = childResult(firstRun, [dir, 'read']);
-  assertEqualOrThrow(first.secret, rowAfterCrash?.value, 'the next start serves the secret already on disk instead of minting one');
-  assertEqualOrThrow(first.second, first.secret, 'the second read in the next start is served by the cache');
+  assertEqualOrThrow(
+    first.secret,
+    rowAfterCrash?.value,
+    'the next start serves the secret already on disk instead of minting one',
+  );
+  assertEqualOrThrow(
+    first.second,
+    first.secret,
+    'the second read in the next start is served by the cache',
+  );
   assertEqualOrThrow(
     first.row?.updatedAt,
     rowAfterCrash?.updatedAt,
@@ -180,7 +232,11 @@ async function scenarioCrashInTheWriteCacheWindow(): Promise<void> {
   assertEqualOrThrow(secondRun.code, 0, `a further start ran cleanly: ${secondRun.output}`);
   const second = childResult(secondRun, [dir, 'read']);
   assertEqualOrThrow(second.secret, rowAfterCrash?.value, 'the secret is stable across restarts');
-  assertEqualOrThrow(readSecretRow(dbPath)?.updatedAt, rowAfterCrash?.updatedAt, 'no restart ever rewrote the secret row');
+  assertEqualOrThrow(
+    readSecretRow(dbPath)?.updatedAt,
+    rowAfterCrash?.updatedAt,
+    'no restart ever rewrote the secret row',
+  );
 
   fs.rmSync(dir, { recursive: true, force: true });
 }
@@ -208,15 +264,33 @@ function scenarioFailedWriteLeavesNoCachedSecret(): void {
     BEGIN SELECT RAISE(ABORT, 'database or disk is full'); END
   `);
   try {
-    const first = (() => { try { getJWTSecret(); return null; } catch (error) { return error as Error; } })();
+    const first = (() => {
+      try {
+        getJWTSecret();
+        return null;
+      } catch (error) {
+        return error as Error;
+      }
+    })();
     assertOrThrow(!!first, 'a failed first-launch write refuses to hand back a secret');
-    assertIncludesOrThrow(first!.message, 'Database not ready', 'the failure keeps the existing fail-closed message');
+    assertIncludesOrThrow(
+      first!.message,
+      'Database not ready',
+      'the failure keeps the existing fail-closed message',
+    );
     assertOrThrow(
       !db.prepare("SELECT value FROM settings WHERE key = 'jwt_secret'").get(),
       'a failed first-launch write leaves no secret on disk',
     );
 
-    const second = (() => { try { getJWTSecret(); return null; } catch { return new Error('refused'); } })();
+    const second = (() => {
+      try {
+        getJWTSecret();
+        return null;
+      } catch {
+        return new Error('refused');
+      }
+    })();
     assertOrThrow(
       !!second,
       'the same process does not go on serving a secret that was never stored, so every later read retries instead',
@@ -241,7 +315,14 @@ function scenarioFailedWriteLeavesNoCachedSecret(): void {
     };
   };
   try {
-    const readBack = (() => { try { getJWTSecret(); return null; } catch { return new Error('refused'); } })();
+    const readBack = (() => {
+      try {
+        getJWTSecret();
+        return null;
+      } catch {
+        return new Error('refused');
+      }
+    })();
     assertOrThrow(
       !!readBack,
       'a secret is never handed back on the strength of the value offered to the write rather than the value the database stored',
@@ -250,13 +331,26 @@ function scenarioFailedWriteLeavesNoCachedSecret(): void {
     Database.prototype.prepare = originalPrepare;
   }
 
-  const stored = db.prepare("SELECT value FROM settings WHERE key = 'jwt_secret'").get() as { value: string } | undefined;
+  const stored = db.prepare("SELECT value FROM settings WHERE key = 'jwt_secret'").get() as
+    | { value: string }
+    | undefined;
   assertOrThrow(!!stored, 'the write that the failed read-back followed did reach disk');
-  assertOrThrow(SECRET_PATTERN.test(stored!.value), `the stored secret keeps its format and length (${stored!.value})`);
+  assertOrThrow(
+    SECRET_PATTERN.test(stored!.value),
+    `the stored secret keeps its format and length (${stored!.value})`,
+  );
 
   const recovered = getJWTSecret();
-  assertEqualOrThrow(recovered, stored!.value, 'a later call recovers and returns the secret the database stored');
-  assertEqualOrThrow(getJWTSecret(), recovered, 'the recovered secret is then served from the cache');
+  assertEqualOrThrow(
+    recovered,
+    stored!.value,
+    'a later call recovers and returns the secret the database stored',
+  );
+  assertEqualOrThrow(
+    getJWTSecret(),
+    recovered,
+    'the recovered secret is then served from the cache',
+  );
   closeDatabase();
   fs.rmSync(dir, { recursive: true, force: true });
 }
@@ -297,9 +391,21 @@ async function scenarioConcurrentFirstLaunchAgrees(): Promise<void> {
 
   const winners = [a, b].filter((entry: any) => entry.first.outcome === 'served');
   const losers = [a, b].filter((entry: any) => entry.first.outcome !== 'served');
-  assertEqualOrThrow(winners.length, 1, 'exactly one of the two racing processes writes the secret');
-  assertEqualOrThrow(losers.length, 1, 'the other racing process is refused rather than served a second secret');
-  assertEqualOrThrow(losers[0].second.outcome, 'served', 'the losing process recovers on its next read');
+  assertEqualOrThrow(
+    winners.length,
+    1,
+    'exactly one of the two racing processes writes the secret',
+  );
+  assertEqualOrThrow(
+    losers.length,
+    1,
+    'the other racing process is refused rather than served a second secret',
+  );
+  assertEqualOrThrow(
+    losers[0].second.outcome,
+    'served',
+    'the losing process recovers on its next read',
+  );
   assertEqualOrThrow(
     losers[0].second.secret,
     winners[0].first.secret,
@@ -307,9 +413,20 @@ async function scenarioConcurrentFirstLaunchAgrees(): Promise<void> {
   );
 
   const stored = readSecretRow(path.join(dir, 'flo.db'));
-  assertOrThrow(SECRET_PATTERN.test(stored!.value), `the raced secret keeps its format and length (${stored!.value})`);
-  assertEqualOrThrow(stored?.value, winners[0].first.secret, 'the shared secret is the one the database stored');
-  assertEqualOrThrow(winners[0].second.secret, winners[0].first.secret, 'the winning process keeps serving the secret it stored');
+  assertOrThrow(
+    SECRET_PATTERN.test(stored!.value),
+    `the raced secret keeps its format and length (${stored!.value})`,
+  );
+  assertEqualOrThrow(
+    stored?.value,
+    winners[0].first.secret,
+    'the shared secret is the one the database stored',
+  );
+  assertEqualOrThrow(
+    winners[0].second.secret,
+    winners[0].first.secret,
+    'the winning process keeps serving the secret it stored',
+  );
 
   fs.rmSync(dir, { recursive: true, force: true });
   fs.rmSync(coordination, { recursive: true, force: true });
@@ -329,7 +446,9 @@ async function run(): Promise<void> {
   fs.rmSync(rootTestDir, { recursive: true, force: true });
 
   const results = getResults();
-  console.log(`\nJWT secret persist-before-cache: ${results.passed}/${results.total} checks passed.`);
+  console.log(
+    `\nJWT secret persist-before-cache: ${results.passed}/${results.total} checks passed.`,
+  );
   if (results.failed > 0) process.exit(1);
 }
 

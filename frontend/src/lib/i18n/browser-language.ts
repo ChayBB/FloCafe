@@ -19,7 +19,9 @@ function resolveRegisteredLocale(parsed: Intl.Locale): Language | null {
   if (exact) return exact.language;
 
   const maximizedBaseName = parsed.maximize().baseName;
-  const maximized = SELECTABLE_LOCALES.find((entry) => entry.maximizedBaseName === maximizedBaseName);
+  const maximized = SELECTABLE_LOCALES.find(
+    (entry) => entry.maximizedBaseName === maximizedBaseName,
+  );
   if (maximized) return maximized.language;
 
   // A region/script tag may still use a registered bundle with the same script
@@ -28,7 +30,9 @@ function resolveRegisteredLocale(parsed: Intl.Locale): Language | null {
   // regional/script variants continue to the next preference or English.
   if (parsed.script || parsed.region) {
     const script = parsed.maximize().script;
-    const sameScript = SELECTABLE_LOCALES.filter((entry) => entry.languageCode === parsed.language && entry.script === script);
+    const sameScript = SELECTABLE_LOCALES.filter(
+      (entry) => entry.languageCode === parsed.language && entry.script === script,
+    );
     if (sameScript.length === 1) return sameScript[0].language;
     return null;
   }
@@ -45,7 +49,9 @@ export function getBrowserLanguage(): Language {
   const candidates = [
     ...(Array.isArray(navigator.languages) ? navigator.languages : []),
     navigator.language,
-  ].filter((value, index, values): value is string => Boolean(value) && values.indexOf(value) === index);
+  ].filter(
+    (value, index, values): value is string => Boolean(value) && values.indexOf(value) === index,
+  );
 
   for (const candidate of candidates) {
     try {

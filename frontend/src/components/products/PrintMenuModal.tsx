@@ -21,7 +21,13 @@ import { useFormatCurrency } from '@/hooks/useFormatCurrency';
 import { formatDateForTenant } from '@/lib/countries';
 import type { Category, Product, ProductVariant } from '@/lib/types';
 import { activeVariants, isVariantSoldOut } from '@/lib/product-variants';
-import { buildMenuWebPrintHtml, MenuPopupBlockedError, printMenuInBrowser, reservePrintGesture, type MenuWebPrintSection } from '@/lib/printer/menu-web-print';
+import {
+  buildMenuWebPrintHtml,
+  MenuPopupBlockedError,
+  printMenuInBrowser,
+  reservePrintGesture,
+  type MenuWebPrintSection,
+} from '@/lib/printer/menu-web-print';
 
 interface Props {
   open: boolean;
@@ -39,7 +45,11 @@ interface PrintFilters {
 /** Where the rendered menu goes: thermal roll, system print dialog, or a PDF file. */
 type PrintDestination = 'receipt' | 'paper' | 'pdf';
 
-const DESTINATIONS: Array<{ id: PrintDestination; labelKey: 'printToReceipt' | 'printToPaper' | 'printToPdf'; Icon: typeof Printer }> = [
+const DESTINATIONS: Array<{
+  id: PrintDestination;
+  labelKey: 'printToReceipt' | 'printToPaper' | 'printToPdf';
+  Icon: typeof Printer;
+}> = [
   { id: 'receipt', labelKey: 'printToReceipt', Icon: Receipt },
   { id: 'paper', labelKey: 'printToPaper', Icon: FileText },
   { id: 'pdf', labelKey: 'printToPdf', Icon: FileDown },
@@ -76,16 +86,18 @@ export default function PrintMenuModal({ open, onOpenChange }: Props) {
     if (!open) return;
     let cancelled = false;
     void refreshHardwarePrinter();
-    api.get('/printers')
+    api
+      .get('/printers')
       .then((res) => {
         if (cancelled) return;
         const list = (res.data?.printers || []) as HardwarePrinter[];
         setPrinters(list);
         setSelectedPrinterId((current) => {
           if (current && list.some((printer) => printer.id === current)) return current;
-          const preferred = list.find((printer) => printer.is_default === 1)
-            ?? list.find((printer) => printer.connection_type !== 'webusb')
-            ?? list[0];
+          const preferred =
+            list.find((printer) => printer.is_default === 1) ??
+            list.find((printer) => printer.connection_type !== 'webusb') ??
+            list[0];
           return preferred ? preferred.id : '';
         });
       })
@@ -94,7 +106,9 @@ export default function PrintMenuModal({ open, onOpenChange }: Props) {
         setPrinters([]);
         setSelectedPrinterId('');
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [open, refreshHardwarePrinter]);
 
   const setDialogOpen = (nextOpen: boolean) => {
@@ -109,7 +123,13 @@ export default function PrintMenuModal({ open, onOpenChange }: Props) {
     onOpenChange(nextOpen);
   };
 
-  const filters: PrintFilters = { includeInactive, includeOutOfStock, includeHidden, includeDescriptions, includeModifiers };
+  const filters: PrintFilters = {
+    includeInactive,
+    includeOutOfStock,
+    includeHidden,
+    includeDescriptions,
+    includeModifiers,
+  };
 
   /** Renders the selected catalog into the standalone print HTML both paper
    *  printing and PDF export share. */
@@ -125,9 +145,13 @@ export default function PrintMenuModal({ open, onOpenChange }: Props) {
     // variant's own price; the parent's unsellable price never reaches paper.
     // A product without active variants keeps its single parent row.
     const included = products
-      .filter((product) =>
-        (selectedFilters.includeInactive || product.is_active)
-        && (selectedFilters.includeHidden || !product.category_id || categoryById.get(product.category_id)?.is_active === true))
+      .filter(
+        (product) =>
+          (selectedFilters.includeInactive || product.is_active) &&
+          (selectedFilters.includeHidden ||
+            !product.category_id ||
+            categoryById.get(product.category_id)?.is_active === true),
+      )
       .flatMap((product) => {
         const variants = activeVariants(product.variants);
         if (variants.length === 0) {
@@ -137,13 +161,28 @@ export default function PrintMenuModal({ open, onOpenChange }: Props) {
           .filter((variant) => selectedFilters.includeOutOfStock || !isVariantSoldOut(variant))
           .map((variant) => ({ product, variant }));
       });
-    const toPrintProduct = ({ product, variant }: { product: Product; variant?: ProductVariant }) => ({
+    const toPrintProduct = ({
+      product,
+      variant,
+    }: {
+      product: Product;
+      variant?: ProductVariant;
+    }) => ({
       name: variant ? `${product.name} (${variant.name})` : product.name,
       price: formatCurrency(Number(variant ? variant.price : product.price)),
       details: [
-        ...(selectedFilters.includeDescriptions && product.description ? [product.description] : []),
-        ...(selectedFilters.includeModifiers ? (product.addon_groups || []).map((group) =>
-          `${group.name}: ${(group.addons || []).filter((addon) => addon.is_active).map((addon) => `${addon.name} (${formatCurrency(Number(addon.price))})`).join(', ')}`) : []),
+        ...(selectedFilters.includeDescriptions && product.description
+          ? [product.description]
+          : []),
+        ...(selectedFilters.includeModifiers
+          ? (product.addon_groups || []).map(
+              (group) =>
+                `${group.name}: ${(group.addons || [])
+                  .filter((addon) => addon.is_active)
+                  .map((addon) => `${addon.name} (${formatCurrency(Number(addon.price))})`)
+                  .join(', ')}`,
+            )
+          : []),
       ],
     });
     const sections: MenuWebPrintSection[] = categories
@@ -188,7 +227,10 @@ export default function PrintMenuModal({ open, onOpenChange }: Props) {
 
   /** System print dialog: the browser path used by paper output and by the
    *  browser fallback when no thermal transport is available. */
-  const printOnPaper = async (selectedFilters: PrintFilters, targetWindow?: Window | null): Promise<boolean> => {
+  const printOnPaper = async (
+    selectedFilters: PrintFilters,
+    targetWindow?: Window | null,
+  ): Promise<boolean> => {
     const html = await buildMenuHtml(selectedFilters);
     if (html === null) return false;
     printMenuInBrowser(html, targetWindow);
@@ -198,7 +240,10 @@ export default function PrintMenuModal({ open, onOpenChange }: Props) {
 
   /** PDF export. Electron renders the HTML offscreen and asks where to save;
    *  a plain browser falls back to the print dialog's "Save as PDF". */
-  const savePdf = async (selectedFilters: PrintFilters, targetWindow?: Window | null): Promise<boolean> => {
+  const savePdf = async (
+    selectedFilters: PrintFilters,
+    targetWindow?: Window | null,
+  ): Promise<boolean> => {
     const html = await buildMenuHtml(selectedFilters);
     if (html === null) return false;
     const saveHtmlAsPdf = window.electronAPI?.saveHtmlAsPdf;
@@ -220,7 +265,10 @@ export default function PrintMenuModal({ open, onOpenChange }: Props) {
 
   /** Sends ESC/POS to the chosen receipt printer; WebUSB printers receive the
    *  encoded bytes over the browser transport instead. */
-  const printToReceipt = async (selectedFilters: PrintFilters, targetWindow?: Window | null): Promise<boolean> => {
+  const printToReceipt = async (
+    selectedFilters: PrintFilters,
+    targetWindow?: Window | null,
+  ): Promise<boolean> => {
     const response = await api.post('/printers/print-menu', {
       ...selectedFilters,
       ...(selectedPrinterId ? { printerId: selectedPrinterId } : {}),
@@ -228,7 +276,12 @@ export default function PrintMenuModal({ open, onOpenChange }: Props) {
     });
     if (response.data.webusb === true) {
       const bytes = response.data.bytes;
-      if (!Array.isArray(bytes) || !bytes.every((byte: unknown) => Number.isInteger(byte) && Number(byte) >= 0 && Number(byte) <= 255)) {
+      if (
+        !Array.isArray(bytes) ||
+        !bytes.every(
+          (byte: unknown) => Number.isInteger(byte) && Number(byte) >= 0 && Number(byte) <= 255,
+        )
+      ) {
         throw new Error('Invalid printer data');
       }
       if (!printerService.isConnected) await printerService.tryReconnect();
@@ -247,9 +300,10 @@ export default function PrintMenuModal({ open, onOpenChange }: Props) {
     if (destination === 'paper' || destination === 'pdf') {
       const reservedWindow = window.electronAPI ? undefined : reservePrintGesture();
       try {
-        const printed = destination === 'paper'
-          ? await printOnPaper(filters, reservedWindow)
-          : await savePdf(filters, reservedWindow);
+        const printed =
+          destination === 'paper'
+            ? await printOnPaper(filters, reservedWindow)
+            : await savePdf(filters, reservedWindow);
         if (printed) {
           if (reservedWindow && !reservedWindow.closed) reservedWindow.close();
           setDialogOpen(false);
@@ -258,7 +312,9 @@ export default function PrintMenuModal({ open, onOpenChange }: Props) {
         }
       } catch (error) {
         if (reservedWindow && !reservedWindow.closed) reservedWindow.close();
-        toast.error(error instanceof MenuPopupBlockedError ? t('menuPopupBlocked') : t('menuPrintFailed'));
+        toast.error(
+          error instanceof MenuPopupBlockedError ? t('menuPopupBlocked') : t('menuPrintFailed'),
+        );
       } finally {
         setPrinting(false);
       }
@@ -283,7 +339,12 @@ export default function PrintMenuModal({ open, onOpenChange }: Props) {
       } else if (status === 401 || status === 403) {
         if (reservedWindow && !reservedWindow.closed) reservedWindow.close();
         toast.error(t('menuPrintFailed'));
-      } else if (code === 'printer_not_configured' || status === 502 || (status !== undefined && status >= 500) || status === undefined) {
+      } else if (
+        code === 'printer_not_configured' ||
+        status === 502 ||
+        (status !== undefined && status >= 500) ||
+        status === undefined
+      ) {
         try {
           if (await printOnPaper(filters, reservedWindow)) {
             if (reservedWindow && !reservedWindow.closed) reservedWindow.close();
@@ -293,7 +354,11 @@ export default function PrintMenuModal({ open, onOpenChange }: Props) {
           }
         } catch (popupError) {
           if (reservedWindow && !reservedWindow.closed) reservedWindow.close();
-          toast.error(popupError instanceof MenuPopupBlockedError ? t('menuPopupBlocked') : t('menuPrintFailed'));
+          toast.error(
+            popupError instanceof MenuPopupBlockedError
+              ? t('menuPopupBlocked')
+              : t('menuPrintFailed'),
+          );
         }
       } else {
         if (reservedWindow && !reservedWindow.closed) reservedWindow.close();
@@ -315,7 +380,9 @@ export default function PrintMenuModal({ open, onOpenChange }: Props) {
       className="touch-target flex min-h-12 w-full items-center justify-between gap-6 px-4 text-start text-sm font-medium transition-colors hover:bg-muted disabled:opacity-50"
     >
       <span className="min-w-0 flex-1">{label}</span>
-      <span className={`flex size-6 shrink-0 items-center justify-center rounded border ${checked ? 'border-brand bg-brand text-white' : 'border-input bg-background'}`}>
+      <span
+        className={`flex size-6 shrink-0 items-center justify-center rounded border ${checked ? 'border-brand bg-brand text-white' : 'border-input bg-background'}`}
+      >
         {checked && <Check size={16} aria-hidden="true" />}
       </span>
     </button>
@@ -326,9 +393,12 @@ export default function PrintMenuModal({ open, onOpenChange }: Props) {
   // backend, which falls back to the configured default printer and, when
   // there is none, into the system print dialog.
   const noListedPrinter = destination === 'receipt' && printers.length === 0;
-  const primaryIcon = destination === 'pdf'
-    ? <FileDown className="me-2" size={16} aria-hidden="true" />
-    : <Printer className="me-2" size={16} aria-hidden="true" />;
+  const primaryIcon =
+    destination === 'pdf' ? (
+      <FileDown className="me-2" size={16} aria-hidden="true" />
+    ) : (
+      <Printer className="me-2" size={16} aria-hidden="true" />
+    );
 
   return (
     <Dialog open={open} onOpenChange={setDialogOpen}>
@@ -342,8 +412,14 @@ export default function PrintMenuModal({ open, onOpenChange }: Props) {
 
         <div className="max-h-[60vh] space-y-5 overflow-y-auto pe-1">
           <div className="space-y-3 rounded-lg border border-border p-4">
-            <span className="block text-sm font-medium text-foreground">{t('printDestination')}</span>
-            <div role="radiogroup" aria-label={t('printDestination')} className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <span className="block text-sm font-medium text-foreground">
+              {t('printDestination')}
+            </span>
+            <div
+              role="radiogroup"
+              aria-label={t('printDestination')}
+              className="grid grid-cols-1 gap-2 sm:grid-cols-3"
+            >
               {DESTINATIONS.map(({ id, labelKey, Icon }) => (
                 <button
                   key={id}
@@ -390,7 +466,9 @@ export default function PrintMenuModal({ open, onOpenChange }: Props) {
                     className="min-h-11 max-w-[60%] rounded-md border border-input bg-background px-3"
                   >
                     {printers.map((printer) => (
-                      <option key={printer.id} value={printer.id}>{printer.name}</option>
+                      <option key={printer.id} value={printer.id}>
+                        {printer.name}
+                      </option>
                     ))}
                   </select>
                 </label>
@@ -424,11 +502,20 @@ export default function PrintMenuModal({ open, onOpenChange }: Props) {
         </div>
 
         <DialogFooter className="flex-row justify-end">
-          <Button variant="outline" className="min-h-11" disabled={printing} onClick={() => setDialogOpen(false)}>
+          <Button
+            variant="outline"
+            className="min-h-11"
+            disabled={printing}
+            onClick={() => setDialogOpen(false)}
+          >
             {tCommon('cancel')}
           </Button>
           <Button className="min-h-11" disabled={printing || !destination} onClick={handlePrint}>
-            {printing ? <LoaderCircle className="me-2 animate-spin" size={16} aria-hidden="true" /> : primaryIcon}
+            {printing ? (
+              <LoaderCircle className="me-2 animate-spin" size={16} aria-hidden="true" />
+            ) : (
+              primaryIcon
+            )}
             {destination === 'pdf' ? t('printToPdf') : t('printMenu')}
           </Button>
         </DialogFooter>

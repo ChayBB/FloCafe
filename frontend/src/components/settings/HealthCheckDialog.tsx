@@ -27,13 +27,24 @@ function FindingRow({ finding }: { finding: HealthFinding }) {
       <div className="flex items-start justify-between gap-3">
         <div>
           <span className="font-mono text-foreground ltr-island">
-            {finding.table}{finding.column ? `.${finding.column}` : ''}{finding.index !== undefined ? ` (index: ${finding.index})` : ''}
+            {finding.table}
+            {finding.column ? `.${finding.column}` : ''}
+            {finding.index !== undefined ? ` (index: ${finding.index})` : ''}
           </span>
           <p className="text-muted-foreground mt-0.5">{finding.description}</p>
           {(finding.currentState || finding.idealState) && (
             <p className="text-xs text-gray-400 mt-1">
-              {finding.currentState && <>Current: <span className="font-mono ltr-island">{finding.currentState}</span>&nbsp;&nbsp;</>}
-              {finding.idealState && <>Expected: <span className="font-mono ltr-island">{finding.idealState}</span></>}
+              {finding.currentState && (
+                <>
+                  Current: <span className="font-mono ltr-island">{finding.currentState}</span>
+                  &nbsp;&nbsp;
+                </>
+              )}
+              {finding.idealState && (
+                <>
+                  Expected: <span className="font-mono ltr-island">{finding.idealState}</span>
+                </>
+              )}
             </p>
           )}
           {finding.suggestedDdl && (
@@ -47,7 +58,13 @@ function FindingRow({ finding }: { finding: HealthFinding }) {
   );
 }
 
-export function HealthCheckDialog({ open, onOpenChange, report, applying, onApplySafeFixes }: HealthCheckDialogProps) {
+export function HealthCheckDialog({
+  open,
+  onOpenChange,
+  report,
+  applying,
+  onApplySafeFixes,
+}: HealthCheckDialogProps) {
   const t = useTranslations('settings');
   const tCommon = useTranslations('common');
   const safeFindings = (report?.findings ?? []).filter((f) => f.risk === 'safe');
@@ -59,9 +76,7 @@ export function HealthCheckDialog({ open, onOpenChange, report, applying, onAppl
       <DialogContent className="sm:max-w-2xl max-h-[85vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>{t('databaseHealthCheck')}</DialogTitle>
-          <DialogDescription>
-            {t('healthCheckDescription')}
-          </DialogDescription>
+          <DialogDescription>{t('healthCheckDescription')}</DialogDescription>
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto space-y-6 py-2">
@@ -80,10 +95,14 @@ export function HealthCheckDialog({ open, onOpenChange, report, applying, onAppl
             <div>
               <div className="flex items-center gap-2 mb-2">
                 <Wrench size={16} className="text-brand" />
-                <h3 className="font-medium text-foreground">{t('healthCheckSafeHeader', { count: safeFindings.length })}</h3>
+                <h3 className="font-medium text-foreground">
+                  {t('healthCheckSafeHeader', { count: safeFindings.length })}
+                </h3>
               </div>
               <div className="space-y-2">
-                {safeFindings.map((f) => <FindingRow key={f.id} finding={f} />)}
+                {safeFindings.map((f) => (
+                  <FindingRow key={f.id} finding={f} />
+                ))}
               </div>
             </div>
           )}
@@ -92,20 +111,24 @@ export function HealthCheckDialog({ open, onOpenChange, report, applying, onAppl
             <div>
               <div className="flex items-center gap-2 mb-2">
                 <AlertTriangle size={16} className="text-amber-600" />
-                <h3 className="font-medium text-foreground">{t('healthCheckReviewHeader', { count: reviewFindings.length })}</h3>
+                <h3 className="font-medium text-foreground">
+                  {t('healthCheckReviewHeader', { count: reviewFindings.length })}
+                </h3>
               </div>
-              <p className="text-xs text-muted-foreground mb-2">
-                {t('healthCheckReviewHint')}
-              </p>
+              <p className="text-xs text-muted-foreground mb-2">{t('healthCheckReviewHint')}</p>
               <div className="space-y-2">
-                {reviewFindings.map((f) => <FindingRow key={f.id} finding={f} />)}
+                {reviewFindings.map((f) => (
+                  <FindingRow key={f.id} finding={f} />
+                ))}
               </div>
             </div>
           )}
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>{t('close')}</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            {t('close')}
+          </Button>
           {safeFindings.length > 0 && (
             <Button onClick={onApplySafeFixes} disabled={applying}>
               {applying ? t('applyingFixes') : t('applySafeFixes', { count: safeFindings.length })}

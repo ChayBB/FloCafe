@@ -36,12 +36,16 @@ test.afterAll(async ({ request }) => {
 
 // Sent in small batches rather than all at once: opening a couple of hundred sockets
 // at the same moment is needless load on the very server under test.
-async function exceedProductionReadBudget(page: import('@playwright/test').Page): Promise<number[]> {
+async function exceedProductionReadBudget(
+  page: import('@playwright/test').Page,
+): Promise<number[]> {
   const statuses: number[] = [];
   for (let sent = 0; sent < BURST_TOTAL; sent += BATCH) {
     const batch = await Promise.all(
       Array.from({ length: Math.min(BATCH, BURST_TOTAL - sent) }, () =>
-        page.request.get(`${BASE}/api/settings/theme_mode`, { headers: authHeaders() }).then((response) => response.status()),
+        page.request
+          .get(`${BASE}/api/settings/theme_mode`, { headers: authHeaders() })
+          .then((response) => response.status()),
       ),
     );
     statuses.push(...batch);
@@ -49,7 +53,9 @@ async function exceedProductionReadBudget(page: import('@playwright/test').Page)
   return statuses;
 }
 
-test('E2E settings reads are never throttled by the production per-IP read limit', async ({ page }) => {
+test('E2E settings reads are never throttled by the production per-IP read limit', async ({
+  page,
+}) => {
   const statuses = await exceedProductionReadBudget(page);
   expect(statuses.filter((status) => status === 429)).toEqual([]);
   // The reads have to have actually been served. Checking only for the absence of

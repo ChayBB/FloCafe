@@ -18,13 +18,22 @@ export function KdsLoginForm({ conn }: { conn: UseKdsConnectionResult }) {
 
         <form data-testid="kds-login-form" onSubmit={conn.handleLogin} className="space-y-4">
           {conn.loginError && (
-            <div role="alert" aria-live="polite" className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+            <div
+              role="alert"
+              aria-live="polite"
+              className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm"
+            >
               {conn.loginError}
             </div>
           )}
 
           <div>
-            <label htmlFor="kds-login-email" className="block text-sm font-medium text-foreground mb-1">{tAuth('email')}</label>
+            <label
+              htmlFor="kds-login-email"
+              className="block text-sm font-medium text-foreground mb-1"
+            >
+              {tAuth('email')}
+            </label>
             <input
               id="kds-login-email"
               data-testid="kds-login-email"
@@ -38,7 +47,12 @@ export function KdsLoginForm({ conn }: { conn: UseKdsConnectionResult }) {
           </div>
 
           <div>
-            <label htmlFor="kds-login-password" className="block text-sm font-medium text-foreground mb-1">{tAuth('password')}</label>
+            <label
+              htmlFor="kds-login-password"
+              className="block text-sm font-medium text-foreground mb-1"
+            >
+              {tAuth('password')}
+            </label>
             <input
               id="kds-login-password"
               data-testid="kds-login-password"

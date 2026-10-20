@@ -8,7 +8,8 @@ import type { ApplicationMenuEntry } from '@/types/electron';
 const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
 
 const subscribeToElectronCapability = () => () => {};
-const getElectronCapability = () => typeof window !== 'undefined' && Boolean(window.electronAPI?.getStatus);
+const getElectronCapability = () =>
+  typeof window !== 'undefined' && Boolean(window.electronAPI?.getStatus);
 const getServerElectronCapability = () => false;
 
 let measurementCanvas: HTMLCanvasElement | null = null;
@@ -19,7 +20,8 @@ function measureButtonText(label: string): number {
   }
   const ctx = measurementCanvas.getContext('2d');
   if (!ctx) return label.length * 8 + 20;
-  ctx.font = '500 12px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.font =
+    '500 12px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   return Math.ceil(ctx.measureText(label).width + 20);
 }
 
@@ -191,7 +193,11 @@ export default function ApplicationMenuRow() {
               onClick={(event) => {
                 const { left, bottom } = event.currentTarget.getBoundingClientRect();
                 void window.electronAPI
-                  ?.openApplicationMenu(`overflow:${visibleCount}`, Math.round(left), Math.round(bottom))
+                  ?.openApplicationMenu(
+                    `overflow:${visibleCount}`,
+                    Math.round(left),
+                    Math.round(bottom),
+                  )
                   .catch(() => {});
               }}
             >

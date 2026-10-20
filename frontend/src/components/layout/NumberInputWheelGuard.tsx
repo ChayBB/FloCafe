@@ -7,7 +7,8 @@ export function NumberInputWheelGuard() {
   useEffect(() => {
     const onWheel = (e: WheelEvent) => {
       const el = e.target;
-      if (el instanceof HTMLInputElement && el.type === 'number' && el === document.activeElement) el.blur();
+      if (el instanceof HTMLInputElement && el.type === 'number' && el === document.activeElement)
+        el.blur();
     };
     document.addEventListener('wheel', onWheel, { passive: true });
     return () => document.removeEventListener('wheel', onWheel);

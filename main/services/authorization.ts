@@ -57,9 +57,9 @@ function protectedDecision(permissionId: PermissionId, role: Role): PermissionDe
 }
 
 function readRoleOverrides(role: Role): Map<PermissionId, PermissionEffect> {
-  const rows = getDatabase().prepare(
-    'SELECT permission_id, effect FROM role_permission_overrides WHERE role = ?',
-  ).all(role) as EffectRow[];
+  const rows = getDatabase()
+    .prepare('SELECT permission_id, effect FROM role_permission_overrides WHERE role = ?')
+    .all(role) as EffectRow[];
   const overrides = new Map<PermissionId, PermissionEffect>();
   for (const row of rows) {
     if (isPermissionId(row.permission_id)) overrides.set(row.permission_id, row.effect);
@@ -68,9 +68,9 @@ function readRoleOverrides(role: Role): Map<PermissionId, PermissionEffect> {
 }
 
 export function readUserPermissionOverrides(userId: string): Map<PermissionId, PermissionEffect> {
-  const rows = getDatabase().prepare(
-    'SELECT permission_id, effect FROM user_permission_overrides WHERE user_id = ?',
-  ).all(userId) as EffectRow[];
+  const rows = getDatabase()
+    .prepare('SELECT permission_id, effect FROM user_permission_overrides WHERE user_id = ?')
+    .all(userId) as EffectRow[];
   const overrides = new Map<PermissionId, PermissionEffect>();
   for (const row of rows) {
     if (isPermissionId(row.permission_id)) overrides.set(row.permission_id, row.effect);
@@ -85,10 +85,14 @@ export function resolveRolePermissions(role: Role): RolePermissionSet {
   for (const definition of PERMISSION_DEFINITIONS) {
     const protectedResult = protectedDecision(definition.id, role);
     const effect = roleOverrides.get(definition.id);
-    const decision = protectedResult
-      ?? (effect
+    const decision =
+      protectedResult ??
+      (effect
         ? { allowed: effectAllows(effect), source: 'role_override' as const }
-        : { allowed: permissionDefaultAllows(definition.id, role), source: 'shipped_default' as const });
+        : {
+            allowed: permissionDefaultAllows(definition.id, role),
+            source: 'shipped_default' as const,
+          });
     decisions[definition.id] = decision;
     if (decision.allowed) permissionIds.add(definition.id);
   }
@@ -115,7 +119,9 @@ export function effectivePermissionRevision(userId: string): string {
   const resolved = resolveEffectivePermissions(userId);
   if (!resolved) return overrideRevision(`inactive:${userId}`, new Map());
   return createHash('sha256')
-    .update(`${resolved.role}|${rolePermissionRevision(resolved.role)}|${userPermissionRevision(userId)}`)
+    .update(
+      `${resolved.role}|${rolePermissionRevision(resolved.role)}|${userPermissionRevision(userId)}`,
+    )
     .digest('hex');
 }
 
@@ -141,7 +147,10 @@ export function resolveEffectivePermissions(userId: string): EffectivePermission
     if (protectedResult) {
       decision = protectedResult;
     } else if (userOverrides.has(permissionId)) {
-      decision = { allowed: effectAllows(userOverrides.get(permissionId)!), source: 'user_override' };
+      decision = {
+        allowed: effectAllows(userOverrides.get(permissionId)!),
+        source: 'user_override',
+      };
     } else {
       decision = rolePermissions.decisions[permissionId];
     }
@@ -160,9 +169,16 @@ export function hasPermission(userId: string, permissionId: PermissionId): boole
 export function requirePermission(permissionId: PermissionId): RequestHandler {
   return (req, res, next) => {
     const userId = String((req as Request & { user?: { userId?: string } }).user?.userId || '');
-    if (!userId) return res.status(401).json({ error: 'Authentication required', code: 'authentication_required' });
+    if (!userId)
+      return res
+        .status(401)
+        .json({ error: 'Authentication required', code: 'authentication_required' });
     if (!hasPermission(userId, permissionId)) {
-      return res.status(403).json({ error: 'Insufficient permissions', code: 'permission_denied', permission: permissionId });
+      return res.status(403).json({
+        error: 'Insufficient permissions',
+        code: 'permission_denied',
+        permission: permissionId,
+      });
     }
     next();
   };
@@ -171,9 +187,15 @@ export function requirePermission(permissionId: PermissionId): RequestHandler {
 export function requireAnyPermission(...permissionIds: PermissionId[]): RequestHandler {
   return (req, res, next) => {
     const userId = String((req as Request & { user?: { userId?: string } }).user?.userId || '');
-    if (!userId) return res.status(401).json({ error: 'Authentication required', code: 'authentication_required' });
+    if (!userId)
+      return res
+        .status(401)
+        .json({ error: 'Authentication required', code: 'authentication_required' });
     const effective = resolveEffectivePermissions(userId);
-    if (!effective || !permissionIds.some((permissionId) => effective.permissionIds.has(permissionId))) {
+    if (
+      !effective ||
+      !permissionIds.some((permissionId) => effective.permissionIds.has(permissionId))
+    ) {
       return res.status(403).json({ error: 'Insufficient permissions', code: 'permission_denied' });
     }
     next();
@@ -197,8 +219,8 @@ export class AdministrationUnreachableError extends Error {
     // Names the invariant and the action that resolves it, and blames the store
     // rather than the actor: most of the time the actor is not who is locked out.
     super(
-      'This change would leave no account able to manage staff, permissions, or store settings. '
-      + 'Grant another active owner these permissions first.',
+      'This change would leave no account able to manage staff, permissions, or store settings. ' +
+        'Grant another active owner these permissions first.',
     );
     this.name = 'AdministrationUnreachableError';
   }
@@ -207,8 +229,8 @@ export class AdministrationUnreachableError extends Error {
 export class SelfPrivilegeChangeError extends Error {
   constructor() {
     super(
-      'This change would remove your own access to staff, permissions, or store settings. '
-      + 'Confirm your owner PIN to apply it.',
+      'This change would remove your own access to staff, permissions, or store settings. ' +
+        'Confirm your owner PIN to apply it.',
     );
     this.name = 'SelfPrivilegeChangeError';
   }
@@ -217,7 +239,11 @@ export class SelfPrivilegeChangeError extends Error {
 /** The one post-write state a permission-changing write may propose. */
 export type AdministrationCandidate =
   | { kind: 'role_overrides'; role: Role; overrides: ReadonlyMap<PermissionId, PermissionEffect> }
-  | { kind: 'user_overrides'; userId: string; overrides: ReadonlyMap<PermissionId, PermissionEffect> }
+  | {
+      kind: 'user_overrides';
+      userId: string;
+      overrides: ReadonlyMap<PermissionId, PermissionEffect>;
+    }
   | { kind: 'user_state'; userId: string; role: Role; isActive: boolean };
 
 /**
@@ -225,7 +251,10 @@ export type AdministrationCandidate =
  * kind of write, and a guard that only reads override tables must not accept
  * one and quietly evaluate the state already on disk.
  */
-export type PermissionOverrideCandidate = Extract<AdministrationCandidate, { kind: 'role_overrides' | 'user_overrides' }>;
+export type PermissionOverrideCandidate = Extract<
+  AdministrationCandidate,
+  { kind: 'role_overrides' | 'user_overrides' }
+>;
 
 export function reachesAdministration(permissionIds: ReadonlySet<PermissionId>): boolean {
   return ADMINISTRATIVE_PERMISSION_IDS.every((permissionId) => permissionIds.has(permissionId));
@@ -256,17 +285,23 @@ export function assertAdministrationReachable(
   candidate: AdministrationCandidate,
 ): void {
   const roleOverridesByRole = new Map<Role, Map<PermissionId, PermissionEffect>>();
-  for (const row of db.prepare('SELECT role, permission_id, effect FROM role_permission_overrides').all() as EffectRoleRow[]) {
+  for (const row of db
+    .prepare('SELECT role, permission_id, effect FROM role_permission_overrides')
+    .all() as EffectRoleRow[]) {
     if (!isRole(row.role) || !isPermissionId(row.permission_id)) continue;
-    const overrides = roleOverridesByRole.get(row.role) ?? new Map<PermissionId, PermissionEffect>();
+    const overrides =
+      roleOverridesByRole.get(row.role) ?? new Map<PermissionId, PermissionEffect>();
     overrides.set(row.permission_id, row.effect);
     roleOverridesByRole.set(row.role, overrides);
   }
 
   const userOverridesByUser = new Map<string, Map<PermissionId, PermissionEffect>>();
-  for (const row of db.prepare('SELECT user_id, permission_id, effect FROM user_permission_overrides').all() as EffectUserRow[]) {
+  for (const row of db
+    .prepare('SELECT user_id, permission_id, effect FROM user_permission_overrides')
+    .all() as EffectUserRow[]) {
     if (!isPermissionId(row.permission_id)) continue;
-    const overrides = userOverridesByUser.get(row.user_id) ?? new Map<PermissionId, PermissionEffect>();
+    const overrides =
+      userOverridesByUser.get(row.user_id) ?? new Map<PermissionId, PermissionEffect>();
     overrides.set(row.permission_id, row.effect);
     userOverridesByUser.set(row.user_id, overrides);
   }
@@ -278,21 +313,25 @@ export function assertAdministrationReachable(
   }>;
 
   for (const user of users) {
-    const restated = candidate.kind === 'user_state' && candidate.userId === user.id ? candidate : null;
+    const restated =
+      candidate.kind === 'user_state' && candidate.userId === user.id ? candidate : null;
     const role = restated ? restated.role : user.role;
     const isActive = restated ? restated.isActive : user.is_active === 1;
     if (!isActive || !isRole(role)) continue;
 
-    const roleOverrides = candidate.kind === 'role_overrides' && candidate.role === role
-      ? candidate.overrides
-      : roleOverridesByRole.get(role) ?? NO_OVERRIDES;
-    const userOverrides = candidate.kind === 'user_overrides' && candidate.userId === user.id
-      ? candidate.overrides
-      : userOverridesByUser.get(user.id) ?? NO_OVERRIDES;
+    const roleOverrides =
+      candidate.kind === 'role_overrides' && candidate.role === role
+        ? candidate.overrides
+        : (roleOverridesByRole.get(role) ?? NO_OVERRIDES);
+    const userOverrides =
+      candidate.kind === 'user_overrides' && candidate.userId === user.id
+        ? candidate.overrides
+        : (userOverridesByUser.get(user.id) ?? NO_OVERRIDES);
 
     const administrative = new Set<PermissionId>(
       ADMINISTRATIVE_PERMISSION_IDS.filter((permissionId) =>
-        effectiveAllows(permissionId, role, userOverrides, roleOverrides)),
+        effectiveAllows(permissionId, role, userOverrides, roleOverrides),
+      ),
     );
     if (reachesAdministration(administrative)) return;
   }
@@ -306,7 +345,9 @@ export function assertAdministrationReachable(
  * stranding an install, and recovery asks it whether the install is stranded.
  */
 export function hasActiveAdministrator(): boolean {
-  const rows = getDatabase().prepare('SELECT id FROM users WHERE is_active = 1').all() as Array<{ id: string }>;
+  const rows = getDatabase().prepare('SELECT id FROM users WHERE is_active = 1').all() as Array<{
+    id: string;
+  }>;
   return rows.some(({ id }) => {
     const effective = resolveEffectivePermissions(id);
     return effective !== null && reachesAdministration(effective.permissionIds);
@@ -327,15 +368,19 @@ export function assertActorKeepsOwnAdministration(
   const actor = resolveEffectivePermissions(actorUserId);
   if (!actor) return;
 
-  const roleOverrides = candidate.kind === 'role_overrides' && candidate.role === actor.role
-    ? candidate.overrides
-    : readRoleOverrides(actor.role);
-  const userOverrides = candidate.kind === 'user_overrides' && candidate.userId === actorUserId
-    ? candidate.overrides
-    : readUserPermissionOverrides(actorUserId);
+  const roleOverrides =
+    candidate.kind === 'role_overrides' && candidate.role === actor.role
+      ? candidate.overrides
+      : readRoleOverrides(actor.role);
+  const userOverrides =
+    candidate.kind === 'user_overrides' && candidate.userId === actorUserId
+      ? candidate.overrides
+      : readUserPermissionOverrides(actorUserId);
 
-  const losesOwnAccess = ADMINISTRATIVE_PERMISSION_IDS.some((permissionId) =>
-    actor.permissionIds.has(permissionId)
-    && !effectiveAllows(permissionId, actor.role, userOverrides, roleOverrides));
+  const losesOwnAccess = ADMINISTRATIVE_PERMISSION_IDS.some(
+    (permissionId) =>
+      actor.permissionIds.has(permissionId) &&
+      !effectiveAllows(permissionId, actor.role, userOverrides, roleOverrides),
+  );
   if (losesOwnAccess) throw new SelfPrivilegeChangeError();
 }

@@ -23,15 +23,21 @@ const os = require('os');
 const path = require('path');
 const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-issue-134-routing-'));
 Module._load = function (request: string, parent: unknown, isMain: boolean) {
-  if (request === 'electron') return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
+  if (request === 'electron')
+    return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
   return originalLoad.apply(this, arguments as any);
 };
 
 process.env.JWT_SECRET = 'test-secret-issue-134-routing';
 
 const {
-  initTestDb, seedCategory, seedProduct,
-  assert, assertEqual, getResults, closeDatabase,
+  initTestDb,
+  seedCategory,
+  seedProduct,
+  assert,
+  assertEqual,
+  getResults,
+  closeDatabase,
 } = require('./helpers/test-setup');
 const { routeItemsToStations } = require('../main/routes/printers');
 
@@ -60,8 +66,12 @@ function main() {
 
   console.log('\n─── Scenario B: bar station configured — beverages split to bar printer ───');
   {
-    db.prepare(`INSERT INTO printers (id, name, connection_type, ip_address, port) VALUES ('pr-bar', 'Bar Printer', 'network', '192.168.1.60', 9100)`).run();
-    db.prepare(`INSERT INTO kitchen_stations (id, name, category_ids, printer_id, is_active) VALUES ('stn-bar', 'Bar', ?, 'pr-bar', 1)`).run(JSON.stringify(['cat-bev']));
+    db.prepare(
+      `INSERT INTO printers (id, name, connection_type, ip_address, port) VALUES ('pr-bar', 'Bar Printer', 'network', '192.168.1.60', 9100)`,
+    ).run();
+    db.prepare(
+      `INSERT INTO kitchen_stations (id, name, category_ids, printer_id, is_active) VALUES ('stn-bar', 'Bar', ?, 'pr-bar', 1)`,
+    ).run(JSON.stringify(['cat-bev']));
 
     const items = [{ product_id: 'prod-food' }, { product_id: 'prod-bev' }];
     const groups = routeItemsToStations(db, items);
@@ -81,13 +91,24 @@ function main() {
 
   console.log('\n─── Scenario C: two fully-covered stations — everything routed, no fallback ───');
   {
-    db.prepare(`INSERT INTO printers (id, name, connection_type, ip_address, port) VALUES ('pr-kitchen', 'Kitchen Printer', 'network', '192.168.1.61', 9100)`).run();
-    db.prepare(`INSERT INTO kitchen_stations (id, name, category_ids, printer_id, is_active) VALUES ('stn-kitchen', 'Kitchen', ?, 'pr-kitchen', 1)`).run(JSON.stringify(['cat-food', 'cat-dessert']));
+    db.prepare(
+      `INSERT INTO printers (id, name, connection_type, ip_address, port) VALUES ('pr-kitchen', 'Kitchen Printer', 'network', '192.168.1.61', 9100)`,
+    ).run();
+    db.prepare(
+      `INSERT INTO kitchen_stations (id, name, category_ids, printer_id, is_active) VALUES ('stn-kitchen', 'Kitchen', ?, 'pr-kitchen', 1)`,
+    ).run(JSON.stringify(['cat-food', 'cat-dessert']));
 
-    const items = [{ product_id: 'prod-food' }, { product_id: 'prod-bev' }, { product_id: 'prod-dessert' }];
+    const items = [
+      { product_id: 'prod-food' },
+      { product_id: 'prod-bev' },
+      { product_id: 'prod-dessert' },
+    ];
     const groups = routeItemsToStations(db, items);
     assertEqual(groups.length, 2, 'C: two groups — Kitchen and Bar, no generic fallback');
-    assert(!groups.some((g: any) => g.printer === null), 'C: no group falls back to the default printer');
+    assert(
+      !groups.some((g: any) => g.printer === null),
+      'C: no group falls back to the default printer',
+    );
 
     const kitchenGroup = groups.find((g: any) => g.stationName === 'Kitchen');
     assertEqual(kitchenGroup.items.length, 2, 'C: Kitchen group has food + dessert');
@@ -101,30 +122,55 @@ function main() {
     const items = [{ product_id: 'prod-bev' }];
     const groups = routeItemsToStations(db, items);
     assertEqual(groups.length, 1, 'D: only the fallback Kitchen group remains');
-    assertEqual(groups[0].stationName, 'Kitchen', 'D: beverage falls back once its station is deactivated');
+    assertEqual(
+      groups[0].stationName,
+      'Kitchen',
+      'D: beverage falls back once its station is deactivated',
+    );
     db.prepare(`UPDATE kitchen_stations SET is_active = 1 WHERE id = 'stn-bar'`).run();
   }
 
   console.log('\n─── Scenario E: station with no printer linked is skipped (misconfigured) ───');
   {
-    db.prepare(`INSERT INTO kitchen_stations (id, name, category_ids, printer_id, is_active) VALUES ('stn-dessert', 'Dessert', ?, NULL, 1)`).run(JSON.stringify(['cat-dessert']));
+    db.prepare(
+      `INSERT INTO kitchen_stations (id, name, category_ids, printer_id, is_active) VALUES ('stn-dessert', 'Dessert', ?, NULL, 1)`,
+    ).run(JSON.stringify(['cat-dessert']));
     const items = [{ product_id: 'prod-dessert' }];
     const groups = routeItemsToStations(db, items);
     // stn-kitchen already claims cat-dessert from scenario C, so this should still route there
-    assertEqual(groups.length, 1, 'E: dessert still routes via the station that has both a printer and the category');
-    assertEqual(groups[0].stationName, 'Kitchen', 'E: unlinked Dessert station is ignored in favor of the configured one');
+    assertEqual(
+      groups.length,
+      1,
+      'E: dessert still routes via the station that has both a printer and the category',
+    );
+    assertEqual(
+      groups[0].stationName,
+      'Kitchen',
+      'E: unlinked Dessert station is ignored in favor of the configured one',
+    );
   }
 
   console.log('\n─── Scenario F: WebUSB station printer is skipped for backend KOT routing ───');
   {
     db.prepare('UPDATE kitchen_stations SET is_active = 0').run();
-    db.prepare(`INSERT INTO printers (id, name, connection_type, ip_address, port) VALUES ('pr-webusb', 'Browser WebUSB', 'webusb', null, null)`).run();
-    db.prepare(`INSERT INTO kitchen_stations (id, name, category_ids, printer_id, is_active) VALUES ('stn-webusb', 'Browser Bar', ?, 'pr-webusb', 1)`).run(JSON.stringify(['cat-bev']));
+    db.prepare(
+      `INSERT INTO printers (id, name, connection_type, ip_address, port) VALUES ('pr-webusb', 'Browser WebUSB', 'webusb', null, null)`,
+    ).run();
+    db.prepare(
+      `INSERT INTO kitchen_stations (id, name, category_ids, printer_id, is_active) VALUES ('stn-webusb', 'Browser Bar', ?, 'pr-webusb', 1)`,
+    ).run(JSON.stringify(['cat-bev']));
 
     const groups = routeItemsToStations(db, [{ product_id: 'prod-bev' }]);
     assertEqual(groups.length, 1, 'F: WebUSB station falls back to one generic Kitchen group');
-    assertEqual(groups[0].stationName, 'Kitchen', 'F: WebUSB station does not receive backend KOT items');
-    assert(groups[0].printer === null, 'F: fallback group leaves printer selection to the backend fallback');
+    assertEqual(
+      groups[0].stationName,
+      'Kitchen',
+      'F: WebUSB station does not receive backend KOT items',
+    );
+    assert(
+      groups[0].printer === null,
+      'F: fallback group leaves printer selection to the backend fallback',
+    );
   }
 
   closeDatabase();

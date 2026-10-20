@@ -113,23 +113,35 @@ export type MasterPinAuthResult =
   | { ok: false; status: number; error: string };
 
 /** Authorizes master PIN for Express middleware and ipcMain handlers. */
-export function authorizeMasterPin(pin: string | undefined, rateLimitKey: string): MasterPinAuthResult {
+export function authorizeMasterPin(
+  pin: string | undefined,
+  rateLimitKey: string,
+): MasterPinAuthResult {
   if (!isMasterPinAvailable()) {
     // Block operations when OS-backed encryption is unavailable to prevent bypasses.
     return {
       ok: false,
       status: 503,
-      error: 'Master PIN is not available on this device (OS encryption unavailable). ' +
-             'Master PIN-gated operations require a desktop environment with keyring support.',
+      error:
+        'Master PIN is not available on this device (OS encryption unavailable). ' +
+        'Master PIN-gated operations require a desktop environment with keyring support.',
     };
   }
 
   if (!isMasterPinSet()) {
-    return { ok: false, status: 409, error: 'Master PIN is not set on this device yet. Set one in Settings first.' };
+    return {
+      ok: false,
+      status: 409,
+      error: 'Master PIN is not set on this device yet. Set one in Settings first.',
+    };
   }
 
   if (isMasterPinRateLimited(rateLimitKey)) {
-    return { ok: false, status: 429, error: 'Too many incorrect Master PIN attempts. Try again later.' };
+    return {
+      ok: false,
+      status: 429,
+      error: 'Too many incorrect Master PIN attempts. Try again later.',
+    };
   }
 
   if (!pin || typeof pin !== 'string' || !PIN_REGEX.test(pin)) {
@@ -139,7 +151,11 @@ export function authorizeMasterPin(pin: string | undefined, rateLimitKey: string
   if (!verifyMasterPin(pin)) {
     recordMasterPinFailedAttempt(rateLimitKey);
     if (isMasterPinRateLimited(rateLimitKey)) {
-      return { ok: false, status: 429, error: 'Too many incorrect Master PIN attempts. Try again later.' };
+      return {
+        ok: false,
+        status: 429,
+        error: 'Too many incorrect Master PIN attempts. Try again later.',
+      };
     }
     return { ok: false, status: 403, error: 'Invalid Master PIN' };
   }

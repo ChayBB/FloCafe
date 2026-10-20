@@ -117,10 +117,9 @@ async function run() {
   assert.equal(await freshResponse.text(), 'fresh');
 
   const failureCaches = new TestCaches();
-  const failureWorker = loadFetchHandler(
-    failureCaches,
-    async () => { throw new TypeError('Failed to fetch'); },
-  );
+  const failureWorker = loadFetchHandler(failureCaches, async () => {
+    throw new TypeError('Failed to fetch');
+  });
 
   const uncachedSubresource = await dispatch(failureWorker.fetch, {
     method: 'GET',
@@ -138,16 +137,18 @@ async function run() {
     '/dashboard',
     new Response('<html>cached shell</html>', { status: 200 }),
   );
-  const shellPrefetchWorker = loadFetchHandler(
-    shellPrefetchCaches,
-    async () => { throw new TypeError('Failed to fetch'); },
-  );
+  const shellPrefetchWorker = loadFetchHandler(shellPrefetchCaches, async () => {
+    throw new TypeError('Failed to fetch');
+  });
   const prefetchResponse = await dispatch(shellPrefetchWorker.fetch, {
     method: 'GET',
     url: 'http://localhost:3001/dashboard/',
     mode: 'cors',
   });
-  assert.ok(prefetchResponse instanceof Response, 'route prefetch failure resolves a valid Response');
+  assert.ok(
+    prefetchResponse instanceof Response,
+    'route prefetch failure resolves a valid Response',
+  );
   assert.notEqual(
     prefetchResponse.type,
     'error',
@@ -155,10 +156,9 @@ async function run() {
   );
   assert.equal(await prefetchResponse.text(), '<html>cached shell</html>');
 
-  const uncachedPrefetchWorker = loadFetchHandler(
-    new TestCaches(),
-    async () => { throw new TypeError('Failed to fetch'); },
-  );
+  const uncachedPrefetchWorker = loadFetchHandler(new TestCaches(), async () => {
+    throw new TypeError('Failed to fetch');
+  });
   const uncachedPrefetchResponse = await dispatch(uncachedPrefetchWorker.fetch, {
     method: 'GET',
     url: 'http://localhost:3001/dashboard/',
@@ -186,10 +186,9 @@ async function run() {
     '/dashboard',
     new Response('<html>cached shell</html>', { status: 200 }),
   );
-  const shellWorker = loadFetchHandler(
-    shellCaches,
-    async () => { throw new TypeError('Failed to fetch'); },
-  );
+  const shellWorker = loadFetchHandler(shellCaches, async () => {
+    throw new TypeError('Failed to fetch');
+  });
   const cachedNavigation = await dispatch(shellWorker.fetch, {
     method: 'GET',
     url: 'http://localhost:3001/dashboard/',
@@ -219,14 +218,10 @@ async function run() {
   );
 
   const staleCaches = new TestCaches(['flo-v17']);
-  await staleCaches.cache.put(
-    '/dashboard',
-    new Response('stale cached 503', { status: 503 }),
-  );
-  const staleWorker = loadFetchHandler(
-    staleCaches,
-    async () => { throw new TypeError('Failed to fetch'); },
-  );
+  await staleCaches.cache.put('/dashboard', new Response('stale cached 503', { status: 503 }));
+  const staleWorker = loadFetchHandler(staleCaches, async () => {
+    throw new TypeError('Failed to fetch');
+  });
   await dispatchLifecycle(staleWorker.activate);
   assert.deepEqual(staleCaches.deletedNames, ['flo-v17']);
   const staleResponse = await dispatch(staleWorker.fetch, {
@@ -243,12 +238,16 @@ async function run() {
   let bypassResponded = false;
   failureWorker.fetch({
     request: { method: 'GET', url: 'http://localhost:3001/api/health', mode: 'cors' },
-    respondWith() { bypassResponded = true; },
+    respondWith() {
+      bypassResponded = true;
+    },
     waitUntil() {},
   });
   assert.equal(bypassResponded, false, 'API requests remain network-authoritative');
 
-  console.log('Service-worker fetch failures always resolve valid Responses with offline shell behavior.');
+  console.log(
+    'Service-worker fetch failures always resolve valid Responses with offline shell behavior.',
+  );
 }
 
 run().catch((error) => {

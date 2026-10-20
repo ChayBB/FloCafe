@@ -19,7 +19,9 @@ const listeners = new Set<Listener>();
 
 export function onOrderItemStatus(listener: Listener): () => void {
   listeners.add(listener);
-  return () => { listeners.delete(listener); };
+  return () => {
+    listeners.delete(listener);
+  };
 }
 
 export function emitOrderItemStatus(event: OrderItemStatusEvent): void {
@@ -58,7 +60,9 @@ const guestOrderListeners = new Set<GuestOrderListener>();
 
 export function onGuestOrder(listener: GuestOrderListener): () => void {
   guestOrderListeners.add(listener);
-  return () => { guestOrderListeners.delete(listener); };
+  return () => {
+    guestOrderListeners.delete(listener);
+  };
 }
 
 export function emitGuestOrder(event: GuestOrderEvent): void {

@@ -52,7 +52,10 @@ test('TXT values are strings, never numbers', () => {
 test('the advertised name carries the machine name so two tills do not collide', () => {
   const name = floServiceName();
   assert.match(name, /^Flo POS/);
-  const machine = os.hostname().replace(/\.local$/i, '').trim();
+  const machine = os
+    .hostname()
+    .replace(/\.local$/i, '')
+    .trim();
   if (machine) assert.ok(name.includes(machine), 'the machine name is part of the advertised name');
 });
 
@@ -74,7 +77,11 @@ test('an IPv4 address beats the .local hostname', () => {
   assert.equal(v6Only?.apiUrl, 'http://[fe80::1]:3001', 'an IPv6 literal is bracketed');
 
   const noAddresses = toFloInstance(service({ addresses: [] }));
-  assert.equal(noAddresses?.apiUrl, 'http://flo.local:3001', 'the hostname is the fallback, not the default');
+  assert.equal(
+    noAddresses?.apiUrl,
+    'http://flo.local:3001',
+    'the hostname is the fallback, not the default',
+  );
 });
 
 test('a service that is not a FloCafe POS is rejected', () => {
@@ -100,9 +107,11 @@ test('a nonsense port in TXT does not become a URL', () => {
   // A malformed advertisement should cost the caller one missing link, not a
   // request to http://host:NaN.
   for (const bad of ['', 'abc', '0', '70000', '-1', '3002.5']) {
-    const instance = toFloInstance(service({
-      txt: { version: '3.9.0', api: '/api', kds_port: bad, server_app_port: '3003' },
-    }));
+    const instance = toFloInstance(
+      service({
+        txt: { version: '3.9.0', api: '/api', kds_port: bad, server_app_port: '3003' },
+      }),
+    );
     assert.ok(instance, `the POS is still usable with a bad kds_port (${bad})`);
     assert.equal(instance.kdsUrl, null, `kds_port "${bad}" yields no URL`);
     assert.equal(instance.apiUrl, 'http://192.168.1.42:3001', 'the API URL is unaffected');
@@ -130,7 +139,11 @@ test('one POS answering on both service types is reported once', () => {
   // Losing one record must not retire a server the other still advertises.
   assert.equal(tracker.down('Flo'), null, 'still up on the dedicated type');
   assert.equal(tracker.size, 1);
-  assert.equal(tracker.down('Flo POS (till-01)'), dedicated.apiUrl, 'the last record going away retires it');
+  assert.equal(
+    tracker.down('Flo POS (till-01)'),
+    dedicated.apiUrl,
+    'the last record going away retires it',
+  );
   assert.equal(tracker.size, 0);
 
   assert.equal(tracker.down('never-seen'), null, 'an unknown name retires nothing');
@@ -139,8 +152,13 @@ test('one POS answering on both service types is reported once', () => {
 test('two different tills are both reported', () => {
   const tracker = createInstanceTracker();
   const first = toFloInstance(service({ name: 'Flo POS (till-01)', addresses: ['192.168.1.42'] }))!;
-  const second = toFloInstance(service({ name: 'Flo POS (till-02)', addresses: ['192.168.1.43'] }))!;
+  const second = toFloInstance(
+    service({ name: 'Flo POS (till-02)', addresses: ['192.168.1.43'] }),
+  )!;
   assert.ok(tracker.up('Flo POS (till-01)', first));
-  assert.ok(tracker.up('Flo POS (till-02)', second), 'a second machine is not mistaken for the first');
+  assert.ok(
+    tracker.up('Flo POS (till-02)', second),
+    'a second machine is not mistaken for the first',
+  );
   assert.equal(tracker.size, 2);
 });

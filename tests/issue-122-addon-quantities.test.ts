@@ -37,7 +37,14 @@ process.env.JWT_SECRET = 'test-secret-addon-quantities';
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { initDatabase, getDatabase, closeDatabase, now, MIGRATIONS, attachEffectiveAddons } = require('../main/db');
+const {
+  initDatabase,
+  getDatabase,
+  closeDatabase,
+  now,
+  MIGRATIONS,
+  attachEffectiveAddons,
+} = require('../main/db');
 const { getJWTSecret } = require('../main/routes/auth');
 const { orderRoutes } = require('../main/routes/orders');
 const { addonGroupRoutes } = require('../main/routes/addon-groups');
@@ -58,7 +65,10 @@ function assert(condition: boolean, message: string) {
 }
 
 function assertEqual(actual: any, expected: any, message: string) {
-  assert(actual === expected, `${message} (expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)})`);
+  assert(
+    actual === expected,
+    `${message} (expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)})`,
+  );
 }
 
 function makeRequest(
@@ -66,7 +76,7 @@ function makeRequest(
   method: string,
   urlPath: string,
   body?: any,
-  headers: Record<string, string> = {}
+  headers: Record<string, string> = {},
 ): Promise<{ status: number; body: any }> {
   return new Promise((resolve, reject) => {
     const server = http.createServer(app);
@@ -91,16 +101,23 @@ function makeRequest(
         },
         (res) => {
           let resData = '';
-          res.on('data', (chunk) => { resData += chunk; });
+          res.on('data', (chunk) => {
+            resData += chunk;
+          });
           res.on('end', () => {
             server.close();
             let parsed = resData;
-            try { parsed = JSON.parse(resData); } catch {}
+            try {
+              parsed = JSON.parse(resData);
+            } catch {}
             resolve({ status: res.statusCode || 0, body: parsed });
           });
-        }
+        },
       );
-      req.on('error', (err) => { server.close(); reject(err); });
+      req.on('error', (err) => {
+        server.close();
+        reject(err);
+      });
       if (body) req.write(dataStr);
       req.end();
     });
@@ -115,12 +132,22 @@ async function runTests() {
   const db = getDatabase();
   // Regional settings come from signup, never a fallback; seed one
   // explicitly so resolveRegionalSnapshot() resolves.
-  db.prepare(`INSERT INTO settings (key, value, updated_at) VALUES ('country', 'IN', ?) ON CONFLICT(key) DO UPDATE SET value='IN', updated_at=excluded.updated_at`).run(now());
-  db.prepare(`INSERT INTO settings (key, value, updated_at) VALUES ('timezone', 'Asia/Kolkata', ?) ON CONFLICT(key) DO UPDATE SET value='Asia/Kolkata', updated_at=excluded.updated_at`).run(now());
+  db.prepare(
+    `INSERT INTO settings (key, value, updated_at) VALUES ('country', 'IN', ?) ON CONFLICT(key) DO UPDATE SET value='IN', updated_at=excluded.updated_at`,
+  ).run(now());
+  db.prepare(
+    `INSERT INTO settings (key, value, updated_at) VALUES ('timezone', 'Asia/Kolkata', ?) ON CONFLICT(key) DO UPDATE SET value='Asia/Kolkata', updated_at=excluded.updated_at`,
+  ).run(now());
 
   // Verify Migration v33 applied
-  const columns = db.prepare(`PRAGMA table_info(addon_groups)`).all().map((c: any) => c.name);
-  assert(columns.includes('allow_multiple_quantities'), 'Migration v33 added allow_multiple_quantities column');
+  const columns = db
+    .prepare(`PRAGMA table_info(addon_groups)`)
+    .all()
+    .map((c: any) => c.name);
+  assert(
+    columns.includes('allow_multiple_quantities'),
+    'Migration v33 added allow_multiple_quantities column',
+  );
 
   // Setup Auth & App
   const app = express();
@@ -145,7 +172,9 @@ async function runTests() {
 
   // Seed sample products and addon groups
   const catId = 'cat-1';
-  db.prepare(`INSERT INTO categories (id, name, slug, sort_order, is_active) VALUES (?, 'Coffee', 'coffee', 1, 1)`).run(catId);
+  db.prepare(
+    `INSERT INTO categories (id, name, slug, sort_order, is_active) VALUES (?, 'Coffee', 'coffee', 1, 1)`,
+  ).run(catId);
 
   const prodId = 'prod-1';
   db.prepare(`
@@ -162,13 +191,17 @@ async function runTests() {
     max_selection: 5,
     allow_multiple_quantities: true,
     addons: [
-      { name: 'Extra Shot', price: 1.50 },
-      { name: 'Vanilla Syrup', price: 0.50 },
+      { name: 'Extra Shot', price: 1.5 },
+      { name: 'Vanilla Syrup', price: 0.5 },
     ],
   });
 
   assertEqual(createGroupRes.status, 201, 'POST /api/addon-groups created group');
-  assertEqual(createGroupRes.body.addon_group.allow_multiple_quantities, true, 'Group allow_multiple_quantities returns true');
+  assertEqual(
+    createGroupRes.body.addon_group.allow_multiple_quantities,
+    true,
+    'Group allow_multiple_quantities returns true',
+  );
 
   const groupId = createGroupRes.body.addon_group.id;
   const addonShotId = createGroupRes.body.addon_group.addons[0].id;
@@ -176,17 +209,26 @@ async function runTests() {
 
   // Link the group to the product so order add-ons resolve against the catalog
   // (GHSA-jmxx-39wh-4cjx: add-ons must resolve to a group linked to the product).
-  db.prepare(`INSERT INTO addon_group_product (product_id, addon_group_id) VALUES (?, ?)`).run(prodId, groupId);
+  db.prepare(`INSERT INTO addon_group_product (product_id, addon_group_id) VALUES (?, ?)`).run(
+    prodId,
+    groupId,
+  );
 
   // Update group toggle to false
   const updateGroupRes = await makeRequest(app, 'PUT', `/api/addon-groups/${groupId}`, {
     allow_multiple_quantities: false,
   });
   assertEqual(updateGroupRes.status, 200, 'PUT /api/addon-groups updated group');
-  assertEqual(updateGroupRes.body.addon_group.allow_multiple_quantities, false, 'Group allow_multiple_quantities returns false after update');
+  assertEqual(
+    updateGroupRes.body.addon_group.allow_multiple_quantities,
+    false,
+    'Group allow_multiple_quantities returns false after update',
+  );
 
   // Reset allow_multiple_quantities to true
-  await makeRequest(app, 'PUT', `/api/addon-groups/${groupId}`, { allow_multiple_quantities: true });
+  await makeRequest(app, 'PUT', `/api/addon-groups/${groupId}`, {
+    allow_multiple_quantities: true,
+  });
 
   console.log('\n2. Order Creation with Addon Quantities');
   // Order with 2x Espresso, having 2x Extra Shot ($1.50) + 3x Vanilla Syrup ($0.50)
@@ -198,8 +240,8 @@ async function runTests() {
         product_id: prodId,
         quantity: 2,
         addons: [
-          { id: addonShotId, name: 'Extra Shot', price: 1.50, quantity: 2 },
-          { id: addonSyrupId, name: 'Vanilla Syrup', price: 0.50, quantity: 3 },
+          { id: addonShotId, name: 'Extra Shot', price: 1.5, quantity: 2 },
+          { id: addonSyrupId, name: 'Vanilla Syrup', price: 0.5, quantity: 3 },
         ],
       },
     ],
@@ -207,13 +249,19 @@ async function runTests() {
 
   if (orderRes.status !== 201) console.log('ORDER ERR:', orderRes.body);
   assertEqual(orderRes.status, 201, 'Order created successfully with addon quantities');
-  assertEqual(orderRes.body.order.subtotal, 15.00, 'Order subtotal multiplies addon price by addon quantity');
+  assertEqual(
+    orderRes.body.order.subtotal,
+    15.0,
+    'Order subtotal multiplies addon price by addon quantity',
+  );
 
   const orderId = orderRes.body.order.id;
   const orderItemId = orderRes.body.order.items[0].id;
 
   // Check persisted order_item_addons rows
-  const addonRows = db.prepare(`SELECT * FROM order_item_addons WHERE order_item_id = ? ORDER BY id`).all(orderItemId) as any[];
+  const addonRows = db
+    .prepare(`SELECT * FROM order_item_addons WHERE order_item_id = ? ORDER BY id`)
+    .all(orderItemId) as any[];
   assertEqual(addonRows.length, 2, '2 order_item_addons rows persisted');
   assertEqual(addonRows[0].quantity, 2, 'First addon quantity is 2');
   assertEqual(addonRows[1].quantity, 3, 'Second addon quantity is 3');
@@ -221,8 +269,16 @@ async function runTests() {
   // Verify attachEffectiveAddons
   const itemWithAddons = attachEffectiveAddons(db, [{ id: orderItemId }])[0];
   assertEqual(itemWithAddons.addons.length, 2, 'attachEffectiveAddons returns 2 addons');
-  assertEqual(itemWithAddons.addons[0].quantity, 2, 'attachEffectiveAddons returns quantity 2 for first addon');
-  assertEqual(itemWithAddons.addons[1].quantity, 3, 'attachEffectiveAddons returns quantity 3 for second addon');
+  assertEqual(
+    itemWithAddons.addons[0].quantity,
+    2,
+    'attachEffectiveAddons returns quantity 2 for first addon',
+  );
+  assertEqual(
+    itemWithAddons.addons[1].quantity,
+    3,
+    'attachEffectiveAddons returns quantity 3 for second addon',
+  );
 
   console.log('\n3. Add-Items Flow with Addon Quantities');
   const addItemsRes = await makeRequest(app, 'POST', `/api/orders/${orderId}/items`, {
@@ -230,16 +286,18 @@ async function runTests() {
       {
         product_id: prodId,
         quantity: 1,
-        addons: [
-          { id: addonSyrupId, name: 'Vanilla Syrup', price: 0.50, quantity: 4 },
-        ],
+        addons: [{ id: addonSyrupId, name: 'Vanilla Syrup', price: 0.5, quantity: 4 }],
       },
     ],
   });
 
   assertEqual(addItemsRes.status, 200, 'POST /api/orders/:id/items succeeded with addon quantity');
   // New item subtotal = (3.00 + 0.50 * 4) * 1 = 5.00. Total order subtotal = 15.00 + 5.00 = 20.00
-  assertEqual(addItemsRes.body.order.subtotal, 20.00, 'Updated order subtotal includes newly added items with addon quantities');
+  assertEqual(
+    addItemsRes.body.order.subtotal,
+    20.0,
+    'Updated order subtotal includes newly added items with addon quantities',
+  );
 
   console.log('\n4. Invalid Addon Quantity Rejection');
   const invalidZero = await makeRequest(app, 'POST', '/api/orders', {
@@ -269,29 +327,68 @@ async function runTests() {
   });
   const disallowGroupId = disallowGroupRes.body.addon_group.id;
   const disallowAddonId = disallowGroupRes.body.addon_group.addons[0].id;
-  db.prepare(`INSERT INTO addon_group_product (product_id, addon_group_id) VALUES (?, ?)`).run(prodId, disallowGroupId);
+  db.prepare(`INSERT INTO addon_group_product (product_id, addon_group_id) VALUES (?, ?)`).run(
+    prodId,
+    disallowGroupId,
+  );
 
   const invalidMultiRes = await makeRequest(app, 'POST', '/api/orders', {
     type: 'dine_in',
-    items: [{ product_id: prodId, quantity: 1, addons: [{ id: disallowAddonId, addon_group_id: disallowGroupId, name: 'Single Addon', price: 0.5, quantity: 2 }] }],
+    items: [
+      {
+        product_id: prodId,
+        quantity: 1,
+        addons: [
+          {
+            id: disallowAddonId,
+            addon_group_id: disallowGroupId,
+            name: 'Single Addon',
+            price: 0.5,
+            quantity: 2,
+          },
+        ],
+      },
+    ],
   });
-  assertEqual(invalidMultiRes.status, 400, 'Multi-quantity rejected when group allow_multiple_quantities is false');
+  assertEqual(
+    invalidMultiRes.status,
+    400,
+    'Multi-quantity rejected when group allow_multiple_quantities is false',
+  );
 
   const invalidMaxRes = await makeRequest(app, 'POST', '/api/orders', {
     type: 'dine_in',
-    items: [{ product_id: prodId, quantity: 1, addons: [{ id: disallowAddonId, addon_group_id: disallowGroupId, name: 'Single Addon', price: 0.5, quantity: 3 }] }],
+    items: [
+      {
+        product_id: prodId,
+        quantity: 1,
+        addons: [
+          {
+            id: disallowAddonId,
+            addon_group_id: disallowGroupId,
+            name: 'Single Addon',
+            price: 0.5,
+            quantity: 3,
+          },
+        ],
+      },
+    ],
   });
   assertEqual(invalidMaxRes.status, 400, 'Exceeding group max_selection quantity rejected');
 
   console.log('\n5. Legacy Row Default Quantity Test');
-  const legacyOrder = db.prepare(`
+  const legacyOrder = db
+    .prepare(`
     INSERT INTO orders (order_number, type, status, created_at, updated_at)
     VALUES ('ORD-LEGACY', 'dine_in', 'pending', ?, ?)
-  `).run(now(), now());
-  const legacyItem = db.prepare(`
+  `)
+    .run(now(), now());
+  const legacyItem = db
+    .prepare(`
     INSERT INTO order_items (order_id, product_id, product_name, unit_price, quantity, subtotal, tax_amount, total, status, created_at, updated_at)
     VALUES (?, ?, 'Legacy Espresso', 3.00, 1, 3.00, 0, 3.00, 'pending', ?, ?)
-  `).run(legacyOrder.lastInsertRowid, prodId, now(), now());
+  `)
+    .run(legacyOrder.lastInsertRowid, prodId, now(), now());
   const legacyItemId = Number(legacyItem.lastInsertRowid);
 
   db.prepare(`

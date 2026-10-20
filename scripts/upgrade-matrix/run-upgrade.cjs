@@ -69,7 +69,9 @@ async function phaseSeed(args) {
   console.error('[seed] API is up; completing setup + seeding identifiable data');
   const seeds = await setupAndSeed({ email, password, masterPin });
   fs.writeFileSync(seedsPath, JSON.stringify({ ...seeds, email, password, masterPin }, null, 2));
-  console.error(`[seed] seeded order=${seeds.orderId} product=${seeds.productId} printer=${seeds.printerId}`);
+  console.error(
+    `[seed] seeded order=${seeds.orderId} product=${seeds.productId} printer=${seeds.printerId}`,
+  );
 
   if (channel === 'beta') {
     if (args['pre-toggle-fixture']) {
@@ -77,13 +79,17 @@ async function phaseSeed(args) {
       // opt-in is simulated in the installed fixture's updater setup, so
       // this phase only needs to trigger the check.
       await cdpEval(DEBUG_PORT(), 'window.electronAPI.checkForUpdates()');
-      console.error('[seed] pre-toggle fixture: triggered update check against the patched beta feed');
+      console.error(
+        '[seed] pre-toggle fixture: triggered update check against the patched beta feed',
+      );
     } else {
       const result = await cdpEval(DEBUG_PORT(), 'window.electronAPI.setBetaChannel(true)');
       if (!result?.success) {
         throw new HarnessError(`set-beta-channel failed: ${JSON.stringify(result)}`);
       }
-      console.error('[seed] opted into the beta channel; updater re-checking against the beta feed now');
+      console.error(
+        '[seed] opted into the beta channel; updater re-checking against the beta feed now',
+      );
     }
   } else {
     await cdpEval(DEBUG_PORT(), 'window.electronAPI.checkForUpdates()');
@@ -99,7 +105,7 @@ async function phaseSeed(args) {
   // undefined on success — treat an explicit failure object as the only error.
   const installResult = await cdpEval(
     DEBUG_PORT(),
-    `Promise.resolve(window.electronAPI.restartAndInstall(${pinArg})).then(r => r).catch(e => ({ success: false, error: String(e) }))`
+    `Promise.resolve(window.electronAPI.restartAndInstall(${pinArg})).then(r => r).catch(e => ({ success: false, error: String(e) }))`,
   );
   if (installResult && installResult.success === false) {
     throw new HarnessError(`restart-and-install failed: ${JSON.stringify(installResult)}`);
@@ -111,7 +117,8 @@ async function phaseVerify(args) {
   const seedsPath = path.resolve(args['seed-file']);
   const seeds = JSON.parse(fs.readFileSync(seedsPath, 'utf8'));
   const expectedVersion = args['expected-version'];
-  if (!expectedVersion) throw new HarnessError('--expected-version is required for the verify phase');
+  if (!expectedVersion)
+    throw new HarnessError('--expected-version is required for the verify phase');
 
   await waitForApi(Number(args['api-timeout'] || 300000));
   // Give the renderer a moment to expose its preload bridge after boot.

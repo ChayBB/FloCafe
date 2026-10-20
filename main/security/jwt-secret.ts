@@ -28,7 +28,9 @@ export function getJWTSecret(): string {
 
   try {
     const db = getDatabase();
-    const row = db.prepare("SELECT value FROM settings WHERE key = 'jwt_secret'").get() as { value: string } | undefined;
+    const row = db.prepare("SELECT value FROM settings WHERE key = 'jwt_secret'").get() as
+      | { value: string }
+      | undefined;
 
     if (row?.value) {
       _jwtSecret = row.value;
@@ -42,9 +44,13 @@ export function getJWTSecret(): string {
       // signs tokens that no later process, the KDS server included, can
       // verify.
       const generated = randomBytes(32).toString('hex');
-      db.prepare("INSERT INTO settings (key, value, updated_at) VALUES ('jwt_secret', ?, ?)")
-        .run(generated, now());
-      const stored = db.prepare("SELECT value FROM settings WHERE key = 'jwt_secret'").get() as { value: string } | undefined;
+      db.prepare("INSERT INTO settings (key, value, updated_at) VALUES ('jwt_secret', ?, ?)").run(
+        generated,
+        now(),
+      );
+      const stored = db.prepare("SELECT value FROM settings WHERE key = 'jwt_secret'").get() as
+        | { value: string }
+        | undefined;
       if (!stored?.value) throw new Error('JWT secret write did not persist');
       _jwtSecret = stored.value;
       console.log('[Auth] Generated new JWT secret for this install');

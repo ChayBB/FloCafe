@@ -16,16 +16,27 @@ const os = require('os');
 const path = require('path');
 const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-tax-test-'));
 Module._load = function (request: string, parent: unknown, isMain: boolean) {
-  if (request === 'electron') return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
+  if (request === 'electron')
+    return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
   return originalLoad.apply(this, arguments as any);
 };
 
 const {
-  initTestDb, createApp, startServer,
-  seedOwnerUser, seedManagerUser, seedCategory, seedProduct,
+  initTestDb,
+  createApp,
+  startServer,
+  seedOwnerUser,
+  seedManagerUser,
+  seedCategory,
+  seedProduct,
   installAndActivateTestTaxPack,
-  api, assert, assertEqual,
-  getResults, closeDatabase, getDatabase, now,
+  api,
+  assert,
+  assertEqual,
+  getResults,
+  closeDatabase,
+  getDatabase,
+  now,
 } = require('./helpers/test-setup');
 
 const { orderRoutes } = require('../main/routes/orders');
@@ -42,9 +53,19 @@ function seedStaffUser(db: any, role: string, reuse = false) {
     db.prepare(`
       INSERT OR IGNORE INTO users (id, name, email, password, role, is_active, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, 1, ?, ?)
-    `).run(userId, `Test ${role}`, `${role}@test.local`, bcrypt.hashSync('testpass123', 10), role, now(), now());
+    `).run(
+      userId,
+      `Test ${role}`,
+      `${role}@test.local`,
+      bcrypt.hashSync('testpass123', 10),
+      role,
+      now(),
+      now(),
+    );
   }
-  const token = jwt.sign({ userId, email: `${role}@test.local`, role }, getJWTSecret(), { expiresIn: '1h' });
+  const token = jwt.sign({ userId, email: `${role}@test.local`, role }, getJWTSecret(), {
+    expiresIn: '1h',
+  });
   return { Authorization: `Bearer ${token}` };
 }
 // Same dual-rate / flat-rate structure the real country tax packs use, kept
@@ -63,9 +84,15 @@ async function main() {
   const db = initTestDb();
 
   // Force a dual-rate-tax country's settings
-  db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('country', 'IN', ?)").run(now());
-  db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('business_type', 'restaurant', ?)").run(now());
-  db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('state_code', '27', ?)").run(now());
+  db.prepare(
+    "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('country', 'IN', ?)",
+  ).run(now());
+  db.prepare(
+    "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('business_type', 'restaurant', ?)",
+  ).run(now());
+  db.prepare(
+    "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('state_code', '27', ?)",
+  ).run(now());
   installAndActivateTestTaxPack(db, indiaTaxPack);
   installAndActivateTestTaxPack(db, thailandTaxPack);
 
@@ -125,7 +152,9 @@ async function main() {
       ? discountRes.data.order.tax_breakdown.flat()
       : discountRes.data.order.tax_breakdown;
     assertEqual(
-      Math.round(orderDiscountComponents.reduce((sum: number, part: any) => sum + part.amount, 0) * 100) / 100,
+      Math.round(
+        orderDiscountComponents.reduce((sum: number, part: any) => sum + part.amount, 0) * 100,
+      ) / 100,
       40,
       'order tax breakdown is scaled to the final discounted tax',
     );
@@ -158,7 +187,11 @@ async function main() {
       // Tax A + Tax B should equal initial tax (₹50 on ₹1000)
       if (taxAEntry && taxBEntry) {
         const totalBreakdownTax = Math.round((taxAEntry.amount + taxBEntry.amount) * 100) / 100;
-        assertEqual(totalBreakdownTax, initialTax, `Tax A (₹${taxAEntry.amount}) + Tax B (₹${taxBEntry.amount}) = ₹${initialTax}`);
+        assertEqual(
+          totalBreakdownTax,
+          initialTax,
+          `Tax A (₹${taxAEntry.amount}) + Tax B (₹${taxBEntry.amount}) = ₹${initialTax}`,
+        );
       }
     }
 
@@ -168,7 +201,9 @@ async function main() {
       tax_category_id: null,
     });
     seedProduct(db, 'prod-tax-2', 'cat-tax', 'Categorized Latte', 500);
-    db.prepare(`UPDATE products SET tax_category_id = 'standard', tax_behavior = 'exclusive' WHERE id = 'prod-tax-2'`).run();
+    db.prepare(
+      `UPDATE products SET tax_category_id = 'standard', tax_behavior = 'exclusive' WHERE id = 'prod-tax-2'`,
+    ).run();
 
     const mixedOrderRes = await api(baseUrl, '/api/orders', {
       method: 'POST',
@@ -185,15 +220,26 @@ async function main() {
     const [uncategorizedItem, categorizedItem] = mixedOrderRes.data.order.items;
     assert(!uncategorizedItem.tax_snapshot, 'uncategorized item has no tax_snapshot');
     assertEqual(uncategorizedItem.tax_amount, 0, 'uncategorized item has zero tax');
-    assertEqual(uncategorizedItem.tax_breakdown.length, 0, 'uncategorized item has no tax breakdown');
+    assertEqual(
+      uncategorizedItem.tax_breakdown.length,
+      0,
+      'uncategorized item has no tax breakdown',
+    );
     assert(!!categorizedItem.tax_snapshot, 'categorized item carries a tax_snapshot');
     const orderSnapshotRaw = mixedOrderRes.data.order.tax_snapshot;
     assert(!!orderSnapshotRaw, 'order rolls up a tax_snapshot from its categorized item');
-    const orderSnapshot = typeof orderSnapshotRaw === 'string' ? JSON.parse(orderSnapshotRaw) : orderSnapshotRaw;
-    assertEqual(orderSnapshot.length, 1, 'order tax_snapshot has exactly one entry (only the categorized item)');
+    const orderSnapshot =
+      typeof orderSnapshotRaw === 'string' ? JSON.parse(orderSnapshotRaw) : orderSnapshotRaw;
+    assertEqual(
+      orderSnapshot.length,
+      1,
+      'order tax_snapshot has exactly one entry (only the categorized item)',
+    );
 
     // ── Step 6: cancelled taxable items must stay excluded from item-discount recompute ──
-    console.log('\n6. Cancel one taxable item, then discount the other - cancelled tax data must stay excluded');
+    console.log(
+      '\n6. Cancel one taxable item, then discount the other - cancelled tax data must stay excluded',
+    );
     const itemDiscountOrderRes = await api(baseUrl, '/api/orders', {
       method: 'POST',
       body: {
@@ -207,38 +253,67 @@ async function main() {
     });
     assertEqual(itemDiscountOrderRes.status, 201, 'item discount regression order created');
     const itemDiscountOrderId = itemDiscountOrderRes.data.order.id;
-    const itemDiscountVoidedItem = itemDiscountOrderRes.data.order.items.find((item: any) => item.product_id === 'prod-tax-1');
-    const itemDiscountActiveItem = itemDiscountOrderRes.data.order.items.find((item: any) => item.product_id === 'prod-tax-2');
+    const itemDiscountVoidedItem = itemDiscountOrderRes.data.order.items.find(
+      (item: any) => item.product_id === 'prod-tax-1',
+    );
+    const itemDiscountActiveItem = itemDiscountOrderRes.data.order.items.find(
+      (item: any) => item.product_id === 'prod-tax-2',
+    );
 
-    const cancelRes = await api(baseUrl, `/api/orders/${itemDiscountOrderId}/items/${itemDiscountVoidedItem.id}/cancel`, {
-      method: 'PATCH',
-      body: {},
-      headers: authHeader,
-    });
+    const cancelRes = await api(
+      baseUrl,
+      `/api/orders/${itemDiscountOrderId}/items/${itemDiscountVoidedItem.id}/cancel`,
+      {
+        method: 'PATCH',
+        body: {},
+        headers: authHeader,
+      },
+    );
     assertEqual(cancelRes.status, 200, 'taxable item cancelled');
 
-    const itemDiscountRes = await api(baseUrl, `/api/orders/${itemDiscountOrderId}/items/${itemDiscountActiveItem.id}/discount`, {
-      method: 'PATCH',
-      body: { discount_type: 'percentage', discount_value: 10 }, // 10% of ₹500 = ₹50
-      headers: authHeader,
-    });
+    const itemDiscountRes = await api(
+      baseUrl,
+      `/api/orders/${itemDiscountOrderId}/items/${itemDiscountActiveItem.id}/discount`,
+      {
+        method: 'PATCH',
+        body: { discount_type: 'percentage', discount_value: 10 }, // 10% of ₹500 = ₹50
+        headers: authHeader,
+      },
+    );
     assertEqual(itemDiscountRes.status, 200, 'item discount applied after sibling cancel');
     assertEqual(itemDiscountRes.data.item.subtotal, 450, 'discounted item subtotal (₹500 - ₹50)');
-    const afterOrder = (await api(baseUrl, `/api/orders/${itemDiscountOrderId}`, { headers: authHeader })).data.order;
-    assertEqual(afterOrder.subtotal, 450, "order subtotal excludes the cancelled item — didn't silently un-cancel it");
+    const afterOrder = (
+      await api(baseUrl, `/api/orders/${itemDiscountOrderId}`, { headers: authHeader })
+    ).data.order;
+    assertEqual(
+      afterOrder.subtotal,
+      450,
+      "order subtotal excludes the cancelled item — didn't silently un-cancel it",
+    );
     assertEqual(afterOrder.tax_amount, 22.5, 'item discount tax uses only the active taxable item');
     const itemDiscountBreakdown = afterOrder.tax_breakdown;
     const itemDiscountBreakdownGroups = Array.isArray(itemDiscountBreakdown?.[0])
       ? itemDiscountBreakdown
       : [itemDiscountBreakdown];
-    assertEqual(itemDiscountBreakdownGroups.length, 1, 'item discount tax breakdown contains only the active item');
-    const itemDiscountSnapshot = typeof afterOrder.tax_snapshot === 'string'
-      ? JSON.parse(afterOrder.tax_snapshot)
-      : afterOrder.tax_snapshot;
-    assertEqual(itemDiscountSnapshot.length, 1, 'item discount tax snapshot contains only the active item');
+    assertEqual(
+      itemDiscountBreakdownGroups.length,
+      1,
+      'item discount tax breakdown contains only the active item',
+    );
+    const itemDiscountSnapshot =
+      typeof afterOrder.tax_snapshot === 'string'
+        ? JSON.parse(afterOrder.tax_snapshot)
+        : afterOrder.tax_snapshot;
+    assertEqual(
+      itemDiscountSnapshot.length,
+      1,
+      'item discount tax snapshot contains only the active item',
+    );
 
     // -- Step 7: voided items must stay excluded from order-discount tax recompute --
-    console.log('\n7. Void one taxable item, then discount the order - void data must stay excluded');
+    console.log(
+      '\n7. Void one taxable item, then discount the order - void data must stay excluded',
+    );
     const voidOrderRes = await api(baseUrl, '/api/orders', {
       method: 'POST',
       body: {
@@ -252,7 +327,9 @@ async function main() {
     });
     assertEqual(voidOrderRes.status, 201, 'void regression order created');
     const voidOrderId = voidOrderRes.data.order.id;
-    const voidedItem = voidOrderRes.data.order.items.find((item: any) => item.product_id === 'prod-tax-1');
+    const voidedItem = voidOrderRes.data.order.items.find(
+      (item: any) => item.product_id === 'prod-tax-1',
+    );
 
     const prepareVoidItemRes = await api(baseUrl, `/api/order-items/${voidedItem.id}/status`, {
       method: 'PATCH',
@@ -261,11 +338,15 @@ async function main() {
     });
     assertEqual(prepareVoidItemRes.status, 200, 'taxable item moved to preparing before void');
 
-    const voidItemRes = await api(baseUrl, `/api/orders/${voidOrderId}/items/${voidedItem.id}/cancel`, {
-      method: 'PATCH',
-      body: { override_pin: '1234' },
-      headers: managerAuth,
-    });
+    const voidItemRes = await api(
+      baseUrl,
+      `/api/orders/${voidOrderId}/items/${voidedItem.id}/cancel`,
+      {
+        method: 'PATCH',
+        body: { override_pin: '1234' },
+        headers: managerAuth,
+      },
+    );
     assertEqual(voidItemRes.status, 200, 'taxable item voided with manager PIN');
 
     const discountAfterVoidRes = await api(baseUrl, `/api/orders/${voidOrderId}/discount`, {
@@ -274,27 +355,50 @@ async function main() {
       headers: authHeader,
     });
     assertEqual(discountAfterVoidRes.status, 200, 'order discount applied after item void');
-    assertEqual(discountAfterVoidRes.data.order.subtotal, 500, 'subtotal excludes the voided taxable item');
-    assertEqual(discountAfterVoidRes.data.order.discount_amount, 50, 'discount uses only the active taxable item');
-    assertEqual(discountAfterVoidRes.data.order.tax_amount, 22.5, 'tax is 5% of the discounted active subtotal');
-    assertEqual(discountAfterVoidRes.data.order.total, 472.5, 'total includes only the discounted active item and its tax');
+    assertEqual(
+      discountAfterVoidRes.data.order.subtotal,
+      500,
+      'subtotal excludes the voided taxable item',
+    );
+    assertEqual(
+      discountAfterVoidRes.data.order.discount_amount,
+      50,
+      'discount uses only the active taxable item',
+    );
+    assertEqual(
+      discountAfterVoidRes.data.order.tax_amount,
+      22.5,
+      'tax is 5% of the discounted active subtotal',
+    );
+    assertEqual(
+      discountAfterVoidRes.data.order.total,
+      472.5,
+      'total includes only the discounted active item and its tax',
+    );
 
     const postVoidBreakdown = discountAfterVoidRes.data.order.tax_breakdown;
-    const postVoidBreakdownGroups = Array.isArray(postVoidBreakdown?.[0]) ? postVoidBreakdown : [postVoidBreakdown];
+    const postVoidBreakdownGroups = Array.isArray(postVoidBreakdown?.[0])
+      ? postVoidBreakdown
+      : [postVoidBreakdown];
     assertEqual(postVoidBreakdownGroups.length, 1, 'tax breakdown contains only the active item');
     const postVoidBreakdownEntries = postVoidBreakdownGroups.flat();
     assertEqual(
-      Math.round(postVoidBreakdownEntries.reduce((sum: number, part: any) => sum + part.amount, 0) * 100) / 100,
+      Math.round(
+        postVoidBreakdownEntries.reduce((sum: number, part: any) => sum + part.amount, 0) * 100,
+      ) / 100,
       22.5,
       'tax breakdown reconciles to the active item tax',
     );
-    const postVoidSnapshot = typeof discountAfterVoidRes.data.order.tax_snapshot === 'string'
-      ? JSON.parse(discountAfterVoidRes.data.order.tax_snapshot)
-      : discountAfterVoidRes.data.order.tax_snapshot;
+    const postVoidSnapshot =
+      typeof discountAfterVoidRes.data.order.tax_snapshot === 'string'
+        ? JSON.parse(discountAfterVoidRes.data.order.tax_snapshot)
+        : discountAfterVoidRes.data.order.tax_snapshot;
     assertEqual(postVoidSnapshot.length, 1, 'tax snapshot contains only the active item');
 
     // -- Step 7b: legacy NULL item statuses must stay included in recalculation --
-    console.log('\n7b. Discount an order with a legacy NULL item status - item tax must stay included');
+    console.log(
+      '\n7b. Discount an order with a legacy NULL item status - item tax must stay included',
+    );
     const nullStatusOrderRes = await api(baseUrl, '/api/orders', {
       method: 'POST',
       body: {
@@ -313,13 +417,30 @@ async function main() {
       body: { discount_type: 'percentage', discount_value: 10 },
       headers: authHeader,
     });
-    assertEqual(nullStatusDiscountRes.status, 200, 'order discount applied with legacy NULL item status');
-    assertEqual(nullStatusDiscountRes.data.order.subtotal, 500, 'NULL-status item remains in subtotal');
-    assertEqual(nullStatusDiscountRes.data.order.tax_amount, 22.5, 'NULL-status item tax remains included');
-    assertEqual(nullStatusDiscountRes.data.order.total, 472.5, 'total includes discounted NULL-status item and tax');
-    const nullStatusSnapshot = typeof nullStatusDiscountRes.data.order.tax_snapshot === 'string'
-      ? JSON.parse(nullStatusDiscountRes.data.order.tax_snapshot)
-      : nullStatusDiscountRes.data.order.tax_snapshot;
+    assertEqual(
+      nullStatusDiscountRes.status,
+      200,
+      'order discount applied with legacy NULL item status',
+    );
+    assertEqual(
+      nullStatusDiscountRes.data.order.subtotal,
+      500,
+      'NULL-status item remains in subtotal',
+    );
+    assertEqual(
+      nullStatusDiscountRes.data.order.tax_amount,
+      22.5,
+      'NULL-status item tax remains included',
+    );
+    assertEqual(
+      nullStatusDiscountRes.data.order.total,
+      472.5,
+      'total includes discounted NULL-status item and tax',
+    );
+    const nullStatusSnapshot =
+      typeof nullStatusDiscountRes.data.order.tax_snapshot === 'string'
+        ? JSON.parse(nullStatusDiscountRes.data.order.tax_snapshot)
+        : nullStatusDiscountRes.data.order.tax_snapshot;
     assertEqual(nullStatusSnapshot.length, 1, 'tax snapshot retains the NULL-status item');
 
     const nullStatusBillRes = await api(baseUrl, '/api/bills/generate', {
@@ -328,14 +449,30 @@ async function main() {
       headers: authHeader,
     });
     assertEqual(nullStatusBillRes.status, 201, 'bill created for legacy NULL-status order');
-    const nullStatusBillDiscountRes = await api(baseUrl, `/api/bills/${nullStatusBillRes.data.bill.id}/applyDiscount`, {
-      method: 'POST',
-      body: { type: 'percentage', value: 10 },
-      headers: authHeader,
-    });
-    assertEqual(nullStatusBillDiscountRes.status, 200, 'bill discount applied with legacy NULL item status');
-    assertEqual(nullStatusBillDiscountRes.data.bill.tax_amount, 22.5, 'bill discount retains tax from the NULL-status item');
-    assertEqual(nullStatusBillDiscountRes.data.bill.total, 472.5, 'bill total includes discounted NULL-status item tax');
+    const nullStatusBillDiscountRes = await api(
+      baseUrl,
+      `/api/bills/${nullStatusBillRes.data.bill.id}/applyDiscount`,
+      {
+        method: 'POST',
+        body: { type: 'percentage', value: 10 },
+        headers: authHeader,
+      },
+    );
+    assertEqual(
+      nullStatusBillDiscountRes.status,
+      200,
+      'bill discount applied with legacy NULL item status',
+    );
+    assertEqual(
+      nullStatusBillDiscountRes.data.bill.tax_amount,
+      22.5,
+      'bill discount retains tax from the NULL-status item',
+    );
+    assertEqual(
+      nullStatusBillDiscountRes.data.bill.total,
+      472.5,
+      'bill total includes discounted NULL-status item tax',
+    );
 
     // ── Step 8: bill discount edits must use item tax, not prior bill tax ──
     console.log('\n8. Edit a bill discount — tax must not compound on the prior edit');
@@ -353,7 +490,11 @@ async function main() {
       headers: authHeader,
     });
     assertEqual(billDiscount10.status, 200, '10% bill discount applied');
-    assertEqual(billDiscount10.data.bill.tax_amount, 20.25, '10% discount scales original ₹22.50 tax to ₹20.25');
+    assertEqual(
+      billDiscount10.data.bill.tax_amount,
+      20.25,
+      '10% discount scales original ₹22.50 tax to ₹20.25',
+    );
 
     const billDiscount20 = await api(baseUrl, `/api/bills/${mixedBillId}/applyDiscount`, {
       method: 'POST',
@@ -361,14 +502,20 @@ async function main() {
       headers: authHeader,
     });
     assertEqual(billDiscount20.status, 200, 'bill discount edited to 20%');
-    assertEqual(billDiscount20.data.bill.tax_amount, 18, '20% edit scales original tax to ₹18 (not prior ₹20.25)');
+    assertEqual(
+      billDiscount20.data.bill.tax_amount,
+      18,
+      '20% edit scales original tax to ₹18 (not prior ₹20.25)',
+    );
     assert(!!billDiscount20.data.bill.tax_snapshot, 'bill discount refreshes tax_snapshot');
     const discountedBreakdown = billDiscount20.data.bill.tax_breakdown;
     const discountedComponents = Array.isArray(discountedBreakdown?.[0])
       ? discountedBreakdown.flat()
       : discountedBreakdown;
     assertEqual(
-      Math.round(discountedComponents.reduce((sum: number, part: any) => sum + part.amount, 0) * 100) / 100,
+      Math.round(
+        discountedComponents.reduce((sum: number, part: any) => sum + part.amount, 0) * 100,
+      ) / 100,
       18,
       'bill discount refreshes component amounts to the final tax',
     );
@@ -378,7 +525,7 @@ async function main() {
     seedProduct(db, 'prod-tax-inclusive', 'cat-tax', 'Inclusive Meal', 105);
     db.prepare(
       `UPDATE products SET tax_category_id = 'standard', tax_behavior = 'inclusive'
-       WHERE id = 'prod-tax-inclusive'`
+       WHERE id = 'prod-tax-inclusive'`,
     ).run();
     const inclusiveOrderRes = await api(baseUrl, '/api/orders', {
       method: 'POST',
@@ -390,24 +537,44 @@ async function main() {
     });
     assertEqual(inclusiveOrderRes.status, 201, 'inclusive categorized order created');
     assertEqual(inclusiveOrderRes.data.order.tax_amount, 5, '₹105 inclusive price contains ₹5 tax');
-    assertEqual(inclusiveOrderRes.data.order.total, 105, 'inclusive tax is not added to the ₹105 price');
-    assertEqual(inclusiveOrderRes.data.order.items[0].tax_type, 'inclusive', 'effective engine behavior persisted on item');
+    assertEqual(
+      inclusiveOrderRes.data.order.total,
+      105,
+      'inclusive tax is not added to the ₹105 price',
+    );
+    assertEqual(
+      inclusiveOrderRes.data.order.items[0].tax_type,
+      'inclusive',
+      'effective engine behavior persisted on item',
+    );
 
     const inclusiveBillRes = await api(baseUrl, '/api/bills/generate', {
       method: 'POST',
       body: { order_id: inclusiveOrderRes.data.order.id },
       headers: authHeader,
     });
-    const inclusiveDiscountRes = await api(baseUrl, `/api/bills/${inclusiveBillRes.data.bill.id}/applyDiscount`, {
-      method: 'POST',
-      body: { type: 'percentage', value: 10 },
-      headers: authHeader,
-    });
+    const inclusiveDiscountRes = await api(
+      baseUrl,
+      `/api/bills/${inclusiveBillRes.data.bill.id}/applyDiscount`,
+      {
+        method: 'POST',
+        body: { type: 'percentage', value: 10 },
+        headers: authHeader,
+      },
+    );
     assertEqual(inclusiveDiscountRes.status, 200, 'discount applied to inclusive-tax bill');
-    assertEqual(inclusiveDiscountRes.data.bill.tax_amount, 4.5, 'inclusive tax scales to ₹4.50 after discount');
+    assertEqual(
+      inclusiveDiscountRes.data.bill.tax_amount,
+      4.5,
+      'inclusive tax scales to ₹4.50 after discount',
+    );
     // #170: the bill's payable total must reflect the pack's configured payableRounding
     // (0.01 for the bundled IN pack) rather than being force-rounded to a whole rupee.
-    assertEqual(inclusiveDiscountRes.data.bill.total, 94.5, 'inclusive tax is not added again after discount, and total is not force-rounded to a whole unit');
+    assertEqual(
+      inclusiveDiscountRes.data.bill.total,
+      94.5,
+      'inclusive tax is not added again after discount, and total is not force-rounded to a whole unit',
+    );
 
     // ── Step 10: category writes validate and allow explicit no-tax fallback ──
     console.log('\n10. Product/add-on tax category writes are validated and reversible');
@@ -424,7 +591,11 @@ async function main() {
       headers: authHeader,
     });
     assertEqual(clearCategoryRes.status, 200, 'categorized product can return to no tax');
-    assertEqual(clearCategoryRes.data.product.tax_category_id, null, 'explicit null clears product tax category');
+    assertEqual(
+      clearCategoryRes.data.product.tax_category_id,
+      null,
+      'explicit null clears product tax category',
+    );
 
     const invalidAddonCategoryRes = await api(baseUrl, '/api/addon-groups', {
       method: 'POST',
@@ -459,8 +630,16 @@ async function main() {
         headers: authHeader,
       },
     );
-    assertEqual(clearAddonCategoryRes.status, 200, 'categorized add-on can return to no explicit tax category');
-    assertEqual(clearAddonCategoryRes.data.addon.tax_category_id, null, 'explicit null clears add-on tax category');
+    assertEqual(
+      clearAddonCategoryRes.status,
+      200,
+      'categorized add-on can return to no explicit tax category',
+    );
+    assertEqual(
+      clearAddonCategoryRes.data.addon.tax_category_id,
+      null,
+      'explicit null clears add-on tax category',
+    );
 
     const legacyCsvRes = await api(baseUrl, '/api/menu-csv/import/products', {
       method: 'POST',
@@ -474,12 +653,22 @@ async function main() {
     });
     assertEqual(legacyCsvRes.status, 200, 'legacy product CSV still imports');
     assertEqual(
-      (db.prepare("SELECT tax_category_id FROM products WHERE id = 'prod-tax-inclusive'").get() as any).tax_category_id,
+      (
+        db
+          .prepare("SELECT tax_category_id FROM products WHERE id = 'prod-tax-inclusive'")
+          .get() as any
+      ).tax_category_id,
       'standard',
       'legacy CSV without new columns preserves an assigned tax category',
     );
     assertEqual(
-      (db.prepare("SELECT tax_type || ':' || tax_rate AS legacy_tax FROM products WHERE id = 'prod-tax-inclusive'").get() as any).legacy_tax,
+      (
+        db
+          .prepare(
+            "SELECT tax_type || ':' || tax_rate AS legacy_tax FROM products WHERE id = 'prod-tax-inclusive'",
+          )
+          .get() as any
+      ).legacy_tax,
       'none:0.0',
       'legacy CSV tax_type/tax_rate values are ignored and cleared',
     );
@@ -487,8 +676,16 @@ async function main() {
     db.prepare("UPDATE settings SET value = 'US' WHERE key = 'country'").run();
     const genericCategoriesRes = await api(baseUrl, '/api/tax/categories', { headers: authHeader });
     assertEqual(genericCategoriesRes.status, 200, 'generic pack category endpoint responds');
-    assertEqual(genericCategoriesRes.data.configuration_ready, false, 'rule-less generic pack is not assignable');
-    assertEqual(genericCategoriesRes.data.categories.length, 0, 'rule-less categories cannot migrate products to zero tax');
+    assertEqual(
+      genericCategoriesRes.data.configuration_ready,
+      false,
+      'rule-less generic pack is not assignable',
+    );
+    assertEqual(
+      genericCategoriesRes.data.categories.length,
+      0,
+      'rule-less categories cannot migrate products to zero tax',
+    );
     const genericCheckoutRes = await api(baseUrl, '/api/orders', {
       method: 'POST',
       body: {
@@ -497,7 +694,11 @@ async function main() {
       },
       headers: authHeader,
     });
-    assertEqual(genericCheckoutRes.status, 400, 'country change cannot silently turn a categorized product into zero tax');
+    assertEqual(
+      genericCheckoutRes.status,
+      400,
+      'country change cannot silently turn a categorized product into zero tax',
+    );
     db.prepare("UPDATE settings SET value = 'IN' WHERE key = 'country'").run();
 
     const clearCategoryCsvRes = await api(baseUrl, '/api/menu-csv/import/products', {
@@ -510,9 +711,17 @@ async function main() {
       },
       headers: authHeader,
     });
-    assertEqual(clearCategoryCsvRes.status, 200, 'new product CSV imports explicit blank tax fields');
     assertEqual(
-      (db.prepare("SELECT tax_category_id FROM products WHERE id = 'prod-tax-inclusive'").get() as any).tax_category_id,
+      clearCategoryCsvRes.status,
+      200,
+      'new product CSV imports explicit blank tax fields',
+    );
+    assertEqual(
+      (
+        db
+          .prepare("SELECT tax_category_id FROM products WHERE id = 'prod-tax-inclusive'")
+          .get() as any
+      ).tax_category_id,
       null,
       'blank tax_category in the new CSV format explicitly returns a product to no tax',
     );
@@ -525,9 +734,20 @@ async function main() {
       headers: authHeader,
     });
     assertEqual(noTaxCheckoutRes.status, 201, 'product without a tax category still checks out');
-    assertEqual(noTaxCheckoutRes.data.order.tax_amount, 0, 'product without a tax category has zero tax');
-    assertEqual(noTaxCheckoutRes.data.order.tax_breakdown.length, 0, 'product without a tax category has no order tax breakdown');
-    assert(!noTaxCheckoutRes.data.order.tax_snapshot, 'product without a tax category has no order tax snapshot');
+    assertEqual(
+      noTaxCheckoutRes.data.order.tax_amount,
+      0,
+      'product without a tax category has zero tax',
+    );
+    assertEqual(
+      noTaxCheckoutRes.data.order.tax_breakdown.length,
+      0,
+      'product without a tax category has no order tax breakdown',
+    );
+    assert(
+      !noTaxCheckoutRes.data.order.tax_snapshot,
+      'product without a tax category has no order tax snapshot',
+    );
 
     // ── Step 11: payable preview, bill settlement, and payment stay reconciled ──
     console.log('\n11. Tax preview and bill settlement use the same active-pack payable rounding');
@@ -547,7 +767,11 @@ async function main() {
     assertEqual(decimalPreview.status, 200, 'Thailand tax preview succeeds');
     assertEqual(decimalPreview.data.summary.subtotal, 60, 'preview subtotal = ฿60.00');
     assertEqual(decimalPreview.data.summary.tax_amount, 4.2, 'preview VAT = ฿4.20');
-    assertEqual(decimalPreview.data.summary.round_off, 0, '0.01 pack does not force whole-unit rounding');
+    assertEqual(
+      decimalPreview.data.summary.round_off,
+      0,
+      '0.01 pack does not force whole-unit rounding',
+    );
     assertEqual(decimalPreview.data.summary.total, 64.2, 'preview payable total = ฿64.20');
 
     const discountedPreview = await api(baseUrl, '/api/tax/preview', {
@@ -561,7 +785,11 @@ async function main() {
     });
     assertEqual(discountedPreview.status, 200, 'discounted Thailand tax preview succeeds');
     assertEqual(discountedPreview.data.summary.discount_amount, 6, 'preview discount = ฿6.00');
-    assertEqual(discountedPreview.data.summary.discounted_subtotal, 54, 'discounted preview subtotal = ฿54.00');
+    assertEqual(
+      discountedPreview.data.summary.discounted_subtotal,
+      54,
+      'discounted preview subtotal = ฿54.00',
+    );
     assertEqual(discountedPreview.data.summary.tax_amount, 3.78, 'discounted preview VAT = ฿3.78');
     assertEqual(discountedPreview.data.summary.total, 57.78, 'discounted preview total = ฿57.78');
 
@@ -575,7 +803,11 @@ async function main() {
     });
     assertEqual(decimalOrder.status, 201, 'Thailand order created');
     assertEqual(decimalOrder.data.order.total, 64.2, 'order keeps exact total = ฿64.20');
-    assertEqual(decimalOrder.data.order.round_off, 0, 'order remains unrounded at the commercial-total layer');
+    assertEqual(
+      decimalOrder.data.order.round_off,
+      0,
+      'order remains unrounded at the commercial-total layer',
+    );
 
     const decimalBill = await api(baseUrl, '/api/bills/generate', {
       method: 'POST',
@@ -583,8 +815,16 @@ async function main() {
       headers: authHeader,
     });
     assertEqual(decimalBill.status, 201, 'Thailand bill generated');
-    assertEqual(decimalBill.data.bill.total, decimalPreview.data.summary.total, 'bill total matches authoritative preview');
-    assertEqual(decimalBill.data.bill.round_off, decimalPreview.data.summary.round_off, 'bill round-off matches authoritative preview');
+    assertEqual(
+      decimalBill.data.bill.total,
+      decimalPreview.data.summary.total,
+      'bill total matches authoritative preview',
+    );
+    assertEqual(
+      decimalBill.data.bill.round_off,
+      decimalPreview.data.summary.round_off,
+      'bill round-off matches authoritative preview',
+    );
 
     const decimalPayment = await api(baseUrl, `/api/bills/${decimalBill.data.bill.id}/payment`, {
       method: 'POST',
@@ -594,31 +834,61 @@ async function main() {
     assertEqual(decimalPayment.status, 200, 'full decimal payment accepted');
     assertEqual(decimalPayment.data.bill.payment_status, 'paid', '฿64.20 payment settles the bill');
     assertEqual(decimalPayment.data.bill.balance, 0, 'decimal bill balance = 0');
-    const paidDecimalOrder = await api(baseUrl, `/api/orders/${decimalOrder.data.order.id}`, { headers: authHeader });
-    assertEqual(paidDecimalOrder.data.order.status, 'completed', 'decimal-total order completes after payment');
+    const paidDecimalOrder = await api(baseUrl, `/api/orders/${decimalOrder.data.order.id}`, {
+      headers: authHeader,
+    });
+    assertEqual(
+      paidDecimalOrder.data.order.status,
+      'completed',
+      'decimal-total order completes after payment',
+    );
 
     // ── Step 11b: prepaid previews price the same applied charges as checkout ──
     console.log('\n11b. Prepaid charge preview matches the created order and bill');
     const prepaidCharges = [
       {
-        id: 'service_charge', name: 'Service Charge', type: 'percentage', value: 10,
-        calculation_basis: 'net', order_types: ['takeaway'], is_optional: true,
-        is_default_active: true, is_active: true,
+        id: 'service_charge',
+        name: 'Service Charge',
+        type: 'percentage',
+        value: 10,
+        calculation_basis: 'net',
+        order_types: ['takeaway'],
+        is_optional: true,
+        is_default_active: true,
+        is_active: true,
       },
       {
-        id: 'waived_fee', name: 'Waived Fee', type: 'fixed', value: 2,
-        calculation_basis: 'gross', order_types: ['takeaway'], is_optional: true,
-        is_default_active: true, is_active: true,
+        id: 'waived_fee',
+        name: 'Waived Fee',
+        type: 'fixed',
+        value: 2,
+        calculation_basis: 'gross',
+        order_types: ['takeaway'],
+        is_optional: true,
+        is_default_active: true,
+        is_active: true,
       },
       {
-        id: 'optional_retry_fee', name: 'Optional Retry Fee', type: 'fixed', value: 5,
-        calculation_basis: 'gross', order_types: ['takeaway'], is_optional: true,
-        is_default_active: false, is_active: true,
+        id: 'optional_retry_fee',
+        name: 'Optional Retry Fee',
+        type: 'fixed',
+        value: 5,
+        calculation_basis: 'gross',
+        order_types: ['takeaway'],
+        is_optional: true,
+        is_default_active: false,
+        is_active: true,
       },
       {
-        id: 'required_fee', name: 'Required Fee', type: 'fixed', value: 3,
-        calculation_basis: 'gross', order_types: ['takeaway'], is_optional: false,
-        is_default_active: true, is_active: true,
+        id: 'required_fee',
+        name: 'Required Fee',
+        type: 'fixed',
+        value: 3,
+        calculation_basis: 'gross',
+        order_types: ['takeaway'],
+        is_optional: false,
+        is_default_active: true,
+        is_active: true,
       },
     ];
     db.prepare(`
@@ -634,17 +904,44 @@ async function main() {
       discount_value: 10,
     };
     const prepaidChargePreview = await api(baseUrl, '/api/tax/preview', {
-      method: 'POST', body: prepaidChargeContext, headers: authHeader,
+      method: 'POST',
+      body: prepaidChargeContext,
+      headers: authHeader,
     });
     assertEqual(prepaidChargePreview.status, 200, 'charge-aware prepaid preview succeeds');
     const prepaidSummary = prepaidChargePreview.data.summary;
     assertEqual(prepaidSummary.subtotal, 60, 'charge-aware preview uses the item subtotal');
-    assertEqual(prepaidSummary.discounted_subtotal, 54, 'charge-aware preview applies the order discount');
-    assertEqual(prepaidSummary.tax_amount, 3.78, 'charge-aware preview retains discounted item tax');
-    assertEqual(prepaidSummary.service_charge, 5.4, 'percentage service fee uses the discounted net subtotal');
-    assertEqual(prepaidSummary.charges_breakdown.find((charge: any) => charge.id === 'service_charge').amount, 5.4, 'preview returns the resolved service fee');
-    assertEqual(prepaidSummary.charges_breakdown.find((charge: any) => charge.id === 'waived_fee').amount, 0, 'preview returns the waived fee row');
-    assertEqual(prepaidSummary.charges_breakdown.find((charge: any) => charge.id === 'optional_retry_fee').amount, 5, 'preview includes the opted-in fee');
+    assertEqual(
+      prepaidSummary.discounted_subtotal,
+      54,
+      'charge-aware preview applies the order discount',
+    );
+    assertEqual(
+      prepaidSummary.tax_amount,
+      3.78,
+      'charge-aware preview retains discounted item tax',
+    );
+    assertEqual(
+      prepaidSummary.service_charge,
+      5.4,
+      'percentage service fee uses the discounted net subtotal',
+    );
+    assertEqual(
+      prepaidSummary.charges_breakdown.find((charge: any) => charge.id === 'service_charge').amount,
+      5.4,
+      'preview returns the resolved service fee',
+    );
+    assertEqual(
+      prepaidSummary.charges_breakdown.find((charge: any) => charge.id === 'waived_fee').amount,
+      0,
+      'preview returns the waived fee row',
+    );
+    assertEqual(
+      prepaidSummary.charges_breakdown.find((charge: any) => charge.id === 'optional_retry_fee')
+        .amount,
+      5,
+      'preview includes the opted-in fee',
+    );
     assertEqual(prepaidSummary.total, 71.18, 'preview includes each custom fee once');
 
     const prepaidOrder = await api(baseUrl, '/api/orders', {
@@ -658,19 +955,36 @@ async function main() {
       headers: authHeader,
     });
     assertEqual(prepaidOrder.status, 201, 'charge-aware prepaid order is created');
-    const prepaidDiscount = await api(baseUrl, `/api/orders/${prepaidOrder.data.order.id}/discount`, {
-      method: 'PATCH', body: { discount_type: 'percentage', discount_value: 10 }, headers: authHeader,
-    });
+    const prepaidDiscount = await api(
+      baseUrl,
+      `/api/orders/${prepaidOrder.data.order.id}/discount`,
+      {
+        method: 'PATCH',
+        body: { discount_type: 'percentage', discount_value: 10 },
+        headers: authHeader,
+      },
+    );
     assertEqual(prepaidDiscount.status, 200, 'prepaid order discount is applied');
-    assertEqual(prepaidDiscount.data.order.total, prepaidSummary.total, 'preview matches discounted order total');
+    assertEqual(
+      prepaidDiscount.data.order.total,
+      prepaidSummary.total,
+      'preview matches discounted order total',
+    );
     const prepaidBill = await api(baseUrl, '/api/bills/generate', {
-      method: 'POST', body: { order_id: prepaidOrder.data.order.id }, headers: authHeader,
+      method: 'POST',
+      body: { order_id: prepaidOrder.data.order.id },
+      headers: authHeader,
     });
     assertEqual(prepaidBill.status, 201, 'prepaid order bill is generated');
-    assertEqual(prepaidBill.data.bill.total, prepaidSummary.total, 'preview matches payable bill total');
-    const prepaidBillCharges = typeof prepaidBill.data.bill.charges_breakdown === 'string'
-      ? JSON.parse(prepaidBill.data.bill.charges_breakdown)
-      : prepaidBill.data.bill.charges_breakdown;
+    assertEqual(
+      prepaidBill.data.bill.total,
+      prepaidSummary.total,
+      'preview matches payable bill total',
+    );
+    const prepaidBillCharges =
+      typeof prepaidBill.data.bill.charges_breakdown === 'string'
+        ? JSON.parse(prepaidBill.data.bill.charges_breakdown)
+        : prepaidBill.data.bill.charges_breakdown;
     assertEqual(prepaidBillCharges.length, 4, 'bill retains the same applied fee rows');
 
     const invalidChargeContext = await api(baseUrl, '/api/tax/preview', {
@@ -689,33 +1003,60 @@ async function main() {
       service_charge: 6,
     };
     const legacyManualPreview = await api(baseUrl, '/api/tax/preview', {
-      method: 'POST', body: manualFallbackBody, headers: authHeader,
+      method: 'POST',
+      body: manualFallbackBody,
+      headers: authHeader,
     });
     const noMatchingChargePreview = await api(baseUrl, '/api/tax/preview', {
       method: 'POST',
-      body: { ...manualFallbackBody, order_type: 'online', waived_charge_ids: [], opted_in_charge_ids: [] },
+      body: {
+        ...manualFallbackBody,
+        order_type: 'online',
+        waived_charge_ids: [],
+        opted_in_charge_ids: [],
+      },
       headers: authHeader,
     });
     assertEqual(legacyManualPreview.status, 200, 'legacy manual-charge preview remains available');
-    assertEqual(noMatchingChargePreview.status, 200, 'charge context with no matching definitions succeeds');
-    assertEqual(noMatchingChargePreview.data.summary.packaging_charge, 4, 'manual packaging amount survives an unmatched charge context');
-    assertEqual(noMatchingChargePreview.data.summary.service_charge, 6, 'manual service amount survives an unmatched charge context');
-    assertEqual(noMatchingChargePreview.data.summary.total, legacyManualPreview.data.summary.total, 'unmatched charge context preserves legacy pricing');
+    assertEqual(
+      noMatchingChargePreview.status,
+      200,
+      'charge context with no matching definitions succeeds',
+    );
+    assertEqual(
+      noMatchingChargePreview.data.summary.packaging_charge,
+      4,
+      'manual packaging amount survives an unmatched charge context',
+    );
+    assertEqual(
+      noMatchingChargePreview.data.summary.service_charge,
+      6,
+      'manual service amount survives an unmatched charge context',
+    );
+    assertEqual(
+      noMatchingChargePreview.data.summary.total,
+      legacyManualPreview.data.summary.total,
+      'unmatched charge context preserves legacy pricing',
+    );
     db.prepare(`
       INSERT INTO settings (key, value, updated_at) VALUES ('custom_charges', '[]', ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
     `).run(now());
 
-    const activeThailandVersion = db.prepare(`
+    const activeThailandVersion = db
+      .prepare(`
       SELECT version.id, version.pack_json
       FROM country_packs AS pack
       JOIN country_pack_versions AS version ON version.id = pack.active_version_id
       WHERE pack.id = 'test-th-pack'
-    `).get() as { id: string; pack_json: string };
+    `)
+      .get() as { id: string; pack_json: string };
     const coarsePack = JSON.parse(activeThailandVersion.pack_json);
     coarsePack.payableRounding = { increment: '1', method: 'half_up' };
-    db.prepare('UPDATE country_pack_versions SET pack_json = ? WHERE id = ?')
-      .run(JSON.stringify(coarsePack), activeThailandVersion.id);
+    db.prepare('UPDATE country_pack_versions SET pack_json = ? WHERE id = ?').run(
+      JSON.stringify(coarsePack),
+      activeThailandVersion.id,
+    );
 
     const coarsePreview = await api(baseUrl, '/api/tax/preview', {
       method: 'POST',
@@ -725,9 +1066,21 @@ async function main() {
       headers: authHeader,
     });
     assertEqual(coarsePreview.status, 200, 'coarse-rounding tax preview succeeds');
-    assertEqual(coarsePreview.data.summary.tax_amount, 4.2, 'coarse pack leaves VAT component unchanged');
-    assertEqual(coarsePreview.data.summary.round_off, -0.2, 'coarse pack exposes its -฿0.20 settlement adjustment');
-    assertEqual(coarsePreview.data.summary.total, 64, 'coarse pack preview rounds payable total to ฿64.00');
+    assertEqual(
+      coarsePreview.data.summary.tax_amount,
+      4.2,
+      'coarse pack leaves VAT component unchanged',
+    );
+    assertEqual(
+      coarsePreview.data.summary.round_off,
+      -0.2,
+      'coarse pack exposes its -฿0.20 settlement adjustment',
+    );
+    assertEqual(
+      coarsePreview.data.summary.total,
+      64,
+      'coarse pack preview rounds payable total to ฿64.00',
+    );
 
     const coarseOrder = await api(baseUrl, '/api/orders', {
       method: 'POST',
@@ -738,7 +1091,11 @@ async function main() {
       headers: authHeader,
     });
     assertEqual(coarseOrder.status, 201, 'coarse-pack order created');
-    assertEqual(coarseOrder.data.order.total, 64.2, 'coarse pack still keeps the order total exact');
+    assertEqual(
+      coarseOrder.data.order.total,
+      64.2,
+      'coarse pack still keeps the order total exact',
+    );
     assertEqual(coarseOrder.data.order.round_off, 0, 'coarse pack does not round the order layer');
 
     const coarseBill = await api(baseUrl, '/api/bills/generate', {
@@ -747,8 +1104,16 @@ async function main() {
       headers: authHeader,
     });
     assertEqual(coarseBill.status, 201, 'coarse-pack bill generated');
-    assertEqual(coarseBill.data.bill.total, coarsePreview.data.summary.total, 'coarse bill total matches preview');
-    assertEqual(coarseBill.data.bill.round_off, coarsePreview.data.summary.round_off, 'coarse bill adjustment matches preview');
+    assertEqual(
+      coarseBill.data.bill.total,
+      coarsePreview.data.summary.total,
+      'coarse bill total matches preview',
+    );
+    assertEqual(
+      coarseBill.data.bill.round_off,
+      coarsePreview.data.summary.round_off,
+      'coarse bill adjustment matches preview',
+    );
 
     const coarsePayment = await api(baseUrl, `/api/bills/${coarseBill.data.bill.id}/payment`, {
       method: 'POST',
@@ -756,11 +1121,17 @@ async function main() {
       headers: authHeader,
     });
     assertEqual(coarsePayment.status, 200, 'coarse rounded payment accepted');
-    assertEqual(coarsePayment.data.bill.payment_status, 'paid', '฿64.00 payment settles the coarse-rounded bill');
+    assertEqual(
+      coarsePayment.data.bill.payment_status,
+      'paid',
+      '฿64.00 payment settles the coarse-rounded bill',
+    );
     assertEqual(coarsePayment.data.bill.balance, 0, 'coarse-rounded bill balance = 0');
 
-    db.prepare('UPDATE country_pack_versions SET pack_json = ? WHERE id = ?')
-      .run(activeThailandVersion.pack_json, activeThailandVersion.id);
+    db.prepare('UPDATE country_pack_versions SET pack_json = ? WHERE id = ?').run(
+      activeThailandVersion.pack_json,
+      activeThailandVersion.id,
+    );
     db.prepare("UPDATE settings SET value = 'IN' WHERE key = 'country'").run();
 
     // ── Step 12: an ordinary cashier and server can still price a basket ──
@@ -777,7 +1148,11 @@ async function main() {
       assertEqual(staffPreview.status, 200, `${role} can price a basket`);
       assertEqual(staffPreview.data.summary.subtotal, 1000, `${role} preview subtotal = ₹1000.00`);
       assertEqual(staffPreview.data.summary.tax_amount, 50, `${role} preview CGST+SGST = ₹50.00`);
-      assertEqual(staffPreview.data.summary.total, 1050, `${role} preview payable total = ₹1050.00`);
+      assertEqual(
+        staffPreview.data.summary.total,
+        1050,
+        `${role} preview payable total = ₹1050.00`,
+      );
     }
 
     const noAuthPreview = await api(baseUrl, '/api/tax/preview', {
@@ -787,10 +1162,12 @@ async function main() {
     assertEqual(noAuthPreview.status, 401, 'an unauthenticated caller cannot price a basket');
 
     // Denying every sale permission is what actually closes the endpoint.
-    const ownerOverride = db.prepare(`
+    const ownerOverride = db
+      .prepare(`
       INSERT INTO role_permission_overrides (role, permission_id, effect, updated_by, created_at, updated_at)
       VALUES ('cashier', 'pos.use', 'deny', ?, ?, ?)
-    `).run('owner-test-001', now(), now());
+    `)
+      .run('owner-test-001', now(), now());
     const cashierAuth = seedStaffUser(db, 'cashier', true);
     db.prepare(`
       INSERT INTO user_permission_overrides (user_id, permission_id, effect, updated_by, created_at, updated_at)
@@ -801,14 +1178,26 @@ async function main() {
       body: { items: [{ product_id: 'prod-tax-1', quantity: 1, addons: [] }] },
       headers: cashierAuth,
     });
-    assertEqual(deniedPreview.status, 403, 'a cashier denied every sale permission loses basket pricing');
-    assertEqual(deniedPreview.data.code, 'permission_denied', 'the refusal carries the code the API client reacts to');
+    assertEqual(
+      deniedPreview.status,
+      403,
+      'a cashier denied every sale permission loses basket pricing',
+    );
+    assertEqual(
+      deniedPreview.data.code,
+      'permission_denied',
+      'the refusal carries the code the API client reacts to',
+    );
     db.prepare('DELETE FROM user_permission_overrides WHERE user_id = ?').run('cashier-test-001');
-    db.prepare('DELETE FROM role_permission_overrides WHERE rowid = ?').run(ownerOverride.lastInsertRowid);
+    db.prepare('DELETE FROM role_permission_overrides WHERE rowid = ?').run(
+      ownerOverride.lastInsertRowid,
+    );
   } finally {
     server.close();
     closeDatabase();
-    try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
+    try {
+      fs.rmSync(testDir, { recursive: true, force: true });
+    } catch {}
   }
 
   const { passed, failed, total } = getResults();

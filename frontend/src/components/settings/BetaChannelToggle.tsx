@@ -17,13 +17,16 @@ export default function BetaChannelToggle() {
 
   useEffect(() => {
     let cancelled = false;
-    readBetaChannelState(typeof window !== 'undefined' ? window.electronAPI : undefined)
-      .then((state) => {
+    readBetaChannelState(typeof window !== 'undefined' ? window.electronAPI : undefined).then(
+      (state) => {
         if (cancelled) return;
         setSupported(state.supported);
         if (state.enabled !== null) setEnabled(state.enabled);
-      });
-    return () => { cancelled = true; };
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleChange = async (next: boolean) => {
@@ -63,12 +66,16 @@ export default function BetaChannelToggle() {
             aria-label={t('betaTitle')}
             className="sr-only peer"
           />
-          <span className={`relative w-9 h-5 rounded-full transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-brand ${
-            enabled ? 'bg-brand' : 'bg-gray-300'
-          } ${supported === true ? '' : 'opacity-40 cursor-not-allowed'}`}>
-            <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-card rounded-full shadow transition-transform ${
-              enabled ? 'translate-x-4' : ''
-            }`} />
+          <span
+            className={`relative w-9 h-5 rounded-full transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-brand ${
+              enabled ? 'bg-brand' : 'bg-gray-300'
+            } ${supported === true ? '' : 'opacity-40 cursor-not-allowed'}`}
+          >
+            <span
+              className={`absolute top-0.5 left-0.5 w-4 h-4 bg-card rounded-full shadow transition-transform ${
+                enabled ? 'translate-x-4' : ''
+              }`}
+            />
           </span>
           <span className="ml-2 text-sm font-medium text-foreground">
             {enabled ? t('betaOn') : t('betaOff')}

@@ -21,15 +21,26 @@ const os = require('os');
 const path = require('path');
 const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-loyalty-'));
 Module._load = function (request: string, parent: unknown, isMain: boolean) {
-  if (request === 'electron') return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
+  if (request === 'electron')
+    return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
   return originalLoad.apply(this, arguments as any);
 };
 
 const {
-  initTestDb, createApp, startServer,
-  seedOwnerUser, seedCategory, seedProduct, seedCustomer,
-  api, assert, assertEqual,
-  getResults, closeDatabase, getDatabase, now,
+  initTestDb,
+  createApp,
+  startServer,
+  seedOwnerUser,
+  seedCategory,
+  seedProduct,
+  seedCustomer,
+  api,
+  assert,
+  assertEqual,
+  getResults,
+  closeDatabase,
+  getDatabase,
+  now,
 } = require('./helpers/test-setup');
 
 const { orderRoutes } = require('../main/routes/orders');
@@ -42,7 +53,9 @@ async function main() {
   const db = initTestDb();
 
   // Enable loyalty in settings
-  db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('loyalty_enabled', 'true', ?)").run(now());
+  db.prepare(
+    "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('loyalty_enabled', 'true', ?)",
+  ).run(now());
 
   // Seed data — product with 5% cashback
   const { authHeader } = seedOwnerUser(db);
@@ -59,7 +72,9 @@ async function main() {
   try {
     // ── Step 1: Verify loyalty is enabled ────────────────────────────
     console.log('\n1. Verify loyalty setting');
-    const loyaltySetting = db.prepare("SELECT value FROM settings WHERE key = 'loyalty_enabled'").get() as any;
+    const loyaltySetting = db
+      .prepare("SELECT value FROM settings WHERE key = 'loyalty_enabled'")
+      .get() as any;
     assert(loyaltySetting !== undefined, 'loyalty_enabled setting exists');
     assertEqual(loyaltySetting.value, 'true', 'loyalty_enabled = true');
 
@@ -97,14 +112,20 @@ async function main() {
 
     // ── Step 4: Verify loyalty points credited ───────────────────────
     console.log('\n4. Verify loyalty points credited');
-    const ledgerEntry = db.prepare(
-      "SELECT * FROM loyalty_ledger WHERE customer_id = 'cust-loyal' AND type = 'credit' AND bill_id = ?"
-    ).get(billId) as any;
+    const ledgerEntry = db
+      .prepare(
+        "SELECT * FROM loyalty_ledger WHERE customer_id = 'cust-loyal' AND type = 'credit' AND bill_id = ?",
+      )
+      .get(billId) as any;
     assert(ledgerEntry !== undefined, 'loyalty credit entry exists');
     if (ledgerEntry) {
       // 5% of ₹1000 subtotal = 50 points (1 point = 1 currency unit)
-      const expectedCashback = Math.floor(1000 * 5 / 100);
-      assertEqual(ledgerEntry.amount, expectedCashback, `cashback = ${expectedCashback} points (5% of ₹1000)`);
+      const expectedCashback = Math.floor((1000 * 5) / 100);
+      assertEqual(
+        ledgerEntry.amount,
+        expectedCashback,
+        `cashback = ${expectedCashback} points (5% of ₹1000)`,
+      );
       assert(ledgerEntry.expires_at === null, 'points do not expire');
     }
 
@@ -112,26 +133,33 @@ async function main() {
     console.log('\n5. Verify idempotency (not double-credited)');
     // The payment handler is idempotent — it checks if a credit already exists
     // for this bill before crediting again. We can verify by counting entries.
-    const creditCount = db.prepare(
-      "SELECT COUNT(*) as count FROM loyalty_ledger WHERE customer_id = 'cust-loyal' AND type = 'credit' AND bill_id = ?"
-    ).get(billId) as any;
+    const creditCount = db
+      .prepare(
+        "SELECT COUNT(*) as count FROM loyalty_ledger WHERE customer_id = 'cust-loyal' AND type = 'credit' AND bill_id = ?",
+      )
+      .get(billId) as any;
     assertEqual(creditCount.count, 1, 'exactly 1 loyalty credit for this bill (not duplicated)');
 
     // ── Step 6: Verify wallet balance ────────────────────────────────
     console.log('\n6. Verify wallet balance');
-    const credits = db.prepare(
-      "SELECT COALESCE(SUM(amount), 0) as total FROM loyalty_ledger WHERE customer_id = 'cust-loyal' AND type = 'credit'"
-    ).get() as any;
-    const debits = db.prepare(
-      "SELECT COALESCE(SUM(amount), 0) as total FROM loyalty_ledger WHERE customer_id = 'cust-loyal' AND type = 'debit'"
-    ).get() as any;
+    const credits = db
+      .prepare(
+        "SELECT COALESCE(SUM(amount), 0) as total FROM loyalty_ledger WHERE customer_id = 'cust-loyal' AND type = 'credit'",
+      )
+      .get() as any;
+    const debits = db
+      .prepare(
+        "SELECT COALESCE(SUM(amount), 0) as total FROM loyalty_ledger WHERE customer_id = 'cust-loyal' AND type = 'debit'",
+      )
+      .get() as any;
     const walletBalance = Math.max(0, credits.total - debits.total);
     assertEqual(walletBalance, 50, `wallet balance = 50 points (5% cashback on ₹1000)`);
-
   } finally {
     server.close();
     closeDatabase();
-    try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
+    try {
+      fs.rmSync(testDir, { recursive: true, force: true });
+    } catch {}
   }
 
   const { passed, failed, total } = getResults();

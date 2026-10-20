@@ -31,9 +31,7 @@ export function defaultLanguagePolicySettingJson(): string {
   return JSON.stringify(defaultPrintLanguagePolicy());
 }
 
-export type LanguagePolicyValidation =
-  | { ok: true; stored: string }
-  | { ok: false; error: string };
+export type LanguagePolicyValidation = { ok: true; stored: string } | { ok: false; error: string };
 
 /** Validate an untrusted policy value for a language-policy settings key. */
 export function validateLanguagePolicySetting(

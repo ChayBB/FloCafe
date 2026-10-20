@@ -31,8 +31,10 @@ const { initDatabase, getDatabase, closeDatabase } = require('../main/db');
 const { printReceipt } = require('../main/services/receipt');
 
 function isNativeAbiMismatch(error: any): boolean {
-  return error?.code === 'ERR_DLOPEN_FAILED'
-    && String(error?.message || '').includes('NODE_MODULE_VERSION');
+  return (
+    error?.code === 'ERR_DLOPEN_FAILED' &&
+    String(error?.message || '').includes('NODE_MODULE_VERSION')
+  );
 }
 
 let passed = 0;
@@ -55,7 +57,9 @@ try {
 } catch (error: any) {
   if (isNativeAbiMismatch(error)) {
     console.log('   ⚠ Skipping: better-sqlite3 is not built for this shell Node ABI.');
-    console.log(`     Node ${process.version} uses ABI ${process.versions.modules}; rebuild native modules for Node to run this test outside Electron.`);
+    console.log(
+      `     Node ${process.version} uses ABI ${process.versions.modules}; rebuild native modules for Node to run this test outside Electron.`,
+    );
     process.exit(77); // exit code 77 = skip (GNU convention)
   }
   console.error('Failed to initialize database:', error.message);
@@ -68,11 +72,19 @@ console.log('='.repeat(50));
 const db = getDatabase();
 
 // Create prerequisite rows for foreign keys
-db.exec("INSERT OR IGNORE INTO users (id, name, password, role) VALUES ('user-1', 'Test User', 'hash', 'cashier')");
-db.exec("INSERT OR IGNORE INTO orders (order_number, user_id) VALUES ('ORD-TEST-RECEIPT-0001', 'user-1')");
-db.exec("INSERT OR IGNORE INTO bills (bill_number, order_id) VALUES ('INV-TEST-RECEIPT-0001', (SELECT id FROM orders WHERE order_number = 'ORD-TEST-RECEIPT-0001'))");
+db.exec(
+  "INSERT OR IGNORE INTO users (id, name, password, role) VALUES ('user-1', 'Test User', 'hash', 'cashier')",
+);
+db.exec(
+  "INSERT OR IGNORE INTO orders (order_number, user_id) VALUES ('ORD-TEST-RECEIPT-0001', 'user-1')",
+);
+db.exec(
+  "INSERT OR IGNORE INTO bills (bill_number, order_id) VALUES ('INV-TEST-RECEIPT-0001', (SELECT id FROM orders WHERE order_number = 'ORD-TEST-RECEIPT-0001'))",
+);
 
-const testBillId = db.prepare("SELECT id FROM bills WHERE bill_number = 'INV-TEST-RECEIPT-0001'").get() as { id: number } | undefined;
+const testBillId = db
+  .prepare("SELECT id FROM bills WHERE bill_number = 'INV-TEST-RECEIPT-0001'")
+  .get() as { id: number } | undefined;
 
 async function runTests() {
   console.log('\nTest 1: printReceipt logs print action');
@@ -80,14 +92,18 @@ async function runTests() {
     if (!testBillId) {
       assert(false, 'skipped: no test bill found');
     } else {
-      const initialCount = (db.prepare('SELECT COUNT(*) as count FROM print_logs').get() as { count: number }).count;
+      const initialCount = (
+        db.prepare('SELECT COUNT(*) as count FROM print_logs').get() as { count: number }
+      ).count;
 
       try {
         const result = await printReceipt(testBillId.id, 'user-1', 'receipt');
         assert(result.success === true, 'printReceipt returns success: true');
         assert(result.printLogId !== undefined, 'printReceipt returns printLogId');
 
-        const finalCount = (db.prepare('SELECT COUNT(*) as count FROM print_logs').get() as { count: number }).count;
+        const finalCount = (
+          db.prepare('SELECT COUNT(*) as count FROM print_logs').get() as { count: number }
+        ).count;
         assert(finalCount === initialCount + 1, 'print_logs count increased by 1');
       } catch (err: any) {
         assert(false, `printReceipt threw: ${err.message}`);
@@ -103,7 +119,9 @@ async function runTests() {
       try {
         await printReceipt(testBillId.id, 'user-1', 'reprint');
 
-        const log = db.prepare('SELECT print_type FROM print_logs ORDER BY id DESC LIMIT 1').get() as { print_type: string } | undefined;
+        const log = db
+          .prepare('SELECT print_type FROM print_logs ORDER BY id DESC LIMIT 1')
+          .get() as { print_type: string } | undefined;
         assert(log !== undefined, 'print_log row exists after reprint');
         assert(log!.print_type === 'reprint', 'print_type is "reprint"');
       } catch (err: any) {
@@ -130,13 +148,23 @@ async function runTests() {
       try {
         // Reset printed_at to verify it gets set by printReceipt
         db.prepare('UPDATE bills SET printed_at = NULL WHERE id = ?').run(testBillId.id);
-        const before = db.prepare('SELECT printed_at FROM bills WHERE id = ?').get(testBillId.id) as { printed_at: string | null } | undefined;
-        assert(before?.printed_at === null || before?.printed_at === undefined, 'printed_at is null before first print');
+        const before = db
+          .prepare('SELECT printed_at FROM bills WHERE id = ?')
+          .get(testBillId.id) as { printed_at: string | null } | undefined;
+        assert(
+          before?.printed_at === null || before?.printed_at === undefined,
+          'printed_at is null before first print',
+        );
 
         await printReceipt(testBillId.id, 'user-1', 'receipt');
 
-        const after = db.prepare('SELECT printed_at FROM bills WHERE id = ?').get(testBillId.id) as { printed_at: string | null } | undefined;
-        assert(after?.printed_at !== null && after?.printed_at !== undefined, 'printed_at is set after print');
+        const after = db.prepare('SELECT printed_at FROM bills WHERE id = ?').get(testBillId.id) as
+          | { printed_at: string | null }
+          | undefined;
+        assert(
+          after?.printed_at !== null && after?.printed_at !== undefined,
+          'printed_at is set after print',
+        );
       } catch (err: any) {
         assert(false, `printReceipt threw: ${err.message}`);
       }

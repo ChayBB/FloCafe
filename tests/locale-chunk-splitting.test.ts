@@ -70,9 +70,9 @@ function assertNotStaleBuildOutput(lang: string, chunksFound: number): void {
   assert(
     buildIsNewer,
     `STALE BUILD OUTPUT: frontend/out has no ${lang} chunk because the build was written before ` +
-    `${lang}.json (the locale source file), so the build output predates the locale sources. Run ` +
-    '`npm run build:frontend` before this assertion means anything. This is a stale build, not a ' +
-    'missing-chunk defect, and it still fails.',
+      `${lang}.json (the locale source file), so the build output predates the locale sources. Run ` +
+      '`npm run build:frontend` before this assertion means anything. This is a stale build, not a ' +
+      'missing-chunk defect, and it still fails.',
   );
 }
 
@@ -85,7 +85,9 @@ function decodeJavaScriptEscapes(value: string): string {
 function run(): void {
   const chunksDir = path.join(OUT, '_next', 'static', 'chunks');
   if (!fs.existsSync(chunksDir)) {
-    console.log('SKIP: frontend/out missing — run `npm run build:frontend` first (no locale chunk assertions).');
+    console.log(
+      'SKIP: frontend/out missing — run `npm run build:frontend` first (no locale chunk assertions).',
+    );
     return;
   }
 
@@ -95,10 +97,11 @@ function run(): void {
   const chunks = walkFiles(chunksDir, (name) => name.endsWith('.js'));
   assert(chunks.length > 0, 'no chunks found in frontend/out/_next/static/chunks');
 
-  const filesWith = (marker: string): string[] => chunks.filter((f) => {
-    const content = fs.readFileSync(f, 'utf8');
-    return content.includes(marker) || decodeJavaScriptEscapes(content).includes(marker);
-  });
+  const filesWith = (marker: string): string[] =>
+    chunks.filter((f) => {
+      const content = fs.readFileSync(f, 'utf8');
+      return content.includes(marker) || decodeJavaScriptEscapes(content).includes(marker);
+    });
 
   const enFiles = filesWith(MARKERS.en);
   assertNotStaleBuildOutput('en', enFiles.length);
@@ -154,7 +157,9 @@ function run(): void {
   console.log(`  ✓ packaged English eager (fallback) — ${enFiles.length} chunk(s)`);
   for (const lang of nonEnglishLangs) {
     const file = chunks.find((f) => path.basename(f) === lazyByLang[lang]) as string;
-    console.log(`  ✓ ${lang} lazy chunk (${lazyByLang[lang]}) — ${kb(file)} KB, not eager on any page, no external refs`);
+    console.log(
+      `  ✓ ${lang} lazy chunk (${lazyByLang[lang]}) — ${kb(file)} KB, not eager on any page, no external refs`,
+    );
   }
   console.log('✅ All locale chunk splitting checks passed.');
 }

@@ -11,23 +11,25 @@ if (args.length === 0) {
 }
 
 function runElectronNode(extraArgs, stdio = 'inherit') {
-  return spawnSync(
-    electronPath,
-    extraArgs,
-    {
-      stdio,
-      env: {
-        ...process.env,
-        ELECTRON_RUN_AS_NODE: '1',
-      },
-      encoding: stdio === 'pipe' ? 'utf8' : undefined,
-      timeout: 600_000,
+  return spawnSync(electronPath, extraArgs, {
+    stdio,
+    env: {
+      ...process.env,
+      ELECTRON_RUN_AS_NODE: '1',
     },
-  );
+    encoding: stdio === 'pipe' ? 'utf8' : undefined,
+    timeout: 600_000,
+  });
 }
 
 function verifyBetterSqlite3() {
-  const result = runElectronNode(['-e', "const Database = require('better-sqlite3'); const db = new Database(':memory:'); db.close();"], 'pipe');
+  const result = runElectronNode(
+    [
+      '-e',
+      "const Database = require('better-sqlite3'); const db = new Database(':memory:'); db.close();",
+    ],
+    'pipe',
+  );
   return {
     ok: result.status === 0 && !result.error && !result.signal,
     error: result.error || result.stderr || result.stdout,
@@ -36,15 +38,11 @@ function verifyBetterSqlite3() {
 
 function rebuildBetterSqlite3() {
   console.log('[test-runner] Rebuilding better-sqlite3 for the installed Electron runtime...');
-  return spawnSync(
-    process.execPath,
-    [rebuildCli, '-f', '-w', 'better-sqlite3'],
-    {
-      stdio: 'inherit',
-      env: process.env,
-      timeout: 600_000,
-    },
-  );
+  return spawnSync(process.execPath, [rebuildCli, '-f', '-w', 'better-sqlite3'], {
+    stdio: 'inherit',
+    env: process.env,
+    timeout: 600_000,
+  });
 }
 
 let sqliteCheck = verifyBetterSqlite3();
@@ -69,13 +67,7 @@ if (!sqliteCheck.ok) {
 
 const result = spawnSync(
   electronPath,
-  [
-    tsNodeBin,
-    '--transpile-only',
-    '-P',
-    'tests/tsconfig.json',
-    ...args,
-  ],
+  [tsNodeBin, '--transpile-only', '-P', 'tests/tsconfig.json', ...args],
   {
     stdio: 'inherit',
     env: {

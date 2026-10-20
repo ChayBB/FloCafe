@@ -35,8 +35,13 @@ Module._load = function (request: string, parent: unknown, isMain: boolean) {
 };
 
 const {
-  isMasterPinAvailable, isMasterPinSet, setMasterPin, resetMasterPin, verifyMasterPin,
-  checkMasterPinRateLimit, authorizeMasterPin,
+  isMasterPinAvailable,
+  isMasterPinSet,
+  setMasterPin,
+  resetMasterPin,
+  verifyMasterPin,
+  checkMasterPinRateLimit,
+  authorizeMasterPin,
 } = require('../main/services/master-pin');
 
 function main() {
@@ -54,7 +59,10 @@ function main() {
   console.log('   ✓ setMasterPin() + verifyMasterPin() round-trip correctly');
 
   const rawFile = fs.readFileSync(path.join(testDir, 'master-pin.enc'), 'utf8');
-  assert.ok(!rawFile.includes('1234'), 'the raw PIN is never stored in plaintext, even under the mock encryptor');
+  assert.ok(
+    !rawFile.includes('1234'),
+    'the raw PIN is never stored in plaintext, even under the mock encryptor',
+  );
   console.log('   ✓ the stored blob never contains the plaintext PIN');
 
   resetMasterPin('5678');
@@ -108,9 +116,15 @@ function main() {
   // ── fallback when encryption is unavailable ──────────────────────────
   encryptionAvailable = false;
   result = authorizeMasterPin('anything-or-nothing', 'test:no-encryption');
-  assert.equal(result.ok, false, 'gate hard-blocks (ok: false) when safeStorage is unavailable — vuln-0002');
+  assert.equal(
+    result.ok,
+    false,
+    'gate hard-blocks (ok: false) when safeStorage is unavailable — vuln-0002',
+  );
   if (!result.ok) assert.equal(result.status, 503, 'unavailable encryption returns 503');
-  console.log('   ✓ authorizeMasterPin() hard-blocks with 503 when encryption is unavailable (vuln-0002 regression)');
+  console.log(
+    '   ✓ authorizeMasterPin() hard-blocks with 503 when encryption is unavailable (vuln-0002 regression)',
+  );
   encryptionAvailable = true;
 }
 

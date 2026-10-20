@@ -10,16 +10,31 @@ const os = require('os');
 const path = require('path');
 const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-supplies-service-'));
 Module._load = function (request: string, parent: unknown, isMain: boolean) {
-  if (request === 'electron') return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
+  if (request === 'electron')
+    return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
   return originalLoad.apply(this, arguments as any);
 };
 
 const {
-  initTestDb, assertEqual, assert, getResults, resetCounters, seedOwnerUser, seedCategory, seedProduct,
+  initTestDb,
+  assertEqual,
+  assert,
+  getResults,
+  resetCounters,
+  seedOwnerUser,
+  seedCategory,
+  seedProduct,
 } = require('./helpers/test-setup');
 const {
-  applySupplyStockChange, createSupply, getSupply, listSupplies, listSupplyMovements, recordSupplyMovement,
-  softDeleteSupply, updateSupply, SupplyServiceError,
+  applySupplyStockChange,
+  createSupply,
+  getSupply,
+  listSupplies,
+  listSupplyMovements,
+  recordSupplyMovement,
+  softDeleteSupply,
+  updateSupply,
+  SupplyServiceError,
 } = require('../main/services/supplies');
 const { saveRecipe } = require('../main/services/recipes');
 const { convertQuantity } = require('../main/services/units');
@@ -43,7 +58,11 @@ async function main() {
 
   // ── Create ──
   const coffee = createSupply(db, {
-    name: 'Coffee beans', baseUnit: 'kg', stockQuantity: 5, lowStockThreshold: 2, actorUserId: actor,
+    name: 'Coffee beans',
+    baseUnit: 'kg',
+    stockQuantity: 5,
+    lowStockThreshold: 2,
+    actorUserId: actor,
   });
   assertEqual(coffee.name, 'Coffee beans', 'create stores name');
   assertEqual(coffee.base_unit, 'kg', 'create stores base unit');
@@ -52,7 +71,8 @@ async function main() {
   assertEqual(coffee.is_active, 1, 'create defaults to active');
   assert(coffee.id.startsWith('sup_'), 'create generates supply id');
   assertEqual(
-    db.prepare('SELECT movement_type FROM supply_movements WHERE supply_id = ?').get(coffee.id).movement_type,
+    db.prepare('SELECT movement_type FROM supply_movements WHERE supply_id = ?').get(coffee.id)
+      .movement_type,
     'adjustment',
     'create records opening stock in the supply ledger',
   );
@@ -63,20 +83,50 @@ async function main() {
     productId: 'prod-supply-recipe',
     items: [{ supplyId: coffee.id, quantity: 1, unit: 'kg' }],
   });
-  expectServiceError(() => softDeleteSupply(db, coffee.id), 409, 'cannot delete a recipe-linked supply');
+  expectServiceError(
+    () => softDeleteSupply(db, coffee.id),
+    409,
+    'cannot delete a recipe-linked supply',
+  );
 
-  expectServiceError(() => createSupply(db, { name: '   ', baseUnit: 'g' }), 400, 'create rejects blank name');
-  expectServiceError(() => createSupply(db, { name: 'Bad', baseUnit: 'lb' as any }), 400, 'create rejects unknown base unit');
-  expectServiceError(() => createSupply(db, { name: 'Neg', baseUnit: 'g', lowStockThreshold: -1 }), 400, 'create rejects negative threshold');
+  expectServiceError(
+    () => createSupply(db, { name: '   ', baseUnit: 'g' }),
+    400,
+    'create rejects blank name',
+  );
+  expectServiceError(
+    () => createSupply(db, { name: 'Bad', baseUnit: 'lb' as any }),
+    400,
+    'create rejects unknown base unit',
+  );
+  expectServiceError(
+    () => createSupply(db, { name: 'Neg', baseUnit: 'g', lowStockThreshold: -1 }),
+    400,
+    'create rejects negative threshold',
+  );
 
   // ── List filters ──
-  const milk = createSupply(db, { name: 'Milk', baseUnit: 'ml', stockQuantity: 100, lowStockThreshold: 50, actorUserId: actor });
-  const cups = createSupply(db, { name: 'Cups', baseUnit: 'each', stockQuantity: 10, actorUserId: actor });
+  const milk = createSupply(db, {
+    name: 'Milk',
+    baseUnit: 'ml',
+    stockQuantity: 100,
+    lowStockThreshold: 50,
+    actorUserId: actor,
+  });
+  const cups = createSupply(db, {
+    name: 'Cups',
+    baseUnit: 'each',
+    stockQuantity: 10,
+    actorUserId: actor,
+  });
   updateSupply(db, cups.id, { isActive: false });
 
   const active = listSupplies(db, {});
   assertEqual(active.length, 2, 'list excludes inactive by default');
-  assert(active.some((s: any) => s.id === coffee.id), 'list includes coffee');
+  assert(
+    active.some((s: any) => s.id === coffee.id),
+    'list includes coffee',
+  );
   const withInactive = listSupplies(db, { includeInactive: true });
   assertEqual(withInactive.length, 3, 'list includes inactive when requested');
   const searched = listSupplies(db, { search: 'cof' });
@@ -89,7 +139,11 @@ async function main() {
   const listedMilk = listSupplies(db, {}).find((s: any) => s.id === milk.id);
   assertEqual(listedMilk.is_low_stock, 0, 'milk above threshold is not low stock');
   recordSupplyMovement(db, {
-    supplyId: milk.id, movementType: 'count', quantity: 40, unit: 'ml', actorUserId: actor,
+    supplyId: milk.id,
+    movementType: 'count',
+    quantity: 40,
+    unit: 'ml',
+    actorUserId: actor,
   });
   const lowList = listSupplies(db, { lowStockOnly: true });
   assertEqual(lowList.length, 1, 'low stock filter returns only milk');
@@ -98,7 +152,12 @@ async function main() {
 
   // ── Movements ──
   const recv = recordSupplyMovement(db, {
-    supplyId: coffee.id, movementType: 'receive', quantity: 2, unit: 'kg', actorUserId: actor, reason: 'Delivery',
+    supplyId: coffee.id,
+    movementType: 'receive',
+    quantity: 2,
+    unit: 'kg',
+    actorUserId: actor,
+    reason: 'Delivery',
   });
   assert(recv, 'receive returns movement row');
   assertEqual(getSupply(db, coffee.id).stock_quantity, 7, 'receive adds 2 kg (5 → 7)');
@@ -119,95 +178,231 @@ async function main() {
 
   // unit conversion on receive: 500 g into kg-based supply
   recordSupplyMovement(db, {
-    supplyId: coffee.id, movementType: 'receive', quantity: 500, unit: 'g', actorUserId: actor,
+    supplyId: coffee.id,
+    movementType: 'receive',
+    quantity: 500,
+    unit: 'g',
+    actorUserId: actor,
   });
   assertEqual(getSupply(db, coffee.id).stock_quantity, 7.5, 'receive converts g → kg (7 → 7.5)');
 
   // count sets absolute stock in base unit
   recordSupplyMovement(db, {
-    supplyId: coffee.id, movementType: 'count', quantity: 4, unit: 'kg', actorUserId: actor,
+    supplyId: coffee.id,
+    movementType: 'count',
+    quantity: 4,
+    unit: 'kg',
+    actorUserId: actor,
   });
   assertEqual(getSupply(db, coffee.id).stock_quantity, 4, 'count sets absolute stock (7.5 → 4)');
 
   // adjustment signed
   recordSupplyMovement(db, {
-    supplyId: coffee.id, movementType: 'adjustment', quantity: -1.5, unit: 'kg', actorUserId: actor, reason: 'Spilled',
+    supplyId: coffee.id,
+    movementType: 'adjustment',
+    quantity: -1.5,
+    unit: 'kg',
+    actorUserId: actor,
+    reason: 'Spilled',
   });
   assertEqual(getSupply(db, coffee.id).stock_quantity, 2.5, 'adjustment applies signed delta');
 
   // waste positive input subtracts
   recordSupplyMovement(db, {
-    supplyId: coffee.id, movementType: 'waste', quantity: 0.5, unit: 'kg', actorUserId: actor, reason: 'Expired',
+    supplyId: coffee.id,
+    movementType: 'waste',
+    quantity: 0.5,
+    unit: 'kg',
+    actorUserId: actor,
+    reason: 'Expired',
   });
   assertEqual(getSupply(db, coffee.id).stock_quantity, 2, 'waste subtracts quantity');
 
   // negative stock allowed
   recordSupplyMovement(db, {
-    supplyId: coffee.id, movementType: 'waste', quantity: 10, unit: 'kg', actorUserId: actor, reason: 'Over-waste',
+    supplyId: coffee.id,
+    movementType: 'waste',
+    quantity: 10,
+    unit: 'kg',
+    actorUserId: actor,
+    reason: 'Over-waste',
   });
   assertEqual(getSupply(db, coffee.id).stock_quantity, -8, 'stock may go negative');
 
-  expectServiceError(() => recordSupplyMovement(db, {
-    supplyId: coffee.id, movementType: 'receive', quantity: -1, unit: 'kg', actorUserId: actor,
-  }), 400, 'receive rejects negative quantity');
-  expectServiceError(() => recordSupplyMovement(db, {
-    supplyId: coffee.id, movementType: 'adjustment', quantity: 0, unit: 'kg', actorUserId: actor, reason: 'noop',
-  }), 400, 'adjustment rejects zero');
-  expectServiceError(() => recordSupplyMovement(db, {
-    supplyId: coffee.id, movementType: 'adjustment', quantity: 1, unit: 'kg', actorUserId: actor,
-  }), 400, 'adjustment requires reason');
-  expectServiceError(() => recordSupplyMovement(db, {
-    supplyId: coffee.id, movementType: 'waste', quantity: 1, unit: 'kg', actorUserId: actor,
-  }), 400, 'waste requires reason');
-  expectServiceError(() => recordSupplyMovement(db, {
-    supplyId: coffee.id, movementType: 'receive', quantity: 1, unit: 'lb' as any, actorUserId: actor,
-  }), 400, 'rejects unknown movement unit');
-  expectServiceError(() => recordSupplyMovement(db, {
-    supplyId: coffee.id, movementType: 'count', quantity: 1, unit: 'ml', actorUserId: actor,
-  }), 400, 'count rejects cross-dimension unit (ml on kg supply)');
-  expectServiceError(() => recordSupplyMovement(db, {
-    supplyId: 'missing', movementType: 'receive', quantity: 1, actorUserId: actor,
-  }), 404, 'movement on missing supply is 404');
+  expectServiceError(
+    () =>
+      recordSupplyMovement(db, {
+        supplyId: coffee.id,
+        movementType: 'receive',
+        quantity: -1,
+        unit: 'kg',
+        actorUserId: actor,
+      }),
+    400,
+    'receive rejects negative quantity',
+  );
+  expectServiceError(
+    () =>
+      recordSupplyMovement(db, {
+        supplyId: coffee.id,
+        movementType: 'adjustment',
+        quantity: 0,
+        unit: 'kg',
+        actorUserId: actor,
+        reason: 'noop',
+      }),
+    400,
+    'adjustment rejects zero',
+  );
+  expectServiceError(
+    () =>
+      recordSupplyMovement(db, {
+        supplyId: coffee.id,
+        movementType: 'adjustment',
+        quantity: 1,
+        unit: 'kg',
+        actorUserId: actor,
+      }),
+    400,
+    'adjustment requires reason',
+  );
+  expectServiceError(
+    () =>
+      recordSupplyMovement(db, {
+        supplyId: coffee.id,
+        movementType: 'waste',
+        quantity: 1,
+        unit: 'kg',
+        actorUserId: actor,
+      }),
+    400,
+    'waste requires reason',
+  );
+  expectServiceError(
+    () =>
+      recordSupplyMovement(db, {
+        supplyId: coffee.id,
+        movementType: 'receive',
+        quantity: 1,
+        unit: 'lb' as any,
+        actorUserId: actor,
+      }),
+    400,
+    'rejects unknown movement unit',
+  );
+  expectServiceError(
+    () =>
+      recordSupplyMovement(db, {
+        supplyId: coffee.id,
+        movementType: 'count',
+        quantity: 1,
+        unit: 'ml',
+        actorUserId: actor,
+      }),
+    400,
+    'count rejects cross-dimension unit (ml on kg supply)',
+  );
+  expectServiceError(
+    () =>
+      recordSupplyMovement(db, {
+        supplyId: 'missing',
+        movementType: 'receive',
+        quantity: 1,
+        actorUserId: actor,
+      }),
+    404,
+    'movement on missing supply is 404',
+  );
 
   // movement history
   const page = listSupplyMovements(db, { supplyId: coffee.id, perPage: 3 });
   assertEqual(page.movements.length, 3, 'cursor page respects perPage');
   assert(page.nextCursor !== null, 'nextCursor present when more rows exist');
-  const older = listSupplyMovements(db, { supplyId: coffee.id, beforeId: page.nextCursor, perPage: 100 });
-  assert(older.movements.every((m: any) => m.id < page.nextCursor), 'cursor returns older movements only');
+  const older = listSupplyMovements(db, {
+    supplyId: coffee.id,
+    beforeId: page.nextCursor,
+    perPage: 100,
+  });
+  assert(
+    older.movements.every((m: any) => m.id < page.nextCursor),
+    'cursor returns older movements only',
+  );
   const filtered = listSupplyMovements(db, { supplyId: coffee.id, movementType: 'receive' });
-  assert(filtered.movements.every((m: any) => m.movement_type === 'receive'), 'type filter works');
+  assert(
+    filtered.movements.every((m: any) => m.movement_type === 'receive'),
+    'type filter works',
+  );
   assertEqual(filtered.movements.length, 2, 'two receive movements recorded');
 
   // search filters server-side across supply name, reason, and actor
   const bySupplyName = listSupplyMovements(db, { search: 'coffee' });
-  assertEqual(bySupplyName.movements.length, 7, 'search matches the supply name case-insensitively');
-  assert(bySupplyName.movements.every((m: any) => m.supply_id === coffee.id), 'search by supply name excludes other supplies');
+  assertEqual(
+    bySupplyName.movements.length,
+    7,
+    'search matches the supply name case-insensitively',
+  );
+  assert(
+    bySupplyName.movements.every((m: any) => m.supply_id === coffee.id),
+    'search by supply name excludes other supplies',
+  );
   const byReason = listSupplyMovements(db, { search: 'Delivery' });
   assertEqual(byReason.movements.length, 1, 'search matches the reason');
-  assertEqual(byReason.movements[0].reason, 'Delivery', 'search returns the reason-matched movement');
-  assertEqual(listSupplyMovements(db, { search: 'spilled' }).movements.length, 1, 'search is case-insensitive');
+  assertEqual(
+    byReason.movements[0].reason,
+    'Delivery',
+    'search returns the reason-matched movement',
+  );
+  assertEqual(
+    listSupplyMovements(db, { search: 'spilled' }).movements.length,
+    1,
+    'search is case-insensitive',
+  );
   const allMovements = listSupplyMovements(db, { perPage: 100 }).movements;
   assertEqual(allMovements.length, 11, 'all recorded movements are listed');
   const byActor = listSupplyMovements(db, { search: 'test owner', perPage: 100 });
-  assertEqual(byActor.movements.length, allMovements.length, 'search matches the actor name across all supplies');
-  assertEqual(listSupplyMovements(db, { search: 'nothing-here' }).movements.length, 0, 'search with no match returns an empty page');
+  assertEqual(
+    byActor.movements.length,
+    allMovements.length,
+    'search matches the actor name across all supplies',
+  );
+  assertEqual(
+    listSupplyMovements(db, { search: 'nothing-here' }).movements.length,
+    0,
+    'search with no match returns an empty page',
+  );
   const searchedPage = listSupplyMovements(db, { search: 'coffee', perPage: 3 });
   assertEqual(searchedPage.movements.length, 3, 'search respects the page size');
   assert(searchedPage.nextCursor !== null, 'search keeps the cursor for the next page');
-  const searchedOlder = listSupplyMovements(db, { search: 'coffee', beforeId: searchedPage.nextCursor, perPage: 100 });
-  assert(searchedOlder.movements.every((m: any) => m.supply_id === coffee.id), 'search cursor page stays on the filtered set');
+  const searchedOlder = listSupplyMovements(db, {
+    search: 'coffee',
+    beforeId: searchedPage.nextCursor,
+    perPage: 100,
+  });
+  assert(
+    searchedOlder.movements.every((m: any) => m.supply_id === coffee.id),
+    'search cursor page stays on the filtered set',
+  );
 
   const wildcardSupply = createSupply(db, {
-    name: 'Mix 100%_salt!', baseUnit: 'kg', stockQuantity: 1, actorUserId: actor,
+    name: 'Mix 100%_salt!',
+    baseUnit: 'kg',
+    stockQuantity: 1,
+    actorUserId: actor,
   });
   const wildcardLookalikeSupply = createSupply(db, {
-    name: 'Mix 1000Xsalt', baseUnit: 'kg', stockQuantity: 1, actorUserId: actor,
+    name: 'Mix 1000Xsalt',
+    baseUnit: 'kg',
+    stockQuantity: 1,
+    actorUserId: actor,
   });
   for (const search of ['100%', '_salt', '!']) {
     const matches = listSupplyMovements(db, { search });
     assertEqual(matches.movements.length, 1, `search treats ${search} as literal text`);
-    assertEqual(matches.movements[0].supply_id, wildcardSupply.id, `search ${search} excludes wildcard matches`);
+    assertEqual(
+      matches.movements[0].supply_id,
+      wildcardSupply.id,
+      `search ${search} excludes wildcard matches`,
+    );
   }
   softDeleteSupply(db, wildcardSupply.id);
   softDeleteSupply(db, wildcardLookalikeSupply.id);
@@ -215,8 +410,16 @@ async function main() {
   // ── Soft delete ──
   softDeleteSupply(db, cups.id);
   expectServiceError(() => getSupply(db, cups.id), 404, 'soft-deleted supply is not found');
-  assertEqual(listSupplies(db, { includeInactive: true }).length, 2, 'soft-deleted supply excluded from list');
-  expectServiceError(() => softDeleteSupply(db, cups.id), 404, 'soft delete is not repeatable on missing supply');
+  assertEqual(
+    listSupplies(db, { includeInactive: true }).length,
+    2,
+    'soft-deleted supply excluded from list',
+  );
+  expectServiceError(
+    () => softDeleteSupply(db, cups.id),
+    404,
+    'soft delete is not repeatable on missing supply',
+  );
 
   // update keeps base_unit immutable (not in update input)
   const updated = updateSupply(db, coffee.id, { name: 'Espresso beans', lowStockThreshold: null });

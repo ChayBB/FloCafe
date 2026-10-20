@@ -96,7 +96,7 @@ async function run() {
     assertEqual(provenance.osLocale, 'es-DO', 'OS locale is reported alongside the region');
     assert(
       typeof provenance.osTimezone === 'string' && provenance.osTimezone.length > 0,
-      'a resolved IANA timezone is always available'
+      'a resolved IANA timezone is always available',
     );
 
     // ── The confirmation stamp makes the choice real ──────────────────────
@@ -118,38 +118,47 @@ async function run() {
     clearSettings('country_confirmed_at');
     setSettings({ onboarding_completed: 'true' });
     assertEqual(isCountryConfirmed(), false, 'completing onboarding is not a country choice');
-    assertEqual(readCountryProvenance().countrySource, 'default', 'setup completion alone stays default');
+    assertEqual(
+      readCountryProvenance().countrySource,
+      'default',
+      'setup completion alone stays default',
+    );
 
     // ── What does and does not count as an affirmative selection ──────────
     const changed = countryConfirmationPatch('DO', 'IN');
     assert(typeof changed.country_confirmed_at === 'string', 'a changed country is a choice');
 
     assertEqual(
-      Object.keys(countryConfirmationPatch('IN', 'IN')).length, 0,
-      'resubmitting the stored country is not a choice'
+      Object.keys(countryConfirmationPatch('IN', 'IN')).length,
+      0,
+      'resubmitting the stored country is not a choice',
     );
     // The whole-form PUT from Settings -> Business, with the country untouched.
     assertEqual(
-      Object.keys(countryConfirmationPatch('IN', 'IN', undefined)).length, 0,
-      'a full-form save that echoes the default does not confirm it'
+      Object.keys(countryConfirmationPatch('IN', 'IN', undefined)).length,
+      0,
+      'a full-form save that echoes the default does not confirm it',
     );
     assertEqual(
-      Object.keys(countryConfirmationPatch(undefined, 'IN')).length, 0,
-      'omitting the country is not a choice'
+      Object.keys(countryConfirmationPatch(undefined, 'IN')).length,
+      0,
+      'omitting the country is not a choice',
     );
     assertEqual(
-      Object.keys(countryConfirmationPatch('not-a-code', 'IN')).length, 0,
-      'an unparseable country is not a choice'
+      Object.keys(countryConfirmationPatch('not-a-code', 'IN')).length,
+      0,
+      'an unparseable country is not a choice',
     );
     // Case and whitespace must not read as a change.
     assertEqual(
-      Object.keys(countryConfirmationPatch(' do ', 'DO')).length, 0,
-      'a differently-cased resubmission is not a choice'
+      Object.keys(countryConfirmationPatch(' do ', 'DO')).length,
+      0,
+      'a differently-cased resubmission is not a choice',
     );
     // The one case a diff cannot see: deliberately picking the current value.
     assert(
       typeof countryConfirmationPatch('IN', 'IN', true).country_confirmed_at === 'string',
-      'an explicit selection signal confirms even without a change'
+      'an explicit selection signal confirms even without a change',
     );
 
     // ── Malformed codes never reach the wire ──────────────────────────────
@@ -185,7 +194,7 @@ async function run() {
       }
       return new Response(
         JSON.stringify({ api_key: 'fac_live_test', store_id: '1', pos_id: 'pos_1' }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } }
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
     }) as typeof fetch;
 
@@ -199,20 +208,42 @@ async function run() {
       cloud_verification_welcome_requested: '1',
     });
     await cloudSync.register();
-    assertEqual(body?.business?.country, null, 'an unconfirmed install registers without a country');
-    assertEqual(body?.business?.currency, 'USD', 'registration normalizes the configured currency to an ISO code');
-    assertEqual(body?.business?.country_source, 'default', 'the payload says the value is a default');
+    assertEqual(
+      body?.business?.country,
+      null,
+      'an unconfirmed install registers without a country',
+    );
+    assertEqual(
+      body?.business?.currency,
+      'USD',
+      'registration normalizes the configured currency to an ISO code',
+    );
+    assertEqual(
+      body?.business?.country_source,
+      'default',
+      'the payload says the value is a default',
+    );
     assertEqual(body?.run_mode, 'packaged', 'the payload reports how the install is running');
     assert(
-      ['github', 'ms_store', 'mac_app_store', 'snap', 'appimage', 'flatpak', 'deb', 'rpm', 'linux_package', 'dev']
-        .includes(String(body?.install_source)),
-      'the payload reports a documented install source'
+      [
+        'github',
+        'ms_store',
+        'mac_app_store',
+        'snap',
+        'appimage',
+        'flatpak',
+        'deb',
+        'rpm',
+        'linux_package',
+        'dev',
+      ].includes(String(body?.install_source)),
+      'the payload reports a documented install source',
     );
     assertEqual(body?.business?.os_country, 'DO', 'the payload carries the OS region');
     assertEqual(body?.business?.os_locale, 'es-DO', 'the payload carries the OS locale');
     assert(
       typeof body?.business?.os_timezone === 'string' && body.business.os_timezone.length > 0,
-      'the payload carries the OS timezone'
+      'the payload carries the OS timezone',
     );
 
     setSettings({ country: 'DO', country_confirmed_at: new Date().toISOString() });
@@ -248,19 +279,24 @@ async function run() {
     // The shared assertion helpers tally failures instead of throwing, so a
     // test that never reads the tally always reports success.
     const results = getResults();
-    if (results.failed > 0) throw new Error(`${results.failed} country provenance assertions failed`);
+    if (results.failed > 0)
+      throw new Error(`${results.failed} country provenance assertions failed`);
     console.log('✅ Country provenance checks passed');
   } finally {
     globalThis.fetch = originalFetch;
     cloudSync.stop();
-    try { closeDatabase(); } catch { }
+    try {
+      closeDatabase();
+    } catch {}
     Module._load = originalLoad;
     fs.rmSync(testDir, { recursive: true, force: true });
   }
 }
 
 run().catch((error) => {
-  try { closeDatabase(); } catch { }
+  try {
+    closeDatabase();
+  } catch {}
   Module._load = originalLoad;
   fs.rmSync(testDir, { recursive: true, force: true });
   console.error(error);

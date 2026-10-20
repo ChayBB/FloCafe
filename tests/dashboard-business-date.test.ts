@@ -40,7 +40,11 @@ const calendarDate = new Intl.DateTimeFormat('en-CA', {
   day: '2-digit',
 }).format(instant);
 
-assert.equal(calendarDate, '2026-03-08', 'the tenant-local calendar date the dashboard used to show');
+assert.equal(
+  calendarDate,
+  '2026-03-08',
+  'the tenant-local calendar date the dashboard used to show',
+);
 assert.equal(
   businessDateForInstant({ instant, timezone: 'America/New_York', startTime }),
   '2026-03-07',

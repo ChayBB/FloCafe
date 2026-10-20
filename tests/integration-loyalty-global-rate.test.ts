@@ -16,15 +16,25 @@ const os = require('os');
 const path = require('path');
 const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-loyalty-global-'));
 Module._load = function (request: string, parent: unknown, isMain: boolean) {
-  if (request === 'electron') return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
+  if (request === 'electron')
+    return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
   return originalLoad.apply(this, arguments as any);
 };
 
 const {
-  initTestDb, createApp, startServer,
-  seedOwnerUser, seedCategory, seedProduct, seedCustomer,
-  api, assert, assertEqual,
-  getResults, closeDatabase, now,
+  initTestDb,
+  createApp,
+  startServer,
+  seedOwnerUser,
+  seedCategory,
+  seedProduct,
+  seedCustomer,
+  api,
+  assert,
+  assertEqual,
+  getResults,
+  closeDatabase,
+  now,
 } = require('./helpers/test-setup');
 
 const { orderRoutes } = require('../main/routes/orders');
@@ -41,8 +51,12 @@ async function main() {
 
   const db = initTestDb();
 
-  db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('loyalty_enabled', 'true', ?)").run(now());
-  db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('global_cashback_percent', '5', ?)").run(now());
+  db.prepare(
+    "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('loyalty_enabled', 'true', ?)",
+  ).run(now());
+  db.prepare(
+    "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('global_cashback_percent', '5', ?)",
+  ).run(now());
 
   const { authHeader } = seedOwnerUser(db);
   seedCategory(db, 'cat-global', 'Global Rate Menu');
@@ -81,8 +95,8 @@ async function main() {
         type: 'takeaway',
         customer_id: 'cust-1',
         items: [
-          { product_id: 'prod-null', quantity: 2 },   // 2×100 = 200 @ 5% global = 10
-          { product_id: 'prod-zero', quantity: 1 },   // 1×50 = 50 @ 0% = 0
+          { product_id: 'prod-null', quantity: 2 }, // 2×100 = 200 @ 5% global = 10
+          { product_id: 'prod-zero', quantity: 1 }, // 1×50 = 50 @ 0% = 0
           { product_id: 'prod-custom', quantity: 1 }, // 1×200 = 200 @ 15% custom = 30
         ], // Total cashback = 40 points (1 point = 1 currency unit)
       },
@@ -123,7 +137,7 @@ async function main() {
         type: 'takeaway',
         customer_id: 'cust-2',
         items: [
-          { product_id: 'prod-null', quantity: 2 },   // 2×100 = 200 @ 2.5% global = 5
+          { product_id: 'prod-null', quantity: 2 }, // 2×100 = 200 @ 2.5% global = 5
         ], // Total cashback = 5 points (1 point = 1 currency unit)
       },
       headers: authHeader,
@@ -141,7 +155,11 @@ async function main() {
       headers: authHeader,
     });
     assertEqual(pay2.status, 200, 'payment accepted');
-    assertEqual(pay2.data.loyaltyPointsEarned, 5, 'earned 5 points after fractional global rate update (2.5%)');
+    assertEqual(
+      pay2.data.loyaltyPointsEarned,
+      5,
+      'earned 5 points after fractional global rate update (2.5%)',
+    );
 
     // ═══════════════════════════════════════════════════════════════════
     // Scenario 3: Negative validation tests
@@ -176,7 +194,7 @@ async function main() {
       body: {
         name: 'Bad Product',
         price: 100,
-        cb_percent: '10' // String instead of number
+        cb_percent: '10', // String instead of number
       },
       headers: authHeader,
     });
@@ -187,7 +205,7 @@ async function main() {
       body: {
         name: 'Bad Product',
         price: 100,
-        cb_percent: 150 // > 100
+        cb_percent: 150, // > 100
       },
       headers: authHeader,
     });
@@ -197,24 +215,32 @@ async function main() {
     const badCsv1 = await api(baseUrl, '/api/menu/csv/import/products', {
       method: 'POST',
       body: {
-        csv: 'id,sku,name,category,price,description,cost,tax_category,tax_behavior,cashback_percent,tags,is_active\n' +
-             ',,Bad Product,Global Rate Menu,100,Desc,50,,,10abc,veg,yes'
+        csv:
+          'id,sku,name,category,price,description,cost,tax_category,tax_behavior,cashback_percent,tags,is_active\n' +
+          ',,Bad Product,Global Rate Menu,100,Desc,50,,,10abc,veg,yes',
       },
       headers: authHeader,
     });
     assertEqual(badCsv1.status, 200, 'csv API processes request');
-    assert(badCsv1.data.errors.some((e: string) => e.includes('invalid cashback_percent "10abc"')), 'csv rejects 10abc string');
+    assert(
+      badCsv1.data.errors.some((e: string) => e.includes('invalid cashback_percent "10abc"')),
+      'csv rejects 10abc string',
+    );
 
     const badCsv2 = await api(baseUrl, '/api/menu/csv/import/products', {
       method: 'POST',
       body: {
-        csv: 'id,sku,name,category,price,description,cost,tax_category,tax_behavior,cashback_percent,tags,is_active\n' +
-             ',,Bad Product,Global Rate Menu,100,Desc,50,,,-5,veg,yes'
+        csv:
+          'id,sku,name,category,price,description,cost,tax_category,tax_behavior,cashback_percent,tags,is_active\n' +
+          ',,Bad Product,Global Rate Menu,100,Desc,50,,,-5,veg,yes',
       },
       headers: authHeader,
     });
     assertEqual(badCsv2.status, 200, 'csv API processes negative-rate row');
-    assert(badCsv2.data.errors.some((e: string) => e.includes('invalid cashback_percent "-5"')), 'csv rejects negative cashback percent');
+    assert(
+      badCsv2.data.errors.some((e: string) => e.includes('invalid cashback_percent "-5"')),
+      'csv rejects negative cashback percent',
+    );
 
     // ═══════════════════════════════════════════════════════════════════
     // Scenario 4: the migration must NOT rewrite legacy cb_percent = 0
@@ -222,7 +248,9 @@ async function main() {
     console.log('\n─── Scenario 4: Legacy migration test ───');
 
     // Simulate a legacy product inserted before this migration, with cb_percent = 0
-    db.prepare("INSERT INTO products (id, name, price, cb_percent, is_active, created_at, updated_at) VALUES ('prod-legacy', 'Legacy Product', 100, 0, 1, ?, ?)").run(now(), now());
+    db.prepare(
+      "INSERT INTO products (id, name, price, cb_percent, is_active, created_at, updated_at) VALUES ('prod-legacy', 'Legacy Product', 100, 0, 1, ?, ?)",
+    ).run(now(), now());
 
     // Execute the actual add_global_cashback_percent migration's up() handler exported
     // from main/db.ts — looked up by name, not a hardcoded version number, since the
@@ -235,8 +263,14 @@ async function main() {
     // schema default was 0, so rewriting it here would silently opt every
     // excluded product back into earning the moment an owner sets a global
     // rate. The migration leaves the data alone; the owner opts in explicitly.
-    const legacyProd = db.prepare("SELECT cb_percent FROM products WHERE id = 'prod-legacy'").get() as any;
-    assertEqual(legacyProd.cb_percent, 0, 'migration preserves an existing cb_percent = 0 instead of rewriting it to NULL');
+    const legacyProd = db
+      .prepare("SELECT cb_percent FROM products WHERE id = 'prod-legacy'")
+      .get() as any;
+    assertEqual(
+      legacyProd.cb_percent,
+      0,
+      'migration preserves an existing cb_percent = 0 instead of rewriting it to NULL',
+    );
 
     // ═══════════════════════════════════════════════════════════════════
     // Scenario 5: the explicit bulk opt-in is what moves 0 → NULL
@@ -258,19 +292,26 @@ async function main() {
     assertEqual(applied.status, 200, 'bulk apply endpoint responds');
     assert(applied.data.updated >= 1, 'bulk apply reports the rows it changed');
 
-    const afterApply = db.prepare("SELECT cb_percent FROM products WHERE id = 'prod-legacy'").get() as any;
-    assertEqual(afterApply.cb_percent, null, 'bulk apply switches a zero-rate product to inherit the global rate');
+    const afterApply = db
+      .prepare("SELECT cb_percent FROM products WHERE id = 'prod-legacy'")
+      .get() as any;
+    assertEqual(
+      afterApply.cb_percent,
+      null,
+      'bulk apply switches a zero-rate product to inherit the global rate',
+    );
 
     const afterCount = await api(baseUrl, '/api/products/loyalty/global-rate-candidates', {
       method: 'GET',
       headers: authHeader,
     });
     assertEqual(afterCount.data.count, 0, 'no candidates remain after the bulk apply');
-
   } finally {
     server.close();
     closeDatabase();
-    try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
+    try {
+      fs.rmSync(testDir, { recursive: true, force: true });
+    } catch {}
   }
 
   const { passed, failed, total } = getResults();

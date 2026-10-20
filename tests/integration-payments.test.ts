@@ -18,15 +18,28 @@ const os = require('os');
 const path = require('path');
 const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-payments-'));
 Module._load = function (request: string, parent: unknown, isMain: boolean) {
-  if (request === 'electron') return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
+  if (request === 'electron')
+    return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
   return originalLoad.apply(this, arguments as any);
 };
 
 const {
-  initTestDb, createApp, startServer,
-  seedOwnerUser, seedCategory, seedProduct, seedCustomer, seedWalletCredit,
-  api, assert, assertEqual, assertIncludes,
-  getResults, closeDatabase, getDatabase, now,
+  initTestDb,
+  createApp,
+  startServer,
+  seedOwnerUser,
+  seedCategory,
+  seedProduct,
+  seedCustomer,
+  seedWalletCredit,
+  api,
+  assert,
+  assertEqual,
+  assertIncludes,
+  getResults,
+  closeDatabase,
+  getDatabase,
+  now,
 } = require('./helpers/test-setup');
 
 const { orderRoutes } = require('../main/routes/orders');
@@ -38,7 +51,9 @@ async function main() {
   console.log('='.repeat(50));
 
   const db = initTestDb();
-  db.prepare("INSERT INTO payment_methods (name, is_active, sort_order, created_at, updated_at) VALUES ('UPI', 1, 10, ?, ?)").run(now(), now());
+  db.prepare(
+    "INSERT INTO payment_methods (name, is_active, sort_order, created_at, updated_at) VALUES ('UPI', 1, 10, ?, ?)",
+  ).run(now(), now());
 
   // Seed base data
   const { authHeader } = seedOwnerUser(db);
@@ -89,7 +104,11 @@ async function main() {
     });
     assertEqual(pay1.status, 200, 'first payment accepted');
     assertEqual(pay1.data.bill.payment_status, 'partial', 'status = partial after first payment');
-    assertEqual(pay1.data.bill.balance, billATotal - partialAmount, `balance = ${billATotal - partialAmount}`);
+    assertEqual(
+      pay1.data.bill.balance,
+      billATotal - partialAmount,
+      `balance = ${billATotal - partialAmount}`,
+    );
 
     // Second payment: remaining with UPI
     const remainingAmount = billATotal - partialAmount;
@@ -117,7 +136,9 @@ async function main() {
 
     // Disable loyalty so cashback isn't credited during payment —
     // this test verifies wallet balance depletion, not loyalty earn
-    db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('loyalty_enabled', 'false', ?)").run(now());
+    db.prepare(
+      "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('loyalty_enabled', 'false', ?)",
+    ).run(now());
 
     // Redemption rate is fixed at 1 point = ₹1 (see LOYALTY_REDEMPTION_RATE in bills.ts).
     // Give customer ₹600 wallet balance (600 points) — enough for first order (₹500 + tax ≈ ₹525)
@@ -208,7 +229,9 @@ async function main() {
     console.log('\n─── Scenario D: No Loyalty Without Customer ───');
 
     // Enable loyalty
-    db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('loyalty_enabled', 'true', ?)").run(now());
+    db.prepare(
+      "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('loyalty_enabled', 'true', ?)",
+    ).run(now());
 
     // Create order WITHOUT customer_id
     const orderD = await api(baseUrl, '/api/orders', {
@@ -296,7 +319,9 @@ async function main() {
     console.log('\n─── Scenario G: Wallet Balance After Split ───');
 
     // Keep loyalty disabled (redemption rate is fixed at 1 point = ₹1)
-    db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('loyalty_enabled', 'false', ?)").run(now());
+    db.prepare(
+      "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('loyalty_enabled', 'false', ?)",
+    ).run(now());
 
     seedCustomer(db, 'cust-split', 'Split Payment Customer', '9999999999');
     // Give 1000 points (₹1000 at 1:1 — plenty for half of ₹525 bill)
@@ -330,9 +355,15 @@ async function main() {
     assertEqual(payG1.data.bill.payment_status, 'partial', 'bill is partially paid');
 
     // Verify wallet balance decreased by walletPayG points (1:1 rate)
-    const walletAfterG1 = await api(baseUrl, '/api/customers/cust-split/wallet', { headers: authHeader });
+    const walletAfterG1 = await api(baseUrl, '/api/customers/cust-split/wallet', {
+      headers: authHeader,
+    });
     const expectedBalanceG1 = 1000 - walletPayG;
-    assertEqual(walletAfterG1.data.balance, expectedBalanceG1, `wallet balance = ${expectedBalanceG1} after first wallet payment`);
+    assertEqual(
+      walletAfterG1.data.balance,
+      expectedBalanceG1,
+      `wallet balance = ${expectedBalanceG1} after first wallet payment`,
+    );
 
     // Pay remaining with cash
     const cashPayG = billGTotal - walletPayG;
@@ -345,13 +376,20 @@ async function main() {
     assertEqual(payG2.data.bill.payment_status, 'paid', 'bill is fully paid');
 
     // Wallet balance should remain the same (cash payment doesn't affect wallet)
-    const walletAfterG2 = await api(baseUrl, '/api/customers/cust-split/wallet', { headers: authHeader });
-    assertEqual(walletAfterG2.data.balance, expectedBalanceG1, 'wallet balance unchanged after cash payment');
-
+    const walletAfterG2 = await api(baseUrl, '/api/customers/cust-split/wallet', {
+      headers: authHeader,
+    });
+    assertEqual(
+      walletAfterG2.data.balance,
+      expectedBalanceG1,
+      'wallet balance unchanged after cash payment',
+    );
   } finally {
     server.close();
     closeDatabase();
-    try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
+    try {
+      fs.rmSync(testDir, { recursive: true, force: true });
+    } catch {}
   }
 
   const { passed, failed, total } = getResults();

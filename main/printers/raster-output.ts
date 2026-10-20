@@ -1,7 +1,4 @@
-import {
-  encodeMixedPrintParts,
-  type MixedPrintPart,
-} from '../../shared/print/raster';
+import { encodeMixedPrintParts, type MixedPrintPart } from '../../shared/print/raster';
 import type { ThermalPrinterCapabilities } from '../../shared/print/thermal-capabilities';
 import type { PrinterCutMode } from './profiles';
 

@@ -74,18 +74,28 @@ function parseDerivedFrom(raw: unknown): DerivedFromRef | null {
   }
   const record = value as Record<string, unknown>;
   const { type, templateId, fileName } = record;
-  if (type !== 'compliance-pack-template' && type !== 'merchant-template' && type !== 'offline-import') {
-    throw new MerchantTemplateError('derivedFrom.type must be "compliance-pack-template", "merchant-template", or "offline-import"');
+  if (
+    type !== 'compliance-pack-template' &&
+    type !== 'merchant-template' &&
+    type !== 'offline-import'
+  ) {
+    throw new MerchantTemplateError(
+      'derivedFrom.type must be "compliance-pack-template", "merchant-template", or "offline-import"',
+    );
   }
   if (typeof templateId !== 'string' || templateId.length === 0) {
     throw new MerchantTemplateError('derivedFrom.templateId must be a non-empty string');
   }
   if (fileName !== undefined) {
     if (type !== 'offline-import') {
-      throw new MerchantTemplateError('derivedFrom.fileName is only valid for offline-import sources');
+      throw new MerchantTemplateError(
+        'derivedFrom.fileName is only valid for offline-import sources',
+      );
     }
     if (typeof fileName !== 'string' || fileName.length === 0 || fileName.length > 255) {
-      throw new MerchantTemplateError('derivedFrom.fileName must be a non-empty string of at most 255 characters');
+      throw new MerchantTemplateError(
+        'derivedFrom.fileName must be a non-empty string of at most 255 characters',
+      );
     }
   }
   return {
@@ -133,11 +143,13 @@ function validateName(name: unknown): string {
 
 export function listMerchantPrintTemplates(): MerchantPrintTemplateRow[] {
   try {
-    return getDatabase().prepare(`
+    return getDatabase()
+      .prepare(`
       SELECT * FROM merchant_print_templates
       WHERE business_id = ?
       ORDER BY updated_at DESC, id
-    `).all(LOCAL_BUSINESS_ID) as MerchantPrintTemplateRow[];
+    `)
+      .all(LOCAL_BUSINESS_ID) as MerchantPrintTemplateRow[];
   } catch {
     // Table not migrated yet — behave like "no merchant templates exist".
     return [];
@@ -146,9 +158,13 @@ export function listMerchantPrintTemplates(): MerchantPrintTemplateRow[] {
 
 export function loadMerchantPrintTemplateRow(id: string): MerchantPrintTemplateRow | null {
   try {
-    return getDatabase().prepare(`
+    return (
+      (getDatabase()
+        .prepare(`
       SELECT * FROM merchant_print_templates WHERE id = ? AND business_id = ? LIMIT 1
-    `).get(id, LOCAL_BUSINESS_ID) as MerchantPrintTemplateRow | undefined || null;
+    `)
+        .get(id, LOCAL_BUSINESS_ID) as MerchantPrintTemplateRow | undefined) || null
+    );
   } catch {
     return null;
   }
@@ -161,17 +177,18 @@ export function loadActiveMerchantPrintTemplate(id: string): MerchantPrintTempla
   return row;
 }
 
-export function createMerchantPrintTemplate(input: {
-  name: unknown;
-  payload: unknown;
-  origin?: unknown;
-  derivedFrom?: unknown;
-}, actorId: string | null): MerchantPrintTemplateRow {
+export function createMerchantPrintTemplate(
+  input: {
+    name: unknown;
+    payload: unknown;
+    origin?: unknown;
+    derivedFrom?: unknown;
+  },
+  actorId: string | null,
+): MerchantPrintTemplateRow {
   const name = validateName(input.name);
   const payloadJson = normalizePayload(input.payload);
-  const origin = input.origin === undefined || input.origin === null
-    ? 'created'
-    : input.origin;
+  const origin = input.origin === undefined || input.origin === null ? 'created' : input.origin;
   if (origin !== 'created' && origin !== 'imported' && origin !== 'cloned') {
     throw new MerchantTemplateError('origin must be one of: created, imported, cloned');
   }
@@ -231,36 +248,48 @@ export function updateMerchantPrintTemplate(
     previousPayloadJson = row.previous_payload_json;
   }
 
-  getDatabase().prepare(`
+  getDatabase()
+    .prepare(`
     UPDATE merchant_print_templates
     SET name = ?, payload_json = ?, previous_payload_json = ?, checksum = ?, updated_by = ?, updated_at = ?
     WHERE id = ?
-  `).run(name, payloadJson, previousPayloadJson, computeChecksum(payloadJson), actorId, now(), id);
+  `)
+    .run(name, payloadJson, previousPayloadJson, computeChecksum(payloadJson), actorId, now(), id);
   return loadMerchantPrintTemplateRow(id)!;
 }
 
-export function activateMerchantPrintTemplate(id: string, actorId: string | null): MerchantPrintTemplateRow {
+export function activateMerchantPrintTemplate(
+  id: string,
+  actorId: string | null,
+): MerchantPrintTemplateRow {
   const row = loadMerchantPrintTemplateRow(id);
   if (!row) throw new MerchantTemplateError('Template not found', 404);
   if (row.status === 'archived') {
     throw new MerchantTemplateError('Archived templates cannot be activated', 409);
   }
   verifyChecksum(row);
-  getDatabase().prepare(`
+  getDatabase()
+    .prepare(`
     UPDATE merchant_print_templates SET status = 'active', updated_by = ?, updated_at = ? WHERE id = ?
-  `).run(actorId, now(), id);
+  `)
+    .run(actorId, now(), id);
   return loadMerchantPrintTemplateRow(id)!;
 }
 
-export function archiveMerchantPrintTemplate(id: string, actorId: string | null): MerchantPrintTemplateRow {
+export function archiveMerchantPrintTemplate(
+  id: string,
+  actorId: string | null,
+): MerchantPrintTemplateRow {
   const row = loadMerchantPrintTemplateRow(id);
   if (!row) throw new MerchantTemplateError('Template not found', 404);
   if (row.status === 'archived') {
     throw new MerchantTemplateError('Template is already archived', 409);
   }
-  getDatabase().prepare(`
+  getDatabase()
+    .prepare(`
     UPDATE merchant_print_templates SET status = 'archived', updated_by = ?, updated_at = ? WHERE id = ?
-  `).run(actorId, now(), id);
+  `)
+    .run(actorId, now(), id);
   return loadMerchantPrintTemplateRow(id)!;
 }
 
@@ -275,7 +304,10 @@ function verifyChecksum(row: MerchantPrintTemplateRow): void {
 }
 
 /** Restores previous_payload_json after verifying checksum and validating content. */
-export function rollbackMerchantPrintTemplate(id: string, actorId: string | null): MerchantPrintTemplateRow {
+export function rollbackMerchantPrintTemplate(
+  id: string,
+  actorId: string | null,
+): MerchantPrintTemplateRow {
   const row = loadMerchantPrintTemplateRow(id);
   if (!row) throw new MerchantTemplateError('Template not found', 404);
   if (row.status === 'archived') {
@@ -296,11 +328,13 @@ export function rollbackMerchantPrintTemplate(id: string, actorId: string | null
   }
   const restoredJson = serializeMerchantTemplatePayload(restoredValidation.payload);
 
-  getDatabase().prepare(`
+  getDatabase()
+    .prepare(`
     UPDATE merchant_print_templates
     SET payload_json = ?, previous_payload_json = NULL, checksum = ?, updated_by = ?, updated_at = ?
     WHERE id = ?
-  `).run(restoredJson, computeChecksum(restoredJson), actorId, now(), id);
+  `)
+    .run(restoredJson, computeChecksum(restoredJson), actorId, now(), id);
   return loadMerchantPrintTemplateRow(id)!;
 }
 
@@ -318,12 +352,13 @@ export interface MerchantTemplateExportFile {
 
 /** Reduce a template name to a safe filename slug (no separators, no dots). */
 function exportFileName(name: string): string {
-  const slug = name
-    .normalize('NFKD')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 60) || 'template';
+  const slug =
+    name
+      .normalize('NFKD')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 60) || 'template';
   return `${slug}${EXPORT_FILE_SUFFIX}`;
 }
 
@@ -377,11 +412,14 @@ export function exportMerchantPrintTemplateFile(id: string): MerchantTemplateExp
 }
 
 /** Imports a transfer file as a new draft template with verified checksum provenance. */
-export function importMerchantPrintTemplateFile(input: {
-  file?: unknown;
-  name?: unknown;
-  fileName?: unknown;
-}, actorId: string | null): MerchantPrintTemplateRow {
+export function importMerchantPrintTemplateFile(
+  input: {
+    file?: unknown;
+    name?: unknown;
+    fileName?: unknown;
+  },
+  actorId: string | null,
+): MerchantPrintTemplateRow {
   if (typeof input.file !== 'string' || input.file.length === 0) {
     throw new MerchantTemplateError('A template transfer file is required');
   }
@@ -439,9 +477,10 @@ export function importMerchantPrintTemplateFile(input: {
     ...(sourceFileName ? { fileName: sourceFileName } : {}),
   };
 
-  const name = input.name !== undefined && input.name !== null && input.name !== ''
-    ? validateName(input.name)
-    : validateName(envelope.origin?.sourceName ?? 'Imported template');
+  const name =
+    input.name !== undefined && input.name !== null && input.name !== ''
+      ? validateName(input.name)
+      : validateName(envelope.origin?.sourceName ?? 'Imported template');
 
   return createMerchantPrintTemplate(
     { name, payload: canonical, origin: 'imported', derivedFrom },

@@ -46,7 +46,9 @@ function displayNamesForLocale(locale: string): Intl.DisplayNames {
 
 /** Resolve a country name for the active UI locale without changing its ISO identity. */
 export function getLocalizedCountryName(code: string, locale: string): string {
-  const normalizedCode = String(code || '').trim().toUpperCase();
+  const normalizedCode = String(code || '')
+    .trim()
+    .toUpperCase();
   if (!normalizedCode) return '';
 
   const englishName = englishCountryName(normalizedCode) || normalizedCode;
@@ -80,7 +82,10 @@ export function countryMatchesQuery(country: Country, query: string, locale: str
 }
 
 /** Sort countries by their localized display name while keeping IN and AR pinned first. */
-export function sortCountriesByLocalizedName(countries: readonly Country[], locale: string): Country[] {
+export function sortCountriesByLocalizedName(
+  countries: readonly Country[],
+  locale: string,
+): Country[] {
   const pinned = ['IN', 'AR'];
   const pinIndex = (code: string) => {
     const index = pinned.indexOf(code);

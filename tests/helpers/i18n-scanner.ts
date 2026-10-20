@@ -8,7 +8,8 @@ export function walkTypeScriptFiles(dir: string): string[] {
     for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
       const full = path.join(current, entry.name);
       if (entry.isDirectory()) {
-        if (entry.name === 'node_modules' || entry.name === '.next' || entry.name === 'out') continue;
+        if (entry.name === 'node_modules' || entry.name === '.next' || entry.name === 'out')
+          continue;
         visit(full);
       } else if (/\.(ts|tsx)$/.test(entry.name)) {
         files.push(full);
@@ -31,8 +32,10 @@ const DEFAULT_FRONTEND_SRC = path.resolve(__dirname, '../../frontend/src');
 
 export function collectCalledKeys(dir: string = DEFAULT_FRONTEND_SRC): Set<string> {
   const out = new Set<string>();
-  const scopedRegex = /(?:const|let|var)\s+([a-zA-Z0-9_$]+)\s*=\s*useTranslations\(\s*(?:['"`]([^'"`]+)['"`])?\s*\)/g;
-  const inlineRegex = /useTranslations\(\s*(?:['"`]([^'"`]+)['"`])?\s*\)\s*\(\s*(['"`])([^'"`]+)\2/g;
+  const scopedRegex =
+    /(?:const|let|var)\s+([a-zA-Z0-9_$]+)\s*=\s*useTranslations\(\s*(?:['"`]([^'"`]+)['"`])?\s*\)/g;
+  const inlineRegex =
+    /useTranslations\(\s*(?:['"`]([^'"`]+)['"`])?\s*\)\s*\(\s*(['"`])([^'"`]+)\2/g;
   const dottedRegex = /\bt\(\s*(['"`])([a-zA-Z0-9_]+(?:\.[a-zA-Z0-9_]+)+)\1/g;
 
   for (const file of walkTypeScriptFiles(dir)) {
@@ -55,7 +58,10 @@ export function collectCalledKeys(dir: string = DEFAULT_FRONTEND_SRC): Set<strin
 
     // 3. For each bound translator, collect its literal call arguments
     for (const [varName, ns] of scopes.entries()) {
-      const callRegex = new RegExp(`\\b${varName}\\(\\s*(['"\`])([a-zA-Z0-9_]+(?:\\.[a-zA-Z0-9_]+)*)\\1`, 'g');
+      const callRegex = new RegExp(
+        `\\b${varName}\\(\\s*(['"\`])([a-zA-Z0-9_]+(?:\\.[a-zA-Z0-9_]+)*)\\1`,
+        'g',
+      );
       let cm: RegExpExecArray | null;
       while ((cm = callRegex.exec(source)) !== null) {
         const key = cm[2];

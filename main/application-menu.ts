@@ -98,7 +98,8 @@ export function openApplicationMenuSubmenu(
         return { error: 'Unknown menu entry' };
       }
 
-      const createOverflow = (menu as unknown as { createOverflowMenu?: () => Menu }).createOverflowMenu;
+      const createOverflow = (menu as unknown as { createOverflowMenu?: () => Menu })
+        .createOverflowMenu;
       let overflowMenu: Menu;
       let MenuItemClass: (new (options: unknown) => MenuItem) | undefined;
       if (typeof createOverflow === 'function') {
@@ -116,7 +117,9 @@ export function openApplicationMenuSubmenu(
         }
         overflowMenu = MenuClass ? new MenuClass() : new (menu.constructor as new () => Menu)();
         if (!MenuItemClass && menu.items.length > 0) {
-          MenuItemClass = menu.items[0]?.constructor as (new (options: unknown) => MenuItem) | undefined;
+          MenuItemClass = menu.items[0]?.constructor as
+            | (new (options: unknown) => MenuItem)
+            | undefined;
         }
       }
 

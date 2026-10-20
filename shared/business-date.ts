@@ -77,7 +77,10 @@ function timezoneOffsetMilliseconds(instant: Date, timezone: string): number {
     hourCycle: 'h23',
   }).formatToParts(instant);
   const get = (type: string) => Number(parts.find((part) => part.type === type)?.value);
-  return Date.UTC(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'), get('second')) - instant.getTime();
+  return (
+    Date.UTC(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'), get('second')) -
+    instant.getTime()
+  );
 }
 
 /** `[start, end)` instants of one business day, or null when the timezone cannot resolve. */
@@ -119,19 +122,29 @@ function sqlTimestamp(instant: Date): string {
  *  the instant is still inside the previous business day's window. The configured start
  *  time is held to the tenant contract first, so this answers exactly what the
  *  backend's own settings read path answers. */
-export function businessDateForInstant({ instant, timezone, startTime = '00:00' }: BusinessDateInput): string {
+export function businessDateForInstant({
+  instant,
+  timezone,
+  startTime = '00:00',
+}: BusinessDateInput): string {
   const offset = normalizeBusinessDayStartTime(startTime);
   const calendarDate = calendarDateInTimezone(instant, timezone);
   if (dayStartOffsetMs(offset) === 0) return calendarDate;
 
-  const [start] = dayStartInstants(calendarDate, timezone, offset) ?? [utcDayStartInstant(calendarDate, offset)];
+  const [start] = dayStartInstants(calendarDate, timezone, offset) ?? [
+    utcDayStartInstant(calendarDate, offset),
+  ];
   if (instant >= start) return calendarDate;
 
   return previousCalendarDate(calendarDate);
 }
 
 /** Half-open UTC ranges `[start, end)` for one date in the tenant timezone with an optional day start offset. */
-export function dayBoundsInTimezone(date: string, timezone: string, startTime: string = '00:00'): [string, string] {
+export function dayBoundsInTimezone(
+  date: string,
+  timezone: string,
+  startTime: string = '00:00',
+): [string, string] {
   const instants = dayStartInstants(date, timezone, startTime);
   if (!instants) return utcDayBounds(date, startTime);
   return [sqlTimestamp(instants[0]), sqlTimestamp(instants[1])];

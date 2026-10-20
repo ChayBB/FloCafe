@@ -78,7 +78,12 @@ export async function serializeDailySalesExportXlsx(
       tax_amount: item.tax_amount,
     });
     entry.getCell('quantity').numFmt = '#,##0.###';
-    for (const col of ['gross_item_sales', 'item_discounts', 'net_item_sales', 'tax_amount'] as const) {
+    for (const col of [
+      'gross_item_sales',
+      'item_discounts',
+      'net_item_sales',
+      'tax_amount',
+    ] as const) {
       entry.getCell(col).numFmt = moneyFmt;
     }
   }
@@ -100,16 +105,18 @@ export function serializeDailySalesExportCsv(
   } else {
     lines.push(toCsvRow([...DAILY_SALES_ITEM_COLUMNS]));
     for (const item of dataset.items as DailySalesExportItemRow[]) {
-      lines.push(toCsvRow([
-        item.product_id,
-        item.product_name,
-        item.product_sku ?? '',
-        item.quantity,
-        item.gross_item_sales,
-        item.item_discounts,
-        item.net_item_sales,
-        item.tax_amount,
-      ]));
+      lines.push(
+        toCsvRow([
+          item.product_id,
+          item.product_name,
+          item.product_sku ?? '',
+          item.quantity,
+          item.gross_item_sales,
+          item.item_discounts,
+          item.net_item_sales,
+          item.tax_amount,
+        ]),
+      );
     }
   }
   return lines.join('\n') + '\n';

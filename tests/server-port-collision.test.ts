@@ -84,10 +84,13 @@ async function run(): Promise<void> {
     assert.equal(typeof ephemeralPort, 'number', 'the active port is a number');
     assert.ok(ephemeralPort > 0, 'getServerPort() reports a real bound port, not the configured 0');
     const ephemStatus = await new Promise<number>((resolve, reject) => {
-      const req = http.get({ host: '127.0.0.1', port: ephemeralPort, path: '/api/health' }, (res) => {
-        res.resume();
-        res.once('end', () => resolve(res.statusCode ?? 0));
-      });
+      const req = http.get(
+        { host: '127.0.0.1', port: ephemeralPort, path: '/api/health' },
+        (res) => {
+          res.resume();
+          res.once('end', () => resolve(res.statusCode ?? 0));
+        },
+      );
       req.once('error', reject);
     });
     assert.equal(ephemStatus, 200, 'health check responds on ephemeral port');
@@ -106,15 +109,25 @@ async function run(): Promise<void> {
     await startServer();
     const collidedPort1 = getServerPort();
     assert.ok(collidedPort1 > occupiedPort1, 'API Server incremented past occupied port');
-    assert.ok(collidedPort1 <= occupiedPort1 + 10, 'API Server found an available port within retry limit');
+    assert.ok(
+      collidedPort1 <= occupiedPort1 + 10,
+      'API Server found an available port within retry limit',
+    );
     const collidedStatus1 = await new Promise<number>((resolve, reject) => {
-      const req = http.get({ host: '127.0.0.1', port: collidedPort1, path: '/api/health' }, (res) => {
-        res.resume();
-        res.once('end', () => resolve(res.statusCode ?? 0));
-      });
+      const req = http.get(
+        { host: '127.0.0.1', port: collidedPort1, path: '/api/health' },
+        (res) => {
+          res.resume();
+          res.once('end', () => resolve(res.statusCode ?? 0));
+        },
+      );
       req.once('error', reject);
     });
-    assert.equal(collidedStatus1, 200, 'API Server health check responds on EADDRINUSE fallback port');
+    assert.equal(
+      collidedStatus1,
+      200,
+      'API Server health check responds on EADDRINUSE fallback port',
+    );
     dummyServer1.close();
     await stopServer().catch(() => {});
     console.log('✅ API Server EADDRINUSE collision fallback passed');
@@ -127,7 +140,10 @@ async function run(): Promise<void> {
     restoreEacces1();
     const eaccesPort1 = getServerPort();
     assert.ok(eaccesPort1 > basePort1, 'API Server incremented past EACCES port');
-    assert.ok(eaccesPort1 <= basePort1 + 10, 'API Server found an available port within retry limit');
+    assert.ok(
+      eaccesPort1 <= basePort1 + 10,
+      'API Server found an available port within retry limit',
+    );
     const eaccesStatus1 = await new Promise<number>((resolve, reject) => {
       const req = http.get({ host: '127.0.0.1', port: eaccesPort1, path: '/api/health' }, (res) => {
         res.resume();
@@ -144,7 +160,8 @@ async function run(): Promise<void> {
     process.env.PORT = '35000';
     await assert.rejects(
       startServer(),
-      (err: Error) => err.message.includes('Failed to bind to any port after 10 attempts starting from 35000'),
+      (err: Error) =>
+        err.message.includes('Failed to bind to any port after 10 attempts starting from 35000'),
       'API Server fails after 10 failed attempts',
     );
     restoreExhaust1();
@@ -166,7 +183,10 @@ async function run(): Promise<void> {
     await startKdsServer();
     const collidedPort2 = getKdsPort();
     assert.ok(collidedPort2 > occupiedPort2, 'KDS Server incremented past occupied port');
-    assert.ok(collidedPort2 <= occupiedPort2 + 10, 'KDS Server found an available port within retry limit');
+    assert.ok(
+      collidedPort2 <= occupiedPort2 + 10,
+      'KDS Server found an available port within retry limit',
+    );
     dummyServer2.close();
     await stopKdsServer().catch(() => {});
     console.log('✅ KDS Server EADDRINUSE collision fallback passed');
@@ -179,7 +199,10 @@ async function run(): Promise<void> {
     restoreEacces2();
     const eaccesPort2 = getKdsPort();
     assert.ok(eaccesPort2 > basePort2, 'KDS Server incremented past EACCES port');
-    assert.ok(eaccesPort2 <= basePort2 + 10, 'KDS Server found an available port within retry limit');
+    assert.ok(
+      eaccesPort2 <= basePort2 + 10,
+      'KDS Server found an available port within retry limit',
+    );
     await stopKdsServer().catch(() => {});
     console.log('✅ KDS Server EACCES fallback passed');
 
@@ -188,7 +211,8 @@ async function run(): Promise<void> {
     process.env.KDS_PORT = '37000';
     await assert.rejects(
       startKdsServer(),
-      (err: Error) => err.message.includes('Failed to bind to any port after 10 attempts starting from 37000'),
+      (err: Error) =>
+        err.message.includes('Failed to bind to any port after 10 attempts starting from 37000'),
       'KDS Server fails after 10 failed attempts',
     );
     restoreExhaust2();
@@ -210,12 +234,18 @@ async function run(): Promise<void> {
     await startServerApp();
     const collidedPort3 = getServerAppPort();
     assert.ok(collidedPort3 > occupiedPort3, 'Server App incremented past occupied port');
-    assert.ok(collidedPort3 <= occupiedPort3 + 10, 'Server App found an available port within retry limit');
+    assert.ok(
+      collidedPort3 <= occupiedPort3 + 10,
+      'Server App found an available port within retry limit',
+    );
     const collidedStatus3 = await new Promise<number>((resolve, reject) => {
-      const req = http.get({ host: '127.0.0.1', port: collidedPort3, path: '/api/health' }, (res) => {
-        res.resume();
-        res.once('end', () => resolve(res.statusCode ?? 0));
-      });
+      const req = http.get(
+        { host: '127.0.0.1', port: collidedPort3, path: '/api/health' },
+        (res) => {
+          res.resume();
+          res.once('end', () => resolve(res.statusCode ?? 0));
+        },
+      );
       req.once('error', reject);
     });
     assert.equal(collidedStatus3, 200, 'Server App health check responds on fallback port');
@@ -231,7 +261,10 @@ async function run(): Promise<void> {
     restoreEacces3();
     const eaccesPort3 = getServerAppPort();
     assert.ok(eaccesPort3 > basePort3, 'Server App incremented past EACCES port');
-    assert.ok(eaccesPort3 <= basePort3 + 10, 'Server App found an available port within retry limit');
+    assert.ok(
+      eaccesPort3 <= basePort3 + 10,
+      'Server App found an available port within retry limit',
+    );
     const eaccesStatus3 = await new Promise<number>((resolve, reject) => {
       const req = http.get({ host: '127.0.0.1', port: eaccesPort3, path: '/api/health' }, (res) => {
         res.resume();
@@ -248,7 +281,8 @@ async function run(): Promise<void> {
     process.env.SERVER_APP_PORT = '39000';
     await assert.rejects(
       startServerApp(),
-      (err: Error) => err.message.includes('Failed to bind to any port after 10 attempts starting from 39000'),
+      (err: Error) =>
+        err.message.includes('Failed to bind to any port after 10 attempts starting from 39000'),
       'Server App fails after 10 failed attempts',
     );
     restoreExhaust3();

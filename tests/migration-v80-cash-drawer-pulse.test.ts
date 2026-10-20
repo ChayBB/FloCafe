@@ -43,11 +43,19 @@ const path = require('path');
 let activeTestDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-migration-v80-a-'));
 
 Module._load = function (request: string, parent: unknown, isMain: boolean) {
-  if (request === 'electron') return { app: { isPackaged: true, getPath: () => activeTestDir, getVersion: () => 'test' } };
+  if (request === 'electron')
+    return { app: { isPackaged: true, getPath: () => activeTestDir, getVersion: () => 'test' } };
   return originalLoad.apply(this, arguments as any);
 };
 
-const { initDatabase, getDatabase, getCurrentSchemaVersion, MIGRATIONS, closeDatabase, now } = require('../main/db');
+const {
+  initDatabase,
+  getDatabase,
+  getCurrentSchemaVersion,
+  MIGRATIONS,
+  closeDatabase,
+  now,
+} = require('../main/db');
 
 let passed = 0;
 let failed = 0;
@@ -94,15 +102,27 @@ function main() {
     INSERT INTO printers (id, name, connection_type, ip_address, port, paper_width, is_default, cash_drawer_pulse_enabled, created_at, updated_at)
     VALUES ('legacy-drawer', 'Legacy Drawer Printer', 'network', '192.168.1.50', 9100, 'cols-42', 1, 1, ?, ?)
   `).run(now(), now());
-  assert(settingValue(db, 'cash_drawer_pulse_enabled') === undefined, 'setup: global setting not yet present');
+  assert(
+    settingValue(db, 'cash_drawer_pulse_enabled') === undefined,
+    'setup: global setting not yet present',
+  );
 
   MIGRATIONS.length = 0;
   MIGRATIONS.push(...originalMigrations);
   runPendingMigrations();
 
-  assert(getCurrentSchemaVersion() === originalMigrations[originalMigrations.length - 1].version, 'store A upgrade reaches latest schema');
-  assert(settingValue(db, 'cash_drawer_pulse_enabled') === 'true', 'store A: legacy per-printer flag migrates to the global setting');
-  assert(settingValue(db, 'cash_drawer_pulse_methods') === undefined, 'store A: methods setting is left unset, defaulting to cash/card (see file header)');
+  assert(
+    getCurrentSchemaVersion() === originalMigrations[originalMigrations.length - 1].version,
+    'store A upgrade reaches latest schema',
+  );
+  assert(
+    settingValue(db, 'cash_drawer_pulse_enabled') === 'true',
+    'store A: legacy per-printer flag migrates to the global setting',
+  );
+  assert(
+    settingValue(db, 'cash_drawer_pulse_methods') === undefined,
+    'store A: methods setting is left unset, defaulting to cash/card (see file header)',
+  );
 
   closeDatabase();
 
@@ -122,7 +142,10 @@ function main() {
   MIGRATIONS.push(...originalMigrations);
   runPendingMigrations();
 
-  assert(settingValue(db, 'cash_drawer_pulse_enabled') === undefined, 'store B: no legacy flag means no global setting is seeded (unset default preserved)');
+  assert(
+    settingValue(db, 'cash_drawer_pulse_enabled') === undefined,
+    'store B: no legacy flag means no global setting is seeded (unset default preserved)',
+  );
 
   closeDatabase();
 
@@ -150,7 +173,10 @@ function main() {
   MIGRATIONS.push(...originalMigrations);
   runPendingMigrations();
 
-  assert(settingValue(db, 'cash_drawer_pulse_enabled') === undefined, "store C: a non-default printer's legacy flag does not migrate — only the receipt printer's flag matters");
+  assert(
+    settingValue(db, 'cash_drawer_pulse_enabled') === undefined,
+    "store C: a non-default printer's legacy flag does not migrate — only the receipt printer's flag matters",
+  );
 
   closeDatabase();
   fs.rmSync(testDirA, { recursive: true, force: true });

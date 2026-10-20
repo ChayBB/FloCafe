@@ -4,7 +4,11 @@ import { useCallback, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import { useTranslations } from 'use-intl';
 import api from '@/lib/api';
-import { isOrdersLayoutValue, useOrdersLayoutStore, type OrdersLayout } from '@/store/orders-layout';
+import {
+  isOrdersLayoutValue,
+  useOrdersLayoutStore,
+  type OrdersLayout,
+} from '@/store/orders-layout';
 
 // Several screens read the preference; hydrate it from the DB once per renderer.
 let hydrationStarted = false;

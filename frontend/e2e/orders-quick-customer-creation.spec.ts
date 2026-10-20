@@ -49,7 +49,10 @@ test('Orders page creates a customer and links it to an active order', async ({ 
   await page.waitForURL('**/pos/**', { timeout: 20000 });
 
   await page.goto(`${BASE}/orders`);
-  const orderCard = page.locator('div.bg-card.rounded-xl').filter({ hasText: `#${order.order_number}` }).first();
+  const orderCard = page
+    .locator('div.bg-card.rounded-xl')
+    .filter({ hasText: `#${order.order_number}` })
+    .first();
   await expect(orderCard).toBeVisible();
 
   await orderCard.getByRole('button', { name: 'Link Customer' }).click();
@@ -59,11 +62,15 @@ test('Orders page creates a customer and links it to an active order', async ({ 
   const searchInput = orderCard.getByPlaceholder('Search by phone or name…');
   await searchInput.fill(customerName);
 
-  const addCustomerButton = orderCard.getByRole('button', { name: new RegExp(`^Add Customer "${customerName}"$`) });
+  const addCustomerButton = orderCard.getByRole('button', {
+    name: new RegExp(`^Add Customer "${customerName}"$`),
+  });
   await expect(addCustomerButton).toBeVisible({ timeout: 5000 });
   await addCustomerButton.click();
 
-  const modal = page.locator('div.fixed.inset-0').filter({ has: page.getByRole('heading', { name: 'Add Customer' }) });
+  const modal = page
+    .locator('div.fixed.inset-0')
+    .filter({ has: page.getByRole('heading', { name: 'Add Customer' }) });
   await expect(modal).toBeVisible();
   // The name field is the first textbox; the customer-address field added for
   // #920 makes `input[type="text"]` ambiguous.
@@ -72,7 +79,10 @@ test('Orders page creates a customer and links it to an active order', async ({ 
 
   if (EVIDENCE_DIR) {
     fs.mkdirSync(EVIDENCE_DIR, { recursive: true });
-    await page.screenshot({ path: path.join(EVIDENCE_DIR, 'orders-quick-customer-create-modal.png'), fullPage: true });
+    await page.screenshot({
+      path: path.join(EVIDENCE_DIR, 'orders-quick-customer-create-modal.png'),
+      fullPage: true,
+    });
   }
 
   const createdResponse = page.waitForResponse((response) => {
@@ -81,7 +91,9 @@ test('Orders page creates a customer and links it to an active order', async ({ 
   });
   const linkResponse = page.waitForResponse((response) => {
     const url = new URL(response.url());
-    return response.request().method() === 'PATCH' && url.pathname === `/api/orders/${order.id}/customer`;
+    return (
+      response.request().method() === 'PATCH' && url.pathname === `/api/orders/${order.id}/customer`
+    );
   });
 
   await modal.getByRole('button', { name: 'Save' }).click();
@@ -103,6 +115,9 @@ test('Orders page creates a customer and links it to an active order', async ({ 
   expect(persistedPayload.order.customer.name).toBe(customerName);
 
   if (EVIDENCE_DIR) {
-    await page.screenshot({ path: path.join(EVIDENCE_DIR, 'orders-quick-customer-linked.png'), fullPage: true });
+    await page.screenshot({
+      path: path.join(EVIDENCE_DIR, 'orders-quick-customer-linked.png'),
+      fullPage: true,
+    });
   }
 });

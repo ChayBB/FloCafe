@@ -6,7 +6,8 @@
 const Module = require('module');
 const originalLoad = Module._load;
 Module._load = function (request, parent, isMain) {
-  if (request === 'electron') return { app: { isPackaged: true, getPath: () => '/tmp', getVersion: () => 'test' } };
+  if (request === 'electron')
+    return { app: { isPackaged: true, getPath: () => '/tmp', getVersion: () => 'test' } };
   return originalLoad.apply(this, arguments);
 };
 
@@ -15,41 +16,50 @@ const { assertEqualOrThrow, assertOrThrow } = require('./helpers/test-setup');
 
 const db = buildIdealSchemaDb();
 
-const ins = db.prepare(
-  "INSERT INTO customers (id, name, phone, is_active) VALUES (?, ?, ?, ?)"
-);
-ins.run('c-e164',     'Anita E164',  '+919876543210',     1);
-ins.run('c-local',    'Anita Local', '9876543211',        1);
-ins.run('c-formatted','Anita Pretty','+91 987-654-3212',  1);
-ins.run('c-us',       'Bob US',      '+1 (555) 123-4567', 1);
-ins.run('c-ar',       'Carlos AR',   '+541143210000',     1);
-ins.run('c-inactive', 'Inactive',    '+911111111111',     0);
+const ins = db.prepare('INSERT INTO customers (id, name, phone, is_active) VALUES (?, ?, ?, ?)');
+ins.run('c-e164', 'Anita E164', '+919876543210', 1);
+ins.run('c-local', 'Anita Local', '9876543211', 1);
+ins.run('c-formatted', 'Anita Pretty', '+91 987-654-3212', 1);
+ins.run('c-us', 'Bob US', '+1 (555) 123-4567', 1);
+ins.run('c-ar', 'Carlos AR', '+541143210000', 1);
+ins.run('c-inactive', 'Inactive', '+911111111111', 0);
 
 function search(q) {
   const term = `%${q}%`;
-  return db.prepare(`
+  return db
+    .prepare(`
     SELECT id FROM customers
     WHERE is_active = 1 AND (phone_digits LIKE ? OR name LIKE ?)
     ORDER BY name LIMIT 20
-  `).all(term, term).map(r => r.id);
+  `)
+    .all(term, term)
+    .map((r) => r.id);
 }
 
 try {
   const hits1 = search('9876543210');
   assertEqualOrThrow(hits1.length, 1, `digits "9876543210" finds e164 row`);
-  assertOrThrow(hits1.includes('c-e164'),      'e164 row returned');
+  assertOrThrow(hits1.includes('c-e164'), 'e164 row returned');
 
   const hitsUs = search('5551234567');
-  assertEqualOrThrow(hitsUs.length, 1, `US short digits "5551234567" find c-us only (got ${hitsUs.length})`);
+  assertEqualOrThrow(
+    hitsUs.length,
+    1,
+    `US short digits "5551234567" find c-us only (got ${hitsUs.length})`,
+  );
   assertEqualOrThrow(hitsUs[0], 'c-us', 'US pretty-format row matched after stripping parens');
 
   const hitsUsIntl = search('15551234567');
-  assertEqualOrThrow(hitsUsIntl.length, 1, `US intl digits "15551234567" find c-us only (got ${hitsUsIntl.length})`);
+  assertEqualOrThrow(
+    hitsUsIntl.length,
+    1,
+    `US intl digits "15551234567" find c-us only (got ${hitsUsIntl.length})`,
+  );
   assertEqualOrThrow(hitsUsIntl[0], 'c-us', 'US pretty-format row matched for intl-digit query');
 
   const hits2 = search('919876543210');
   assertEqualOrThrow(hits2.length, 1, `intl digits "919876543210" match e164 row`);
-  assertOrThrow(hits2.includes('c-e164'),      'e164 row matched for intl-digit query');
+  assertOrThrow(hits2.includes('c-e164'), 'e164 row matched for intl-digit query');
 
   const hits3 = search('1111111111');
   assertEqualOrThrow(hits3.length, 0, 'inactive e164 row is excluded by is_active = 1');
@@ -66,7 +76,9 @@ try {
   console.log('\nAll assertions passed');
   process.exit(0);
 } catch (err) {
-  try { db.close(); } catch {}
+  try {
+    db.close();
+  } catch {}
   console.error('FAILED:', err.message);
   process.exit(1);
 }

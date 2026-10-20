@@ -69,8 +69,11 @@ export function ThemeSync() {
       recheckCancelled = false;
 
       const hasPosToken = (() => {
-        try { return Boolean(localStorage.getItem('token')); }
-        catch { return false; }
+        try {
+          return Boolean(localStorage.getItem('token'));
+        } catch {
+          return false;
+        }
       })();
       let dbMode: ThemeMode | null = null;
       let dbAttempted = false; // true once the bounded fetch has definitively resolved
@@ -78,7 +81,13 @@ export function ThemeSync() {
       if (window.electronAPI) {
         try {
           const all = await window.electronAPI.getSettings();
-          if (!cancelled && !userHasChosen() && all && typeof all === 'object' && !('error' in all)) {
+          if (
+            !cancelled &&
+            !userHasChosen() &&
+            all &&
+            typeof all === 'object' &&
+            !('error' in all)
+          ) {
             const raw = (all as Record<string, string | null>).theme_mode;
             if (isThemeModeValue(raw)) setMode(raw);
           }
@@ -142,7 +151,9 @@ export function ThemeSync() {
     };
     boot();
     // Theme store boots pre-auth; re-hydrate once a token exists (post-login).
-    const onAuthChanged = () => { void boot(); };
+    const onAuthChanged = () => {
+      void boot();
+    };
     window.addEventListener(THEME_REHYDRATION_EVENT, onAuthChanged);
     return () => {
       cancelled = true;

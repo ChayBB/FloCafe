@@ -8,13 +8,22 @@ const bcrypt = require('bcryptjs');
 const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-issue-689-'));
 
 Module._load = function (request: string, parent: unknown, isMain: boolean) {
-  if (request === 'electron') return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => '3.7.5' } };
+  if (request === 'electron')
+    return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => '3.7.5' } };
   return originalLoad.apply(this, arguments as any);
 };
 
 const {
-  initTestDb, createApp, startServer, seedCategory, seedProduct,
-  api, assertEqual, getResults, closeDatabase, now,
+  initTestDb,
+  createApp,
+  startServer,
+  seedCategory,
+  seedProduct,
+  api,
+  assertEqual,
+  getResults,
+  closeDatabase,
+  now,
 } = require('./helpers/test-setup');
 const { getJWTSecret } = require('../main/routes/auth');
 const { orderRoutes } = require('../main/routes/orders');
@@ -28,7 +37,14 @@ async function main() {
   db.prepare(`
     INSERT INTO users (id, name, email, password, role, is_active, created_at, updated_at)
     VALUES (?, ?, ?, ?, 'cashier', 1, ?, ?)
-  `).run(cashierId, 'Cashier 689', 'cashier-689@test.local', bcrypt.hashSync('testpass123', 10), now(), now());
+  `).run(
+    cashierId,
+    'Cashier 689',
+    'cashier-689@test.local',
+    bcrypt.hashSync('testpass123', 10),
+    now(),
+    now(),
+  );
   const token = jwt.sign(
     { userId: cashierId, email: 'cashier-689@test.local', role: 'cashier' },
     getJWTSecret(),
@@ -60,7 +76,9 @@ async function main() {
       assertEqual(order.status, 201, `cashier creates order ${orderNumber}`);
 
       const bill = await api(baseUrl, '/api/bills/generate', {
-        method: 'POST', body: { order_id: order.data.order.id }, headers: authHeader,
+        method: 'POST',
+        body: { order_id: order.data.order.id },
+        headers: authHeader,
       });
       assertEqual(bill.status, 201, `cashier generates bill ${orderNumber}`);
 
@@ -71,7 +89,11 @@ async function main() {
         headers: { ...authHeader, 'Idempotency-Key': idempotencyKey },
       });
       assertEqual(payment.status, 200, `cashier pays order ${orderNumber}`);
-      assertEqual(payment.data.bill.payment_status, 'paid', `order ${orderNumber} payment persists`);
+      assertEqual(
+        payment.data.bill.payment_status,
+        'paid',
+        `order ${orderNumber} payment persists`,
+      );
     }
 
     assertEqual(sequence, 2, 'a fresh fallback key is generated for each payment request');
@@ -87,11 +109,13 @@ async function main() {
       Date.now = originalDateNow;
       Math.random = originalMathRandom;
     }
-    const persisted = db.prepare(`
+    const persisted = db
+      .prepare(`
       SELECT COUNT(*) AS count
       FROM bills
       WHERE payment_status = 'paid' AND paid_amount = total
-    `).get() as { count: number };
+    `)
+      .get() as { count: number };
     assertEqual(persisted.count, 2, 'both cashier payments remain persisted');
 
     const { passed, failed } = getResults();

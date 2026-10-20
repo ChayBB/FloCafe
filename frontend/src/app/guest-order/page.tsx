@@ -1,7 +1,17 @@
 'use client';
 
 import axios from 'axios';
-import { Check, Loader2, Minus, Plus, Search, Send, ShoppingCart, UtensilsCrossed, X } from 'lucide-react';
+import {
+  Check,
+  Loader2,
+  Minus,
+  Plus,
+  Search,
+  Send,
+  ShoppingCart,
+  UtensilsCrossed,
+  X,
+} from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import toast, { Toaster } from 'react-hot-toast';
 import { formatCurrencyForTenant } from '@/lib/countries';
@@ -69,7 +79,8 @@ export default function GuestOrderPage() {
   // A ref rather than state: nothing renders from it, and it must not be in the
   // URL, where it would end up in screenshots and referrer logs.
   const roundTokenRef = useRef<string | null>(null);
-  const roundHeader = () => (roundTokenRef.current ? { 'X-Flo-Round': roundTokenRef.current } : undefined);
+  const roundHeader = () =>
+    roundTokenRef.current ? { 'X-Flo-Round': roundTokenRef.current } : undefined;
 
   // The token only exists in the URL the customer scanned, so it is read once on
   // mount; every state write happens in an async callback to keep the first
@@ -78,10 +89,15 @@ export default function GuestOrderPage() {
     let cancelled = false;
     const scanned = readToken();
     if (!scanned) {
-      void Promise.resolve().then(() => { if (!cancelled) setLoading(false); });
-      return () => { cancelled = true; };
+      void Promise.resolve().then(() => {
+        if (!cancelled) setLoading(false);
+      });
+      return () => {
+        cancelled = true;
+      };
     }
-    axios.get(`/api/guest/${encodeURIComponent(scanned)}/session`)
+    axios
+      .get(`/api/guest/${encodeURIComponent(scanned)}/session`)
       .then(({ data }) => {
         if (cancelled) return;
         // Issued for this sitting only. Settling the bill retires it, so an old
@@ -93,10 +109,18 @@ export default function GuestOrderPage() {
       })
       .catch((err: unknown) => {
         if (cancelled) return;
-        setError(axios.isAxiosError(err) ? (err.response?.data?.error || 'Could not load the menu') : 'Could not load the menu');
+        setError(
+          axios.isAxiosError(err)
+            ? err.response?.data?.error || 'Could not load the menu'
+            : 'Could not load the menu',
+        );
       })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // The ticket is the only thing that changes without the guest acting, and a
@@ -104,14 +128,20 @@ export default function GuestOrderPage() {
   useEffect(() => {
     if (!token || !session) return;
     const timer = setInterval(() => {
-      axios.get(`/api/guest/${encodeURIComponent(token)}/ticket`, { headers: roundHeader() })
-        .then(({ data }) => setSession((current) => (current ? { ...current, ticket: data.ticket } : current)))
-        .catch(() => { /* a dropped poll retries on the next tick */ });
+      axios
+        .get(`/api/guest/${encodeURIComponent(token)}/ticket`, { headers: roundHeader() })
+        .then(({ data }) =>
+          setSession((current) => (current ? { ...current, ticket: data.ticket } : current)),
+        )
+        .catch(() => {
+          /* a dropped poll retries on the next tick */
+        });
     }, 20_000);
     return () => clearInterval(timer);
   }, [token, session]);
 
-  const money = (value: number) => formatCurrencyForTenant(value, session?.country || '', session?.currency || 'THB');
+  const money = (value: number) =>
+    formatCurrencyForTenant(value, session?.country || '', session?.currency || 'THB');
 
   const products = useMemo(() => {
     if (!session) return [];
@@ -150,16 +180,23 @@ export default function GuestOrderPage() {
     if (cartLines.length === 0 || sending) return;
     setSending(true);
     try {
-      const { data } = await axios.post(`/api/guest/${encodeURIComponent(token)}/order`, {
-        items: cartLines.map((line) => ({ product_id: line.product.id, quantity: line.quantity })),
-      }, { headers: roundHeader() });
+      const { data } = await axios.post(
+        `/api/guest/${encodeURIComponent(token)}/order`,
+        {
+          items: cartLines.map((line) => ({
+            product_id: line.product.id,
+            quantity: line.quantity,
+          })),
+        },
+        { headers: roundHeader() },
+      );
       setCart({});
       setCartOpen(false);
       setSession((current) => (current ? { ...current, ticket: data.ticket } : current));
       toast.success('ส่งออเดอร์เข้าครัวแล้ว');
     } catch (err: unknown) {
       const message = axios.isAxiosError(err)
-        ? (err.response?.data?.error || 'ส่งออเดอร์ไม่สำเร็จ')
+        ? err.response?.data?.error || 'ส่งออเดอร์ไม่สำเร็จ'
         : 'ส่งออเดอร์ไม่สำเร็จ';
       toast.error(message);
     } finally {
@@ -204,7 +241,9 @@ export default function GuestOrderPage() {
               <li key={item.id} className="flex items-center gap-2 text-sm">
                 <span className="w-8 shrink-0 font-bold">{item.quantity}×</span>
                 <span className="min-w-0 flex-1 truncate">{item.product_name}</span>
-                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${STATUS_STYLES[item.status] || STATUS_STYLES.pending}`}>
+                <span
+                  className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${STATUS_STYLES[item.status] || STATUS_STYLES.pending}`}
+                >
                   {STATUS_LABELS_TH[item.status] || item.status}
                 </span>
               </li>
@@ -246,20 +285,27 @@ export default function GuestOrderPage() {
         {products.map((product) => {
           const inCart = cart[product.id] || 0;
           return (
-            <div key={product.id} className="overflow-hidden rounded-xl border border-border bg-card">
+            <div
+              key={product.id}
+              className="overflow-hidden rounded-xl border border-border bg-card"
+            >
               <div className="relative aspect-square w-full overflow-hidden">
                 <div
                   className="absolute inset-0 flex items-center justify-center"
                   style={{ backgroundColor: nameToColor(product.name) }}
                 >
-                  <span className="text-2xl font-bold text-white/80">{product.name.substring(0, 2).toUpperCase()}</span>
+                  <span className="text-2xl font-bold text-white/80">
+                    {product.name.substring(0, 2).toUpperCase()}
+                  </span>
                 </div>
                 {product.has_image && (
                   <img
                     src={`/api/guest/${encodeURIComponent(token)}/products/${product.id}/image`}
                     alt={product.name}
                     className="absolute inset-0 h-full w-full object-cover"
-                    onError={(event) => { (event.target as HTMLImageElement).style.display = 'none'; }}
+                    onError={(event) => {
+                      (event.target as HTMLImageElement).style.display = 'none';
+                    }}
                   />
                 )}
               </div>
@@ -316,14 +362,21 @@ export default function GuestOrderPage() {
       )}
 
       {cartOpen && (
-        <div className="fixed inset-0 z-40 flex items-end bg-black/50" onClick={() => setCartOpen(false)}>
+        <div
+          className="fixed inset-0 z-40 flex items-end bg-black/50"
+          onClick={() => setCartOpen(false)}
+        >
           <div
             className="max-h-[85vh] w-full overflow-y-auto rounded-t-2xl bg-card p-5"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-lg font-bold">ตะกร้า</h2>
-              <button onClick={() => setCartOpen(false)} aria-label="ปิด" className="flex h-10 w-10 items-center justify-center rounded-full text-gray-400">
+              <button
+                onClick={() => setCartOpen(false)}
+                aria-label="ปิด"
+                className="flex h-10 w-10 items-center justify-center rounded-full text-gray-400"
+              >
                 <X size={20} />
               </button>
             </div>
@@ -331,17 +384,29 @@ export default function GuestOrderPage() {
             <ul className="space-y-3">
               {cartLines.map((line) => (
                 <li key={line.product.id} className="flex items-center gap-3">
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{line.product.name}</span>
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                    {line.product.name}
+                  </span>
                   <div className="flex items-center gap-2">
-                    <button onClick={() => changeQuantity(line.product.id, -1)} aria-label="ลด" className="flex h-9 w-9 items-center justify-center rounded-lg border border-border">
+                    <button
+                      onClick={() => changeQuantity(line.product.id, -1)}
+                      aria-label="ลด"
+                      className="flex h-9 w-9 items-center justify-center rounded-lg border border-border"
+                    >
                       <Minus size={15} />
                     </button>
                     <span className="w-6 text-center font-bold">{line.quantity}</span>
-                    <button onClick={() => changeQuantity(line.product.id, 1)} aria-label="เพิ่ม" className="flex h-9 w-9 items-center justify-center rounded-lg border border-border">
+                    <button
+                      onClick={() => changeQuantity(line.product.id, 1)}
+                      aria-label="เพิ่ม"
+                      className="flex h-9 w-9 items-center justify-center rounded-lg border border-border"
+                    >
                       <Plus size={15} />
                     </button>
                   </div>
-                  <span className="w-20 shrink-0 text-end text-sm font-semibold">{money(line.product.price * line.quantity)}</span>
+                  <span className="w-20 shrink-0 text-end text-sm font-semibold">
+                    {money(line.product.price * line.quantity)}
+                  </span>
                 </li>
               ))}
             </ul>

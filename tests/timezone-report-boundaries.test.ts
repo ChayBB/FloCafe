@@ -91,4 +91,6 @@ for (const testCase of cutoffCases) {
   );
 }
 
-console.log(`Timezone report boundary tests passed (${cases.length} default + ${cutoffCases.length} cutoff zones)`);
+console.log(
+  `Timezone report boundary tests passed (${cases.length} default + ${cutoffCases.length} cutoff zones)`,
+);

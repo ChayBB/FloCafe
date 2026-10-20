@@ -29,7 +29,11 @@ export function parseScaleBarcode(
 ): ParsedScaleBarcode | null {
   const normalized = normalizeBarcode(code);
   const payloadLength = config.prefix.length + config.productDigits + config.weightDigits;
-  if (normalized.length < payloadLength || !normalized.startsWith(config.prefix) || !/^\d+$/.test(normalized)) {
+  if (
+    normalized.length < payloadLength ||
+    !normalized.startsWith(config.prefix) ||
+    !/^\d+$/.test(normalized)
+  ) {
     return null;
   }
 
@@ -48,15 +52,22 @@ function roundedQuantity(value: number, precision: number | null | undefined): n
 
 function quantityForProductUnit(parsed: ParsedScaleBarcode, product: Product): number | null {
   if (product.sale_unit === 'kg') return roundedQuantity(parsed.quantity, product.weight_precision);
-  if (product.sale_unit === 'g') return roundedQuantity(parsed.quantity * 1000, product.weight_precision);
-  if (product.sale_unit === 'lb') return roundedQuantity(parsed.quantity / 0.45359237, product.weight_precision);
+  if (product.sale_unit === 'g')
+    return roundedQuantity(parsed.quantity * 1000, product.weight_precision);
+  if (product.sale_unit === 'lb')
+    return roundedQuantity(parsed.quantity / 0.45359237, product.weight_precision);
   return null;
 }
 
 export function resolveScannedProduct(
   code: string,
   products: Product[],
-): { product: Product; variant?: ProductVariant; quantity: number; scaleBarcode: ParsedScaleBarcode | null } | null {
+): {
+  product: Product;
+  variant?: ProductVariant;
+  quantity: number;
+  scaleBarcode: ParsedScaleBarcode | null;
+} | null {
   const normalizedCode = normalizeBarcode(code);
   const exact = products.find((product) => normalizeBarcode(product.barcode) === normalizedCode);
   if (exact) return { product: exact, quantity: 1, scaleBarcode: null };
@@ -74,8 +85,12 @@ export function resolveScannedProduct(
   if (!parsed) return null;
   const product = products.find((candidate) => {
     if (!candidate.allow_fractional_quantity) return false;
-    if (candidate.sale_unit !== 'kg' && candidate.sale_unit !== 'g' && candidate.sale_unit !== 'lb') return false;
-    return normalizeBarcode(candidate.barcode) === parsed.plu || normalizeBarcode(candidate.sku) === parsed.plu;
+    if (candidate.sale_unit !== 'kg' && candidate.sale_unit !== 'g' && candidate.sale_unit !== 'lb')
+      return false;
+    return (
+      normalizeBarcode(candidate.barcode) === parsed.plu ||
+      normalizeBarcode(candidate.sku) === parsed.plu
+    );
   });
   if (!product) return null;
   const quantity = quantityForProductUnit(parsed, product);

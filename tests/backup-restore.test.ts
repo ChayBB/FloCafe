@@ -22,7 +22,7 @@ function createTestDb(version: number = 8): void {
 
   const db = new DatabaseSync(dbPath);
   db.exec('PRAGMA journal_mode = DELETE');
-  
+
   db.exec(`
     CREATE TABLE settings (
       key TEXT PRIMARY KEY,
@@ -44,8 +44,10 @@ function createTestDb(version: number = 8): void {
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
   `);
-  
-  db.exec(`INSERT INTO products VALUES ('p1', 'Test Product', 100.00, 'old value', datetime('now'))`);
+
+  db.exec(
+    `INSERT INTO products VALUES ('p1', 'Test Product', 100.00, 'old value', datetime('now'))`,
+  );
   db.exec(`INSERT INTO categories VALUES ('c1', 'Test Category', datetime('now'))`);
   db.close();
 }
@@ -58,7 +60,7 @@ function createCurrentSchemaDb(): Database {
 
   const db = new DatabaseSync(dbPath);
   db.exec('PRAGMA journal_mode = DELETE');
-  
+
   db.exec(`
     CREATE TABLE settings (
       key TEXT PRIMARY KEY,
@@ -93,21 +95,23 @@ function createCurrentSchemaDb(): Database {
       value TEXT
     );
   `);
-  
+
   return db;
 }
 
 function getColumns(db: Database, table: string): string[] {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
-  return cols.map(c => c.name);
+  return cols.map((c) => c.name);
 }
 
 function getTables(db: Database): string[] {
-  const tables = db.prepare(`
+  const tables = db
+    .prepare(`
     SELECT name FROM sqlite_master WHERE type='table' 
     AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_flo_meta'
-  `).all() as { name: string }[];
-  return tables.map(t => t.name);
+  `)
+    .all() as { name: string }[];
+  return tables.map((t) => t.name);
 }
 
 function addMetaToBackup(backupPath: string, schemaVersion: number) {
@@ -118,8 +122,12 @@ function addMetaToBackup(backupPath: string, schemaVersion: number) {
       value TEXT
     )
   `);
-  db.prepare(`INSERT OR REPLACE INTO _flo_meta VALUES ('schema_version', '${schemaVersion}')`).run();
-  db.prepare(`INSERT OR REPLACE INTO _flo_meta VALUES ('backup_created_at', '${new Date().toISOString()}')`).run();
+  db.prepare(
+    `INSERT OR REPLACE INTO _flo_meta VALUES ('schema_version', '${schemaVersion}')`,
+  ).run();
+  db.prepare(
+    `INSERT OR REPLACE INTO _flo_meta VALUES ('backup_created_at', '${new Date().toISOString()}')`,
+  ).run();
   db.prepare(`INSERT OR REPLACE INTO _flo_meta VALUES ('app_version', '${schemaVersion}')`).run();
   db.close();
 }
@@ -128,7 +136,9 @@ function getSchemaVersionFromBackup(backupPath: string): number {
   const db = new DatabaseSync(backupPath, { open: true, readOnly: true });
   try {
     try {
-      const meta = db.prepare(`SELECT value FROM _flo_meta WHERE key = 'schema_version'`).get() as { value: string } | undefined;
+      const meta = db.prepare(`SELECT value FROM _flo_meta WHERE key = 'schema_version'`).get() as
+        | { value: string }
+        | undefined;
       return meta ? parseInt(meta.value, 10) : 0;
     } catch {
       return 0;
@@ -143,7 +153,10 @@ function getSchemaVersionFromBackup(backupPath: string): number {
 // while this test uses node:sqlite (built-in). Both test the same concept: handling schema
 // mismatches between backup and current database. To test the production function directly,
 // it would need to be exported and this test migrated to use better-sqlite3.
-function dataOnlyRestore(backupPath: string, targetDb: Database): { success: boolean; tablesRestored: number; error?: string } {
+function dataOnlyRestore(
+  backupPath: string,
+  targetDb: Database,
+): { success: boolean; tablesRestored: number; error?: string } {
   if (fs.existsSync(backupPath + '-wal')) fs.unlinkSync(backupPath + '-wal');
   if (fs.existsSync(backupPath + '-shm')) fs.unlinkSync(backupPath + '-shm');
 
@@ -152,44 +165,46 @@ function dataOnlyRestore(backupPath: string, targetDb: Database): { success: boo
     backupDb = new DatabaseSync(backupPath, { open: true, readOnly: true });
     const backupTables = getTables(backupDb);
     const backupData: Record<string, any[]> = {};
-    
+
     for (const t of backupTables) {
       backupData[t] = backupDb.prepare(`SELECT * FROM ${t}`).all();
     }
     backupDb.close();
     backupDb = null;
-    
+
     const currentTables = getTables(targetDb);
-    const commonTables = backupTables.filter(t => currentTables.includes(t));
-    
+    const commonTables = backupTables.filter((t) => currentTables.includes(t));
+
     let tablesRestored = 0;
-    
+
     targetDb.exec('BEGIN IMMEDIATE');
-    
+
     for (const tableName of commonTables) {
       const rows = backupData[tableName] || [];
       if (rows.length === 0) continue;
-      
+
       const backupCols = Object.keys(rows[0]);
       const currentCols = getColumns(targetDb, tableName);
-      const commonCols = backupCols.filter(c => currentCols.includes(c));
-      
+      const commonCols = backupCols.filter((c) => currentCols.includes(c));
+
       if (commonCols.length === 0) continue;
-      
+
       targetDb.exec(`DELETE FROM ${tableName}`);
-      
+
       const colList = commonCols.join(', ');
       const placeholders = commonCols.map(() => '?').join(', ');
-      const insertStmt = targetDb.prepare(`INSERT INTO ${tableName} (${colList}) VALUES (${placeholders})`);
-      
+      const insertStmt = targetDb.prepare(
+        `INSERT INTO ${tableName} (${colList}) VALUES (${placeholders})`,
+      );
+
       for (const row of rows) {
-        insertStmt.run(...commonCols.map(col => row[col]));
+        insertStmt.run(...commonCols.map((col) => row[col]));
       }
-      
+
       console.log(`   Restored ${tableName}: ${rows.length} rows`);
       tablesRestored++;
     }
-    
+
     targetDb.exec('COMMIT');
     return { success: true, tablesRestored };
   } catch (error: any) {
@@ -224,7 +239,9 @@ function assertEqual(actual: any, expected: any, message: string) {
     console.log(`  ✓ ${message}`);
   } else {
     failed++;
-    console.error(`  ✗ ${message} — expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+    console.error(
+      `  ✗ ${message} — expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`,
+    );
   }
 }
 
@@ -255,11 +272,12 @@ const restoredProducts = currentDb.prepare(`SELECT * FROM products WHERE id = 'p
 assert(restoredProducts !== undefined, 'restored product exists');
 if (restoredProducts) {
   assertEqual(restoredProducts.name, 'Test Product', 'product name preserved');
-  assertEqual(restoredProducts.price, 100.00, 'product price preserved (₹100)');
-  assert(restoredProducts.old_field === undefined || restoredProducts.old_field === null,
-    "old_field not present or null (new schema doesn't have it)");
-  assert(restoredProducts.new_field === null,
-    'new_field is NULL (old backup had no such column)');
+  assertEqual(restoredProducts.price, 100.0, 'product price preserved (₹100)');
+  assert(
+    restoredProducts.old_field === undefined || restoredProducts.old_field === null,
+    "old_field not present or null (new schema doesn't have it)",
+  );
+  assert(restoredProducts.new_field === null, 'new_field is NULL (old backup had no such column)');
 }
 
 console.log('\n📁 Test 3: Version detection on old backup');
@@ -289,4 +307,3 @@ currentDb.close();
 cleanup();
 
 process.exit(failed === 0 ? 0 : 1);
-

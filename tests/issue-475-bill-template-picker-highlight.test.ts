@@ -31,7 +31,10 @@ for (const id of ['classic', 'compact']) {
   }
 }
 
-const differentTemplate: BillTemplateSelection = { billTemplate: 'classic', billTemplateSource: 'core' };
+const differentTemplate: BillTemplateSelection = {
+  billTemplate: 'classic',
+  billTemplateSource: 'core',
+};
 assert.equal(
   isTemplateCardSelected(differentTemplate, { id: 'compact', selectionSource: 'core' }),
   false,

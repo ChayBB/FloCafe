@@ -11,7 +11,7 @@ function requiredArg(args, name) {
 
 function optionalArg(args, name, fallback) {
   const index = args.indexOf(name);
-  return index === -1 ? fallback : (args[index + 1] || fallback);
+  return index === -1 ? fallback : args[index + 1] || fallback;
 }
 
 function parseArgs(argv) {
@@ -30,7 +30,8 @@ function parseArgs(argv) {
   }
   if (!SEMVER.test(options.tag)) throw new Error(`invalid release tag ${options.tag}`);
   if (!COMMIT.test(options.commit)) throw new Error(`invalid release commit ${options.commit}`);
-  if (!/^[A-Za-z0-9._/-]+$/.test(options.mainRef)) throw new Error(`invalid main ref ${options.mainRef}`);
+  if (!/^[A-Za-z0-9._/-]+$/.test(options.mainRef))
+    throw new Error(`invalid main ref ${options.mainRef}`);
   if (options.allowHistoricalPromotion && options.requireMain) {
     throw new Error('--allow-historical-promotion requires --allow-off-main');
   }
@@ -67,7 +68,12 @@ function decodeJsonContent(file, description) {
   }
 }
 
-async function resolveSignedTag(apiBase, tag, request = githubJson, { requireVerification = true } = {}) {
+async function resolveSignedTag(
+  apiBase,
+  tag,
+  request = githubJson,
+  { requireVerification = true } = {},
+) {
   const ref = await request(`${apiBase}/git/ref/tags/${encodeURIComponent(tag)}`);
   if (ref?.object?.type !== 'tag') {
     throw new Error(`release tag ${tag} must be an annotated signed tag, not a lightweight tag`);
@@ -77,25 +83,41 @@ async function resolveSignedTag(apiBase, tag, request = githubJson, { requireVer
     throw new Error(`release tag ${tag} does not resolve directly to a commit`);
   }
   if (requireVerification && tagObject.verification?.verified !== true) {
-    throw new Error(`release tag ${tag} is not cryptographically verified (reason: ${tagObject.verification?.reason || 'unknown'})`);
+    throw new Error(
+      `release tag ${tag} is not cryptographically verified (reason: ${tagObject.verification?.reason || 'unknown'})`,
+    );
   }
   return tagObject.object.sha.toLowerCase();
 }
 
-async function validateReleaseRef({ repo, tag, commit, mainRef = 'main', requireMain = true, allowHistoricalPromotion = false, request = githubJson }) {
+async function validateReleaseRef({
+  repo,
+  tag,
+  commit,
+  mainRef = 'main',
+  requireMain = true,
+  allowHistoricalPromotion = false,
+  request = githubJson,
+}) {
   const apiBase = `https://api.github.com/repos/${repo}`;
   const expectedCommit = commit.toLowerCase();
   if (allowHistoricalPromotion && requireMain) {
     throw new Error('historical promotion validation requires main-history checks to be disabled');
   }
-  const resolvedCommit = await resolveSignedTag(apiBase, tag, request, { requireVerification: !allowHistoricalPromotion });
+  const resolvedCommit = await resolveSignedTag(apiBase, tag, request, {
+    requireVerification: !allowHistoricalPromotion,
+  });
   if (resolvedCommit !== expectedCommit) {
-    throw new Error(`release tag ${tag} resolves to ${resolvedCommit}, not the workflow commit ${expectedCommit}`);
+    throw new Error(
+      `release tag ${tag} resolves to ${resolvedCommit}, not the workflow commit ${expectedCommit}`,
+    );
   }
 
   const commitObject = await request(`${apiBase}/commits/${resolvedCommit}`);
   if (!allowHistoricalPromotion && commitObject.commit?.verification?.verified !== true) {
-    throw new Error(`release commit ${resolvedCommit} is not cryptographically verified (reason: ${commitObject.commit?.verification?.reason || 'unknown'})`);
+    throw new Error(
+      `release commit ${resolvedCommit} is not cryptographically verified (reason: ${commitObject.commit?.verification?.reason || 'unknown'})`,
+    );
   }
 
   const taggedPackage = decodeJsonContent(
@@ -103,7 +125,9 @@ async function validateReleaseRef({ repo, tag, commit, mainRef = 'main', require
     `package.json at tag ${tag}`,
   );
   if (taggedPackage.version !== tag) {
-    throw new Error(`package.json at tag ${tag} reports version ${taggedPackage.version}, not ${tag}`);
+    throw new Error(
+      `package.json at tag ${tag} reports version ${taggedPackage.version}, not ${tag}`,
+    );
   }
 
   if (!requireMain) {
@@ -112,10 +136,13 @@ async function validateReleaseRef({ repo, tag, commit, mainRef = 'main', require
 
   const mainRefObject = await request(`${apiBase}/git/ref/heads/${encodeURIComponent(mainRef)}`);
   const mainCommit = mainRefObject?.object?.sha;
-  if (!COMMIT.test(mainCommit || '')) throw new Error(`main ref ${mainRef} did not resolve to a commit`);
+  if (!COMMIT.test(mainCommit || ''))
+    throw new Error(`main ref ${mainRef} did not resolve to a commit`);
   const comparison = await request(`${apiBase}/compare/${resolvedCommit}...${mainCommit}`);
   if (comparison.behind_by !== 0) {
-    throw new Error(`release commit ${resolvedCommit} is not in ${mainRef} history (behind_by=${comparison.behind_by})`);
+    throw new Error(
+      `release commit ${resolvedCommit} is not in ${mainRef} history (behind_by=${comparison.behind_by})`,
+    );
   }
 
   const mainPackage = decodeJsonContent(
@@ -123,7 +150,9 @@ async function validateReleaseRef({ repo, tag, commit, mainRef = 'main', require
     `package.json at ${mainRef}`,
   );
   if (mainPackage.version !== tag) {
-    throw new Error(`package.json at ${mainRef} reports version ${mainPackage.version}, not release ${tag}`);
+    throw new Error(
+      `package.json at ${mainRef} reports version ${mainPackage.version}, not release ${tag}`,
+    );
   }
 
   return { commit: resolvedCommit, tag, mainRef, packageVersion: taggedPackage.version };

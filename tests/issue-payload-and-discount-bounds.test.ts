@@ -10,15 +10,25 @@ const os = require('os');
 const path = require('path');
 const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-payload-bounds-'));
 Module._load = function (request: string, parent: unknown, isMain: boolean) {
-  if (request === 'electron') return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
+  if (request === 'electron')
+    return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
   return originalLoad.apply(this, arguments as any);
 };
 
 const {
-  initTestDb, createApp, startServer,
-  seedOwnerUser, seedCategory, seedProduct,
-  api, assert, assertEqual, assertIncludes,
-  getResults, closeDatabase, now,
+  initTestDb,
+  createApp,
+  startServer,
+  seedOwnerUser,
+  seedCategory,
+  seedProduct,
+  api,
+  assert,
+  assertEqual,
+  assertIncludes,
+  getResults,
+  closeDatabase,
+  now,
 } = require('./helpers/test-setup');
 
 const { orderRoutes } = require('../main/routes/orders');
@@ -64,8 +74,16 @@ async function main() {
       body: { type: 'takeaway', items: itemsPayload(MAX_ORDER_ITEMS + 1) },
       headers: authHeader,
     });
-    assertEqual(overLimit.status, 400, `create order with ${MAX_ORDER_ITEMS + 1} items returns 400`);
-    assertIncludes(String(overLimit.data.error || ''), String(MAX_ORDER_ITEMS), 'error mentions the item cap');
+    assertEqual(
+      overLimit.status,
+      400,
+      `create order with ${MAX_ORDER_ITEMS + 1} items returns 400`,
+    );
+    assertIncludes(
+      String(overLimit.data.error || ''),
+      String(MAX_ORDER_ITEMS),
+      'error mentions the item cap',
+    );
 
     const atLimit = await api(baseUrl, '/api/orders', {
       method: 'POST',
@@ -88,7 +106,11 @@ async function main() {
       headers: authHeader,
     });
     assertEqual(appendOver.status, 400, `append ${MAX_ORDER_ITEMS + 1} items returns 400`);
-    assertIncludes(String(appendOver.data.error || ''), String(MAX_ORDER_ITEMS), 'append error mentions the item cap');
+    assertIncludes(
+      String(appendOver.data.error || ''),
+      String(MAX_ORDER_ITEMS),
+      'append error mentions the item cap',
+    );
 
     const appendOk = await api(baseUrl, `/api/orders/${smallOrder.data.order.id}/items`, {
       method: 'POST',
@@ -123,10 +145,7 @@ async function main() {
     const applied = Number(absurd.data.bill.discount_amount);
     assert(applied <= subtotal, `discount_amount ${applied} is clamped to subtotal ${subtotal}`);
     assertEqual(applied, subtotal, 'discount_amount equals subtotal after clamp');
-    assert(
-      Number(absurd.data.bill.total) >= 0,
-      'bill total stays non-negative after clamp',
-    );
+    assert(Number(absurd.data.bill.total) >= 0, 'bill total stays non-negative after clamp');
 
     const atSubtotal = await api(baseUrl, '/api/bills/generate', {
       method: 'POST',
@@ -140,7 +159,11 @@ async function main() {
         headers: authHeader,
       });
       assertEqual(exact.status, 200, 'exact-subtotal flat discount still accepted');
-      assertEqual(Number(exact.data.bill.discount_amount), subtotal, 'exact-subtotal discount unchanged');
+      assertEqual(
+        Number(exact.data.bill.discount_amount),
+        subtotal,
+        'exact-subtotal discount unchanged',
+      );
     } else {
       assert(true, 'second bill generate skipped (order already billed)');
     }
@@ -161,13 +184,19 @@ async function main() {
       headers: authHeader,
     });
     assertEqual(okDiscount.status, 200, 'in-range flat discount accepted');
-    assertEqual(Number(okDiscount.data.bill.discount_amount), 40, 'in-range discount value preserved');
+    assertEqual(
+      Number(okDiscount.data.bill.discount_amount),
+      40,
+      'in-range discount value preserved',
+    );
 
     void now;
   } finally {
     server.close();
     closeDatabase();
-    try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
+    try {
+      fs.rmSync(testDir, { recursive: true, force: true });
+    } catch {}
   }
 
   const { passed, failed, total } = getResults();

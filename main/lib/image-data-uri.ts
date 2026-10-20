@@ -29,7 +29,10 @@ export function validateImageDataUri(
     return { valid: false, error: 'Invalid image format. Supported: webp, png, jpeg' };
   }
   if (value.length > maxLength) {
-    return { valid: false, error: `Image too large (max ${maxLength.toLocaleString('en-US')} characters)` };
+    return {
+      valid: false,
+      error: `Image too large (max ${maxLength.toLocaleString('en-US')} characters)`,
+    };
   }
   return { valid: true };
 }

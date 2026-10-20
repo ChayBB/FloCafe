@@ -39,9 +39,7 @@ async function navigateToAppearance(): Promise<void> {
   await harness.page.goto(`http://localhost:${harness.ports.main}/settings`, {
     waitUntil: 'domcontentloaded',
   });
-  await harness.page
-    .getByRole('button', { name: 'Appearance', exact: true })
-    .click();
+  await harness.page.getByRole('button', { name: 'Appearance', exact: true }).click();
   await harness.page
     .getByRole('radiogroup', { name: 'Theme' })
     .waitFor({ state: 'visible', timeout: 10_000 });
@@ -118,15 +116,25 @@ test('real Electron flips the renderer palette when the owner toggles Dark in Se
 
   // html.dark and localStorage are settled by the waitForFunction; only the
   // main-side push (set-theme-effective IPC, fire-and-forget) needs polling.
-  await expect.poll(async () => harness.page.evaluate(async () => {
-    const status = await window.electronAPI?.getStatus();
-    return status?.effectiveTheme;
-  }), { timeout: 10_000 }).toBe('dark');
+  await expect
+    .poll(
+      async () =>
+        harness.page.evaluate(async () => {
+          const status = await window.electronAPI?.getStatus();
+          return status?.effectiveTheme;
+        }),
+      { timeout: 10_000 },
+    )
+    .toBe('dark');
 
   const runtime = await harness.page.evaluate(() => ({
     htmlHasDark: document.documentElement.classList.contains('dark'),
     mirror: (() => {
-      try { return localStorage.getItem('flo-theme-resolved'); } catch { return null; }
+      try {
+        return localStorage.getItem('flo-theme-resolved');
+      } catch {
+        return null;
+      }
     })(),
   }));
   expect(runtime.htmlHasDark).toBe(true);
@@ -195,10 +203,16 @@ test('persisted theme_mode survives a full app relaunch (SQLite round-trip)', as
     undefined,
     { timeout: 10_000 },
   );
-  await expect.poll(async () => harness.page.evaluate(async () => {
-    const status = await window.electronAPI?.getStatus();
-    return status?.effectiveTheme;
-  }), { timeout: 10_000 }).toBe('dark');
+  await expect
+    .poll(
+      async () =>
+        harness.page.evaluate(async () => {
+          const status = await window.electronAPI?.getStatus();
+          return status?.effectiveTheme;
+        }),
+      { timeout: 10_000 },
+    )
+    .toBe('dark');
 
   // Only the first harness carries relaunch(); the relaunched one omits it.
   const newHarness = await harness.relaunch!();

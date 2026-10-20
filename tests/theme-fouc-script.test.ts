@@ -33,7 +33,8 @@ const ROOT = path.join(__dirname, '..');
 const LAYOUT_PATH = path.join(ROOT, 'frontend/src/app/layout.tsx');
 const THEME_SYNC_PATH = path.join(ROOT, 'frontend/src/components/layout/ThemeSync.tsx');
 
-const readSource = (filePath: string): string => fs.readFileSync(filePath, 'utf8').replace(/\r\n?/g, '\n');
+const readSource = (filePath: string): string =>
+  fs.readFileSync(filePath, 'utf8').replace(/\r\n?/g, '\n');
 
 // ---------------------------------------------------------------------------
 // Script extraction — tolerant, loud-fail-on-shape-change.
@@ -268,9 +269,7 @@ for (const c of cases) {
     continue;
   }
   if (r.darkClass !== c.expectDark) {
-    console.error(
-      `FAIL ${c.name}: expected dark=${c.expectDark}, got dark=${r.darkClass}`,
-    );
+    console.error(`FAIL ${c.name}: expected dark=${c.expectDark}, got dark=${r.darkClass}`);
     failed++;
     continue;
   }
@@ -281,7 +280,7 @@ for (const c of cases) {
 // Hard guarantees the script must never violate regardless of matrix case:
 assert.equal(failed, 0, `FOUC precedence matrix has ${failed} failures (${passed} passed)`);
 assert.ok(
-  script.includes("try{") && script.includes("}catch(e){}"),
+  script.includes('try{') && script.includes('}catch(e){}'),
   'FOUC script must wrap its body in try/catch and swallow errors',
 );
 console.log(`ok   FOUC script body is try/catch wrapped (${script.length} chars)`);
@@ -395,15 +394,18 @@ assert.ok(
   saveBody.includes('markUserSelectedTheme()') || saveBody.includes('markUserSelected()'),
   'Settings saveThemeMode must call markUserSelected (PR review P1-1)',
 );
-const markIdx = saveBody.indexOf('markUserSelectedTheme()') === -1
-  ? saveBody.indexOf('markUserSelected()')
-  : saveBody.indexOf('markUserSelectedTheme()');
+const markIdx =
+  saveBody.indexOf('markUserSelectedTheme()') === -1
+    ? saveBody.indexOf('markUserSelected()')
+    : saveBody.indexOf('markUserSelectedTheme()');
 const flipIdx = saveBody.indexOf('setThemeMode(next)');
 assert.ok(
   markIdx !== -1 && flipIdx !== -1 && markIdx < flipIdx,
   'Settings saveThemeMode must call markUserSelected BEFORE the optimistic setThemeMode (PR review P1-1)',
 );
-console.log('ok   Settings saveThemeMode flags userSelected before optimistic flip (PR review P1-1)');
+console.log(
+  'ok   Settings saveThemeMode flags userSelected before optimistic flip (PR review P1-1)',
+);
 
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
@@ -466,7 +468,10 @@ console.log('ok   ThemeSync DB fetch is bounded-retry (PR review P1-4)');
 // block as the content between the owner-vs-follower `} else {` and the
 // unique tail `void dbAttempted;` (the last statement in the follower
 // before its closing `}`).
-const followerElseIdx = themeSyncSrc.indexOf('} else {', themeSyncSrc.indexOf('window.electronAPI'));
+const followerElseIdx = themeSyncSrc.indexOf(
+  '} else {',
+  themeSyncSrc.indexOf('window.electronAPI'),
+);
 // The follower block in `boot()` ends at the one-shot recheck guard
 // (unique to this PR — `hasPosToken && dbAttempted && !dbMode`). Everything
 // up to that line lives inside the follower branch.
@@ -496,7 +501,8 @@ assert.ok(
 );
 // Inside the mirror seed, authoritative.current = true must appear
 // EXACTLY once and that one occurrence must be inside `if (!dbAttempted)`.
-const mirrorAuthTrueCount = (mirrorSeedBody.match(/authoritative\.current\s*=\s*true/g) ?? []).length;
+const mirrorAuthTrueCount = (mirrorSeedBody.match(/authoritative\.current\s*=\s*true/g) ?? [])
+  .length;
 assert.ok(
   mirrorAuthTrueCount === 1,
   `ThemeSync mirror seed must flip authoritative exactly once (inside !dbAttempted), got ${mirrorAuthTrueCount} (PR review P1-4)`,
@@ -543,7 +549,9 @@ assert.ok(
   /saveSeq\.current\s*===\s*seq/.test(saveBody),
   'Settings saveThemeMode catch must gate the server-truth restore on saveSeq unchanged (PR review P1-3)',
 );
-console.log('ok   Settings saveThemeMode restores from server truth on PUT failure (PR review P1-3)');
+console.log(
+  'ok   Settings saveThemeMode restores from server truth on PUT failure (PR review P1-3)',
+);
 
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
@@ -562,9 +570,8 @@ assert.ok(
 // expressions, array literal syntax in the body), so we cannot pin the
 // first arg with a comma-non-token class — match `setTimeout(...,
 // RECHECK_DELAY_MS)` by anchoring the closing arg + delay + paren.
-const recheckTimeoutCalls = themeSyncSrc.match(
-  /setTimeout\([\s\S]*?,\s*RECHECK_DELAY_MS\s*\)/g,
-) ?? [];
+const recheckTimeoutCalls =
+  themeSyncSrc.match(/setTimeout\([\s\S]*?,\s*RECHECK_DELAY_MS\s*\)/g) ?? [];
 assert.ok(
   recheckTimeoutCalls.length === 1,
   `ThemeSync must schedule exactly ONE delayed re-check (setTimeout(..., RECHECK_DELAY_MS)), found ${recheckTimeoutCalls.length} (PR review P1-A)`,
@@ -574,8 +581,7 @@ assert.ok(
 // recheckHandle clearing). We accept either pattern — the tripwire is
 // coarse but catches "scheduled but never cancellable".
 assert.ok(
-  /clearTimeout\(/.test(themeSyncSrc) &&
-    (/(?:handle|cancelled|cancelRecheck)/.test(themeSyncSrc)),
+  /clearTimeout\(/.test(themeSyncSrc) && /(?:handle|cancelled|cancelRecheck)/.test(themeSyncSrc),
   'ThemeSync delayed re-check must clear its timer on unmount/cancel (PR review P1-A)',
 );
 console.log('ok   ThemeSync has one-shot delayed re-check (PR review P1-A)');
@@ -592,7 +598,8 @@ assert.ok(
   'Settings saveThemeMode catch must arm needsServerTruth.current = true on the recovery-GET failure path (PR review P1-B)',
 );
 assert.ok(
-  /needsServerTruth\.current/.test(saveBody) || /needsServerTruth\.current\s*=\s*false/.test(saveBody),
+  /needsServerTruth\.current/.test(saveBody) ||
+    /needsServerTruth\.current\s*=\s*false/.test(saveBody),
   'Settings saveThemeMode must clear the needsServerTruth arm after consuming it (PR review P1-B)',
 );
 // ---------------------------------------------------------------------------
@@ -605,14 +612,18 @@ assert.ok(
 // lines (no braces on the `if` → the resolve ran synchronously every
 // time, not just on cancellation). Any remaining bare `if (isCancelled())`
 // directly followed by `clearTimeout(t);` without braces is the bug.
-const buggySyncResolve = /\bif\s*\(\s*isCancelled\(\)\s*\)\s*clearTimeout\(t\)\s*;\s*\n\s*resolve\(\)\s*;/m.test(themeSyncSrc);
+const buggySyncResolve =
+  /\bif\s*\(\s*isCancelled\(\)\s*\)\s*clearTimeout\(t\)\s*;\s*\n\s*resolve\(\)\s*;/m.test(
+    themeSyncSrc,
+  );
 assert.ok(
   !buggySyncResolve,
   'ThemeSync retry sleep must NOT use the no-brace `if (isCancelled()) clearTimeout(t); resolve();` Bug 1 shape — resolve must be inside a `{ }` block',
 );
 
 // 1b. The retry must go through cancellableSleep with the declared constant.
-const retrySleepMatches = themeSyncSrc.match(/cancellableSleep\(RETRY_DELAY_MS,\s*isCancelled\)/g) ?? [];
+const retrySleepMatches =
+  themeSyncSrc.match(/cancellableSleep\(RETRY_DELAY_MS,\s*isCancelled\)/g) ?? [];
 assert.ok(
   retrySleepMatches.length >= 1,
   `ThemeSync must route the retry backoff through cancellableSleep(RETRY_DELAY_MS), found ${retrySleepMatches.length}`,
@@ -626,13 +637,12 @@ assert.ok(
 const fetchHelperBody = (themeSyncSrc.match(
   /const fetchThemeMode = async[\s\S]*?Promise<ThemeMode \| null> => \{[\s\S]*?return null;\n\s*\};/,
 ) ?? [''])[0];
-assert.ok(
-  fetchHelperBody.length > 0,
-  'ThemeSync must declare fetchThemeMode as an async helper',
-);
+assert.ok(fetchHelperBody.length > 0, 'ThemeSync must declare fetchThemeMode as an async helper');
 // The sleep now lives in the module-scope cancellableSleep helper; its
 // resolve() must sit inside the setTimeout callback (the Bug 1 invariant).
-const sleepHelperBody = (themeSyncSrc.match(/const cancellableSleep[\s\S]*?\n\s*\}\);/m) ?? [''])[0];
+const sleepHelperBody = (themeSyncSrc.match(/const cancellableSleep[\s\S]*?\n\s*\}\);/m) ?? [
+  '',
+])[0];
 const resolveCallsInSleepHelper = (sleepHelperBody.match(/\bresolve\(\)\s*;/g) ?? []).length;
 assert.ok(
   resolveCallsInSleepHelper >= 1,
@@ -676,7 +686,8 @@ assert.ok(
 // either a leaked listener or an unbalanced cleanup. Both calls should
 // appear exactly once (no fan-out / fan-in).
 const addCount = (themeSyncSrc.match(/addEventListener\(\s*THEME_REHYDRATION_EVENT/g) ?? []).length;
-const removeCount = (themeSyncSrc.match(/removeEventListener\(\s*THEME_REHYDRATION_EVENT/g) ?? []).length;
+const removeCount = (themeSyncSrc.match(/removeEventListener\(\s*THEME_REHYDRATION_EVENT/g) ?? [])
+  .length;
 assert.ok(
   addCount === 1 && removeCount === 1,
   `ThemeSync must add/remove flo:auth-changed listener exactly once each, got add=${addCount} remove=${removeCount}`,

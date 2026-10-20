@@ -18,13 +18,18 @@ import { test, expect, type Page } from '@playwright/test';
 import { E2E_BASE_URL as BASE } from './helpers/urls';
 import { E2E_PASSWORD, setLanguage } from './helpers/test-auth';
 
-type LanguagePolicy = { primary: { mode: string; language?: string }; additional: Array<{ mode?: string; language?: string }> };
+type LanguagePolicy = {
+  primary: { mode: string; language?: string };
+  additional: Array<{ mode?: string; language?: string }>;
+};
 
 async function readSetting(page: Page, key: string): Promise<unknown> {
   const token = await page.evaluate(() => localStorage.getItem('token'));
-  const res = await page.request.get(`${BASE}/api/settings`, { headers: { Authorization: `Bearer ${token}` } });
+  const res = await page.request.get(`${BASE}/api/settings`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
   expect(res.ok(), `GET /api/settings must succeed (got ${res.status()})`).toBeTruthy();
-  const { settings } = await res.json() as { settings: Record<string, string> };
+  const { settings } = (await res.json()) as { settings: Record<string, string> };
   const raw = settings[key];
   if (raw === undefined) return undefined;
   try {
@@ -67,7 +72,9 @@ test.describe('@ci-tier2 Settings > Printers', () => {
 
     const footer = page.getByLabel('Footer Message', { exact: true });
     const originalFooter = await footer.inputValue();
-    const originalTemplate = (await readSetting(page, 'bill_template')) as { id: string } | undefined;
+    const originalTemplate = (await readSetting(page, 'bill_template')) as
+      | { id: string }
+      | undefined;
 
     const stamp = `UAT footer ${Date.now()}`;
     try {
@@ -89,15 +96,22 @@ test.describe('@ci-tier2 Settings > Printers', () => {
       await saveAndReloadPrintersTab(page);
 
       const expected = originalTemplate?.id === 'compact' ? 'classic' : 'compact';
-      expect((await readSetting(page, 'bill_template')) as { id: string }).toMatchObject({ id: expected });
+      expect((await readSetting(page, 'bill_template')) as { id: string }).toMatchObject({
+        id: expected,
+      });
     } finally {
       await openPrintersTab(page);
       await page.getByLabel('Footer Message', { exact: true }).fill(originalFooter);
-      const restore = originalTemplate?.id === 'compact'
-        ? page.getByRole('button', { name: /^Compact/ })
-        : page.getByRole('button', { name: /^Classic/ });
+      const restore =
+        originalTemplate?.id === 'compact'
+          ? page.getByRole('button', { name: /^Compact/ })
+          : page.getByRole('button', { name: /^Classic/ });
       await restore.click();
-      if (await saveChanges(page).isVisible().catch(() => false)) {
+      if (
+        await saveChanges(page)
+          .isVisible()
+          .catch(() => false)
+      ) {
         await saveAndReloadPrintersTab(page);
       }
       expect(await readSetting(page, 'bill_footer_message')).toBe(originalFooter);
@@ -108,7 +122,7 @@ test.describe('@ci-tier2 Settings > Printers', () => {
     await openPrintersTab(page);
 
     const receiptPrimary = page.getByLabel('Receipt language', { exact: true });
-    const original = await readSetting(page, 'bill_language_policy') as LanguagePolicy;
+    const original = (await readSetting(page, 'bill_language_policy')) as LanguagePolicy;
     const originalValue = await receiptPrimary.inputValue();
     const next = originalValue === 'de' ? 'th' : 'de';
 
@@ -126,19 +140,25 @@ test.describe('@ci-tier2 Settings > Printers', () => {
     } finally {
       await openPrintersTab(page);
       await page.getByLabel('Receipt language', { exact: true }).selectOption(originalValue);
-      if (await saveChanges(page).isVisible().catch(() => false)) {
+      if (
+        await saveChanges(page)
+          .isVisible()
+          .catch(() => false)
+      ) {
         await saveAndReloadPrintersTab(page);
       }
       expect(await readSetting(page, 'bill_language_policy')).toEqual(original);
     }
   });
 
-  test('a second receipt language equal to the primary is de-duplicated on save', async ({ page }) => {
+  test('a second receipt language equal to the primary is de-duplicated on save', async ({
+    page,
+  }) => {
     await openPrintersTab(page);
 
     const receiptPrimary = page.getByLabel('Receipt language', { exact: true });
     const receiptSecond = page.getByLabel('Second receipt language', { exact: true });
-    const original = await readSetting(page, 'bill_language_policy') as LanguagePolicy;
+    const original = (await readSetting(page, 'bill_language_policy')) as LanguagePolicy;
 
     const primary = (await receiptPrimary.inputValue()) === 'fr' ? 'it' : 'fr';
     try {
@@ -157,19 +177,27 @@ test.describe('@ci-tier2 Settings > Printers', () => {
     } finally {
       await openPrintersTab(page);
       await page.getByLabel('Second receipt language', { exact: true }).selectOption('none');
-      await page.getByLabel('Receipt language', { exact: true }).selectOption(
-        original?.primary?.mode === 'fixed' && original.primary.language
-          ? original.primary.language
-          : 'inherit',
-      );
-      if (await saveChanges(page).isVisible().catch(() => false)) {
+      await page
+        .getByLabel('Receipt language', { exact: true })
+        .selectOption(
+          original?.primary?.mode === 'fixed' && original.primary.language
+            ? original.primary.language
+            : 'inherit',
+        );
+      if (
+        await saveChanges(page)
+          .isVisible()
+          .catch(() => false)
+      ) {
         await saveAndReloadPrintersTab(page);
       }
       expect(await readSetting(page, 'bill_language_policy')).toEqual(original);
     }
   });
 
-  test('kitchen ticket and Z-report languages persist independently of the receipt', async ({ page }) => {
+  test('kitchen ticket and Z-report languages persist independently of the receipt', async ({
+    page,
+  }) => {
     await openPrintersTab(page);
 
     const kot = page.getByLabel('Kitchen ticket language', { exact: true });
@@ -196,13 +224,17 @@ test.describe('@ci-tier2 Settings > Printers', () => {
       });
     } finally {
       await openPrintersTab(page);
-      await page.getByLabel('Kitchen ticket language', { exact: true }).selectOption(
-        (originalKot as LanguagePolicy)?.primary?.language ?? 'inherit',
-      );
-      await page.getByLabel('Z-report language', { exact: true }).selectOption(
-        (originalZ as LanguagePolicy)?.primary?.language ?? 'inherit',
-      );
-      if (await saveChanges(page).isVisible().catch(() => false)) {
+      await page
+        .getByLabel('Kitchen ticket language', { exact: true })
+        .selectOption((originalKot as LanguagePolicy)?.primary?.language ?? 'inherit');
+      await page
+        .getByLabel('Z-report language', { exact: true })
+        .selectOption((originalZ as LanguagePolicy)?.primary?.language ?? 'inherit');
+      if (
+        await saveChanges(page)
+          .isVisible()
+          .catch(() => false)
+      ) {
         await saveAndReloadPrintersTab(page);
       }
       expect(await readSetting(page, 'kot_language_policy')).toEqual(originalKot);
@@ -210,7 +242,9 @@ test.describe('@ci-tier2 Settings > Printers', () => {
     }
   });
 
-  test('the printers tab surfaces print method, bill template and detected devices', async ({ page }) => {
+  test('the printers tab surfaces print method, bill template and detected devices', async ({
+    page,
+  }) => {
     await openPrintersTab(page);
 
     await expect(page.getByRole('heading', { name: 'Printers', exact: true })).toBeVisible();
@@ -220,19 +254,28 @@ test.describe('@ci-tier2 Settings > Printers', () => {
 
     // Print method is a real ESC/POS vs browser choice, and the explanatory
     // hint below the select follows the selection.
-    const printMethod = page.getByText('Print Method', { exact: true }).first()
+    const printMethod = page
+      .getByText('Print Method', { exact: true })
+      .first()
       .locator('xpath=following-sibling::select[1]');
     const selectedMethod = await printMethod.inputValue();
     await expect(printMethod).toHaveValue(/escpos|browser/);
-    await expect(page.getByText(
-      selectedMethod === 'browser'
-        ? 'Opens the browser print dialog — works with any printer on this computer'
-        : 'Direct USB printing via WebUSB — connect the printer from the POS toolbar',
-    )).toBeVisible();
+    await expect(
+      page.getByText(
+        selectedMethod === 'browser'
+          ? 'Opens the browser print dialog — works with any printer on this computer'
+          : 'Direct USB printing via WebUSB — connect the printer from the POS toolbar',
+      ),
+    ).toBeVisible();
 
     // Every receipt-surface language policy has its own control.
-    for (const label of ['Receipt language', 'Second receipt language', 'Kitchen ticket language',
-      'Z-report language', 'Second Z-report language']) {
+    for (const label of [
+      'Receipt language',
+      'Second receipt language',
+      'Kitchen ticket language',
+      'Z-report language',
+      'Second Z-report language',
+    ]) {
       await expect(page.getByLabel(label, { exact: true })).toBeVisible();
     }
 

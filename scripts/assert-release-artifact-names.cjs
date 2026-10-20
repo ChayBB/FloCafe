@@ -9,14 +9,17 @@ if (!fs.existsSync(releaseDir)) {
   process.exit(1);
 }
 
-const unsafe = fs.readdirSync(releaseDir, { withFileTypes: true })
+const unsafe = fs
+  .readdirSync(releaseDir, { withFileTypes: true })
   .filter((entry) => entry.isFile())
   .map((entry) => entry.name)
   .filter((name) => !/^[a-z0-9.-]+$/.test(name));
 
 if (unsafe.length > 0) {
   console.error(`::error::unsafe release artifact filename(s): ${unsafe.join(', ')}`);
-  console.error('Artifact filenames must match [a-z0-9.-]+; do not rename artifacts after electron-builder produces them.');
+  console.error(
+    'Artifact filenames must match [a-z0-9.-]+; do not rename artifacts after electron-builder produces them.',
+  );
   process.exit(1);
 }
 

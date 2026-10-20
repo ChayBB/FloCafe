@@ -65,7 +65,9 @@ function assertEqual(actual: any, expected: any, message: string) {
     console.log(`  ✓ ${message}`);
   } else {
     failed++;
-    console.error(`  ✗ ${message} — expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+    console.error(
+      `  ✗ ${message} — expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`,
+    );
   }
 }
 
@@ -80,7 +82,7 @@ async function listen(app: any): Promise<http.Server> {
 async function request(
   baseUrl: string,
   urlPath: string,
-  options: Record<string, any> = {}
+  options: Record<string, any> = {},
 ): Promise<{ status: number; data: any }> {
   const fetchOptions: any = {
     headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
@@ -117,35 +119,56 @@ async function main() {
   const db = getDatabase();
   // Regional settings come from signup, never a fallback; seed one
   // explicitly so resolveRegionalSnapshot() resolves.
-  db.prepare(`INSERT INTO settings (key, value, updated_at) VALUES ('country', 'IN', ?) ON CONFLICT(key) DO UPDATE SET value='IN', updated_at=excluded.updated_at`).run(now());
-  db.prepare(`INSERT INTO settings (key, value, updated_at) VALUES ('timezone', 'Asia/Kolkata', ?) ON CONFLICT(key) DO UPDATE SET value='Asia/Kolkata', updated_at=excluded.updated_at`).run(now());
+  db.prepare(
+    `INSERT INTO settings (key, value, updated_at) VALUES ('country', 'IN', ?) ON CONFLICT(key) DO UPDATE SET value='IN', updated_at=excluded.updated_at`,
+  ).run(now());
+  db.prepare(
+    `INSERT INTO settings (key, value, updated_at) VALUES ('timezone', 'Asia/Kolkata', ?) ON CONFLICT(key) DO UPDATE SET value='Asia/Kolkata', updated_at=excluded.updated_at`,
+  ).run(now());
 
   // ── Seed ────────────────────────────────────────────────────────────────
   const ownerId = 'owner-addons-norm-test';
   db.prepare(
     `INSERT INTO users (id, name, email, password, role, is_active, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(ownerId, 'Test Owner', 'owner-norm@test.local', bcrypt.hashSync('password', 10), 'owner', 1, now(), now());
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    ownerId,
+    'Test Owner',
+    'owner-norm@test.local',
+    bcrypt.hashSync('password', 10),
+    'owner',
+    1,
+    now(),
+    now(),
+  );
 
-  db.prepare(`INSERT INTO categories (id, name, sort_order) VALUES (?, ?, ?)`).run('cat-addon-norm', 'Test', 1);
+  db.prepare(`INSERT INTO categories (id, name, sort_order) VALUES (?, ?, ?)`).run(
+    'cat-addon-norm',
+    'Test',
+    1,
+  );
   db.prepare(
-    `INSERT INTO products (id, category_id, name, price, is_active, sort_order) VALUES (?, ?, ?, ?, ?, ?)`
+    `INSERT INTO products (id, category_id, name, price, is_active, sort_order) VALUES (?, ?, ?, ?, ?, ?)`,
   ).run('prod-addon-norm', 'cat-addon-norm', 'Tea', 50, 1, 1);
 
   db.prepare(`INSERT INTO addon_groups (id, name) VALUES (?, ?)`).run('ag-norm', 'Extras');
   db.prepare(
-    `INSERT INTO addons (id, addon_group_id, name, price, is_active) VALUES (?, ?, ?, ?, ?)`
+    `INSERT INTO addons (id, addon_group_id, name, price, is_active) VALUES (?, ?, ?, ?, ?)`,
   ).run('addon-real-sugar', 'ag-norm', 'Extra Sugar', 5, 1);
-  db.prepare(
-    `INSERT INTO addon_group_product (product_id, addon_group_id) VALUES (?, ?)`
-  ).run('prod-addon-norm', 'ag-norm');
+  db.prepare(`INSERT INTO addon_group_product (product_id, addon_group_id) VALUES (?, ?)`).run(
+    'prod-addon-norm',
+    'ag-norm',
+  );
   // Deliberately no row for 'addon-deleted-lemon' — simulates an addon that
   // was deleted after the cart was built. The order API now rejects it.
 
   const app = express();
   app.use(express.json());
   app.use((req: any, res: any, next: any) => {
-    if (!req.path.startsWith('/api')) { next(); return; }
+    if (!req.path.startsWith('/api')) {
+      next();
+      return;
+    }
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith('Bearer ')) {
       res.status(401).json({ error: 'Authentication required' });
@@ -163,7 +186,11 @@ async function main() {
   const server = await listen(app);
   const addr = server.address() as any;
   const baseUrl = `http://127.0.0.1:${addr.port}`;
-  const token = jwt.sign({ userId: ownerId, email: 'owner-norm@test.local', role: 'owner' }, getJWTSecret(), { expiresIn: '1h' });
+  const token = jwt.sign(
+    { userId: ownerId, email: 'owner-norm@test.local', role: 'owner' },
+    getJWTSecret(),
+    { expiresIn: '1h' },
+  );
   const authHeader = `Bearer ${token}`;
 
   try {
@@ -176,25 +203,37 @@ async function main() {
         headers: { Authorization: authHeader },
         body: JSON.stringify({
           type: 'takeaway',
-          items: [{
-            product_id: 'prod-addon-norm',
-            quantity: 1,
-            addons: [
-              { id: 'addon-real-sugar', name: 'Extra Sugar', price: 5 },
-            ],
-          }],
+          items: [
+            {
+              product_id: 'prod-addon-norm',
+              quantity: 1,
+              addons: [{ id: 'addon-real-sugar', name: 'Extra Sugar', price: 5 }],
+            },
+          ],
         }),
       });
-      assertEqual(res.status, 201, `order with addons is created (got ${res.status}, ${JSON.stringify(res.data)})`);
+      assertEqual(
+        res.status,
+        201,
+        `order with addons is created (got ${res.status}, ${JSON.stringify(res.data)})`,
+      );
       orderId = res.data.order.id;
 
-      const itemId = (db.prepare('SELECT id FROM order_items WHERE order_id = ?').get(orderId) as any).id;
-      const rows = db.prepare('SELECT * FROM order_item_addons WHERE order_item_id = ? ORDER BY id').all(itemId) as any[];
+      const itemId = (
+        db.prepare('SELECT id FROM order_items WHERE order_id = ?').get(orderId) as any
+      ).id;
+      const rows = db
+        .prepare('SELECT * FROM order_item_addons WHERE order_item_id = ? ORDER BY id')
+        .all(itemId) as any[];
 
       assertEqual(rows.length, 1, 'the selected addon was snapshotted into order_item_addons');
       assertEqual(rows[0]?.addon_name, 'Extra Sugar', 'addon name matches');
       assertEqual(rows[0]?.price, 5, 'addon price matches');
-      assertEqual(rows[0]?.addon_id, 'addon-real-sugar', 'addon with a valid catalog id keeps the FK link');
+      assertEqual(
+        rows[0]?.addon_id,
+        'addon-real-sugar',
+        'addon with a valid catalog id keeps the FK link',
+      );
 
       // GHSA-jmxx-39wh-4cjx: an unknown/deleted add-on must be rejected, not
       // silently persisted with a NULL FK.
@@ -203,17 +242,29 @@ async function main() {
         headers: { Authorization: authHeader },
         body: JSON.stringify({
           type: 'takeaway',
-          items: [{
-            product_id: 'prod-addon-norm',
-            quantity: 1,
-            addons: [{ id: 'addon-deleted-lemon', name: 'Lemon Slice', price: 3 }],
-          }],
+          items: [
+            {
+              product_id: 'prod-addon-norm',
+              quantity: 1,
+              addons: [{ id: 'addon-deleted-lemon', name: 'Lemon Slice', price: 3 }],
+            },
+          ],
         }),
       });
-      assertEqual(unknownRes.status, 400, `unknown add-on is rejected (got ${unknownRes.status}, ${JSON.stringify(unknownRes.data)})`);
+      assertEqual(
+        unknownRes.status,
+        400,
+        `unknown add-on is rejected (got ${unknownRes.status}, ${JSON.stringify(unknownRes.data)})`,
+      );
 
-      const columns = db.prepare("PRAGMA table_info(order_items)").all().map((c: any) => c.name);
-      assert(!columns.includes('addons'), 'order_items.addons column no longer exists — order_item_addons is the only store (issue #125)');
+      const columns = db
+        .prepare('PRAGMA table_info(order_items)')
+        .all()
+        .map((c: any) => c.name);
+      assert(
+        !columns.includes('addons'),
+        'order_items.addons column no longer exists — order_item_addons is the only store (issue #125)',
+      );
     }
 
     // ── Test 2: add-items also dual-writes ────────────────────────────────
@@ -223,14 +274,28 @@ async function main() {
         method: 'POST',
         headers: { Authorization: authHeader },
         body: JSON.stringify({
-          items: [{ product_id: 'prod-addon-norm', quantity: 2, addons: [{ id: 'addon-real-sugar', name: 'Extra Sugar', price: 5 }] }],
+          items: [
+            {
+              product_id: 'prod-addon-norm',
+              quantity: 2,
+              addons: [{ id: 'addon-real-sugar', name: 'Extra Sugar', price: 5 }],
+            },
+          ],
         }),
       });
-      assertEqual(res.status, 200, `add-items succeeds (got ${res.status}, ${JSON.stringify(res.data)})`);
+      assertEqual(
+        res.status,
+        200,
+        `add-items succeeds (got ${res.status}, ${JSON.stringify(res.data)})`,
+      );
 
-      const newItem = db.prepare('SELECT id FROM order_items WHERE order_id = ? AND quantity = 2').get(orderId) as any;
+      const newItem = db
+        .prepare('SELECT id FROM order_items WHERE order_id = ? AND quantity = 2')
+        .get(orderId) as any;
       assert(!!newItem, 'the new item was inserted');
-      const rows = db.prepare('SELECT * FROM order_item_addons WHERE order_item_id = ?').all(newItem.id) as any[];
+      const rows = db
+        .prepare('SELECT * FROM order_item_addons WHERE order_item_id = ?')
+        .all(newItem.id) as any[];
       assertEqual(rows.length, 1, 'add-items addon was snapshotted into order_item_addons');
     }
 
@@ -240,11 +305,18 @@ async function main() {
       const res = await request(baseUrl, '/api/orders', {
         method: 'POST',
         headers: { Authorization: authHeader },
-        body: JSON.stringify({ type: 'takeaway', items: [{ product_id: 'prod-addon-norm', quantity: 1 }] }),
+        body: JSON.stringify({
+          type: 'takeaway',
+          items: [{ product_id: 'prod-addon-norm', quantity: 1 }],
+        }),
       });
       assertEqual(res.status, 201, 'order without addons is created');
-      const itemId = (db.prepare('SELECT id FROM order_items WHERE order_id = ?').get(res.data.order.id) as any).id;
-      const rows = db.prepare('SELECT * FROM order_item_addons WHERE order_item_id = ?').all(itemId) as any[];
+      const itemId = (
+        db.prepare('SELECT id FROM order_items WHERE order_id = ?').get(res.data.order.id) as any
+      ).id;
+      const rows = db
+        .prepare('SELECT * FROM order_item_addons WHERE order_item_id = ?')
+        .all(itemId) as any[];
       assertEqual(rows.length, 0, 'no order_item_addons rows for an item with no addons');
     }
 
@@ -263,35 +335,65 @@ async function main() {
 
       db.prepare(
         `INSERT INTO orders (order_number, table_id, type, status, subtotal, total, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run('ORD-LEGACY-BACKFILL', null, 'takeaway', 'completed', 55, 55, now(), now());
-      const legacyOrderId = (db.prepare('SELECT id FROM orders WHERE order_number = ?').get('ORD-LEGACY-BACKFILL') as any).id;
+      const legacyOrderId = (
+        db.prepare('SELECT id FROM orders WHERE order_number = ?').get('ORD-LEGACY-BACKFILL') as any
+      ).id;
 
-      const legacyAddons = JSON.stringify([{ id: 'addon-real-sugar', name: 'Extra Sugar', price: 5 }]);
+      const legacyAddons = JSON.stringify([
+        { id: 'addon-real-sugar', name: 'Extra Sugar', price: 5 },
+      ]);
       db.prepare(
         `INSERT INTO order_items (order_id, product_id, product_name, unit_price, quantity, subtotal, tax_amount, total, addons, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(legacyOrderId, 'prod-addon-norm', 'Tea', 50, 1, 55, 0, 55, legacyAddons, 'completed', now(), now());
-      const legacyItemId = (db.prepare('SELECT id FROM order_items WHERE order_id = ?').get(legacyOrderId) as any).id;
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        legacyOrderId,
+        'prod-addon-norm',
+        'Tea',
+        50,
+        1,
+        55,
+        0,
+        55,
+        legacyAddons,
+        'completed',
+        now(),
+        now(),
+      );
+      const legacyItemId = (
+        db.prepare('SELECT id FROM order_items WHERE order_id = ?').get(legacyOrderId) as any
+      ).id;
 
       // This row was inserted directly (bypassing the API), simulating data
       // that predates the dual-write — no order_item_addons rows exist yet.
-      const beforeRows = db.prepare('SELECT * FROM order_item_addons WHERE order_item_id = ?').all(legacyItemId) as any[];
-      assertEqual(beforeRows.length, 0, 'legacy row has no order_item_addons rows before backfill runs');
+      const beforeRows = db
+        .prepare('SELECT * FROM order_item_addons WHERE order_item_id = ?')
+        .all(legacyItemId) as any[];
+      assertEqual(
+        beforeRows.length,
+        0,
+        'legacy row has no order_item_addons rows before backfill runs',
+      );
 
       const v25 = MIGRATIONS.find((m: any) => m.version === 25);
       assert(!!v25, 'migration v25 is registered');
       v25.up();
 
-      const afterRows = db.prepare('SELECT * FROM order_item_addons WHERE order_item_id = ?').all(legacyItemId) as any[];
+      const afterRows = db
+        .prepare('SELECT * FROM order_item_addons WHERE order_item_id = ?')
+        .all(legacyItemId) as any[];
       assertEqual(afterRows.length, 1, 'backfill created the missing order_item_addons row');
-      assertEqual(afterRows[0]?.addon_name, 'Extra Sugar', 'backfilled row has the correct addon name');
+      assertEqual(
+        afterRows[0]?.addon_name,
+        'Extra Sugar',
+        'backfilled row has the correct addon name',
+      );
 
       // Clean up the column we re-added for this isolated test, so it
       // doesn't leak into whatever runs after this test in the same process.
       db.exec('ALTER TABLE order_items DROP COLUMN addons');
     }
-
   } finally {
     server.close();
     closeDatabase();

@@ -14,7 +14,11 @@ export function correlationId(): string {
   return randomUUID();
 }
 
-export function correlatedError(code: FloErrorCode, message: string, cause?: unknown): CorrelatedError {
+export function correlatedError(
+  code: FloErrorCode,
+  message: string,
+  cause?: unknown,
+): CorrelatedError {
   const error = new Error(message) as CorrelatedError;
   error.name = 'FloOperationError';
   error.code = code;
@@ -23,7 +27,10 @@ export function correlatedError(code: FloErrorCode, message: string, cause?: unk
   return error;
 }
 
-export function errorDetails(error: unknown, fallbackCode: FloErrorCode): { code: FloErrorCode; correlationId: string; message: string } {
+export function errorDetails(
+  error: unknown,
+  fallbackCode: FloErrorCode,
+): { code: FloErrorCode; correlationId: string; message: string } {
   const candidate = error as Partial<CorrelatedError> | null;
   return {
     code: candidate?.code || fallbackCode,

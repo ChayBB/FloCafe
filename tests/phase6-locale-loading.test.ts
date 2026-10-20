@@ -9,7 +9,12 @@ import path from 'node:path';
 
 const moduleApi = require('module') as { _resolveFilename: (...args: any[]) => string };
 const originalResolveFilename = moduleApi._resolveFilename;
-moduleApi._resolveFilename = function (request: string, parent: any, isMain: boolean, options?: any) {
+moduleApi._resolveFilename = function (
+  request: string,
+  parent: any,
+  isMain: boolean,
+  options?: any,
+) {
   let resolvedRequest = request;
   if (request === '@countries') {
     resolvedRequest = path.resolve(__dirname, '../main/countries.ts');
@@ -21,11 +26,16 @@ moduleApi._resolveFilename = function (request: string, parent: any, isMain: boo
   return originalResolveFilename.call(this, resolvedRequest, parent, isMain, options);
 };
 
-const { LANGUAGES } = require('../frontend/src/lib/i18n/languages') as typeof import('../frontend/src/lib/i18n/languages');
-const { loadLocaleMessages, isLocaleLoaded } = require('../frontend/src/lib/i18n/loader') as typeof import('../frontend/src/lib/i18n/loader');
-const { syncPrintPoliciesAtBootstrap } = require('../frontend/src/lib/print-policy-bootstrap') as typeof import('../frontend/src/lib/print-policy-bootstrap');
-const { generateBillHtml } = require('../frontend/src/lib/printer/web-print') as typeof import('../frontend/src/lib/printer/web-print');
-const { buildClassicReceiptBytes } = require('../frontend/src/lib/printer/receipt-encoder') as typeof import('../frontend/src/lib/printer/receipt-encoder');
+const { LANGUAGES } =
+  require('../frontend/src/lib/i18n/languages') as typeof import('../frontend/src/lib/i18n/languages');
+const { loadLocaleMessages, isLocaleLoaded } =
+  require('../frontend/src/lib/i18n/loader') as typeof import('../frontend/src/lib/i18n/loader');
+const { syncPrintPoliciesAtBootstrap } =
+  require('../frontend/src/lib/print-policy-bootstrap') as typeof import('../frontend/src/lib/print-policy-bootstrap');
+const { generateBillHtml } =
+  require('../frontend/src/lib/printer/web-print') as typeof import('../frontend/src/lib/printer/web-print');
+const { buildClassicReceiptBytes } =
+  require('../frontend/src/lib/printer/receipt-encoder') as typeof import('../frontend/src/lib/printer/receipt-encoder');
 
 const languages = Object.keys(LANGUAGES) as Array<keyof typeof LANGUAGES>;
 const bill = {
@@ -52,46 +62,89 @@ async function run(): Promise<void> {
       language: 'en' as const,
       billLanguagePolicy: undefined,
       kotLanguagePolicy: undefined,
-      setBillLanguagePolicy(policy: unknown) { this.billLanguagePolicy = policy; },
-      setKotLanguagePolicy(policy: unknown) { this.kotLanguagePolicy = policy; },
+      setBillLanguagePolicy(policy: unknown) {
+        this.billLanguagePolicy = policy;
+      },
+      setKotLanguagePolicy(policy: unknown) {
+        this.kotLanguagePolicy = policy;
+      },
     },
-    getState() { return this.state; },
+    getState() {
+      return this.state;
+    },
   };
-  const failed = await syncPrintPoliciesAtBootstrap({
-    id: 1,
-    business_name: 'Phase 6 Cafe',
-    slug: 'local',
-    database_name: 'local',
-    business_type: 'restaurant',
-    country: 'IN',
-    currency: 'INR',
-    timezone: 'UTC',
-    plan: 'desktop',
-    status: 'active',
-    language: 'en',
-    bill_language_policy: JSON.stringify({ primary: { mode: 'fixed', language: 'de' }, additional: ['fa'] }),
-    kot_language_policy: JSON.stringify({ primary: { mode: 'fixed', language: 'tr' }, additional: [] }),
-  }, settings);
+  const failed = await syncPrintPoliciesAtBootstrap(
+    {
+      id: 1,
+      business_name: 'Phase 6 Cafe',
+      slug: 'local',
+      database_name: 'local',
+      business_type: 'restaurant',
+      country: 'IN',
+      currency: 'INR',
+      timezone: 'UTC',
+      plan: 'desktop',
+      status: 'active',
+      language: 'en',
+      bill_language_policy: JSON.stringify({
+        primary: { mode: 'fixed', language: 'de' },
+        additional: ['fa'],
+      }),
+      kot_language_policy: JSON.stringify({
+        primary: { mode: 'fixed', language: 'tr' },
+        additional: [],
+      }),
+    },
+    settings,
+  );
   assert.deepEqual(failed, [], 'authenticated print-policy locale warmup succeeds');
-  assert.equal(settings.state.billLanguagePolicy.primary.language, 'de', 'receipt policy is applied during bootstrap');
-  assert.equal(settings.state.kotLanguagePolicy.primary.language, 'tr', 'KOT policy is applied during bootstrap');
-  assert.ok(isLocaleLoaded('de') && isLocaleLoaded('fa') && isLocaleLoaded('tr'), 'selected print locales are loaded before bootstrap completes');
+  assert.equal(
+    settings.state.billLanguagePolicy.primary.language,
+    'de',
+    'receipt policy is applied during bootstrap',
+  );
+  assert.equal(
+    settings.state.kotLanguagePolicy.primary.language,
+    'tr',
+    'KOT policy is applied during bootstrap',
+  );
+  assert.ok(
+    isLocaleLoaded('de') && isLocaleLoaded('fa') && isLocaleLoaded('tr'),
+    'selected print locales are loaded before bootstrap completes',
+  );
 
   await Promise.all(languages.map((language) => loadLocaleMessages(language)));
   for (const language of languages) {
     const browserHtml = generateBillHtml(bill as any, tenant as any, { language });
-    assert.match(browserHtml, new RegExp(`<html lang="${LANGUAGES[language].locale}"`), `${language}: browser receipt locale`);
-    assert.doesNotMatch(browserHtml, /receipt\.[A-Za-z]/, `${language}: browser receipt has no raw label key`);
+    assert.match(
+      browserHtml,
+      new RegExp(`<html lang="${LANGUAGES[language].locale}"`),
+      `${language}: browser receipt locale`,
+    );
+    assert.doesNotMatch(
+      browserHtml,
+      /receipt\.[A-Za-z]/,
+      `${language}: browser receipt has no raw label key`,
+    );
 
     const warnings: any[] = [];
-    const bytes = buildClassicReceiptBytes(bill as any, tenant as any, {
-      paperWidth: 58,
-      language,
-      languages: [language],
-      locale: LANGUAGES[language].locale,
-    } as any, warnings);
+    const bytes = buildClassicReceiptBytes(
+      bill as any,
+      tenant as any,
+      {
+        paperWidth: 58,
+        language,
+        languages: [language],
+        locale: LANGUAGES[language].locale,
+      } as any,
+      warnings,
+    );
     assert.ok(bytes.length > 0, `${language}: WebUSB receipt bytes generated after locale load`);
-    assert.doesNotMatch(Buffer.from(bytes).toString('utf8'), /receipt\.[A-Za-z]/, `${language}: WebUSB receipt has no raw label key`);
+    assert.doesNotMatch(
+      Buffer.from(bytes).toString('utf8'),
+      /receipt\.[A-Za-z]/,
+      `${language}: WebUSB receipt has no raw label key`,
+    );
   }
 
   console.log('✅ Browser and WebUSB receipt loading covered every registered locale.');

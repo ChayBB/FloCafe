@@ -18,11 +18,22 @@ const os = require('os');
 const path = require('path');
 const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-customer-reactivate-'));
 Module._load = function (request: string, parent: unknown, isMain: boolean) {
-  if (request === 'electron') return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
+  if (request === 'electron')
+    return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
   return originalLoad.apply(this, arguments as any);
 };
 
-const { initTestDb, closeDatabase, seedOwnerUser, api, assertEqual, assert, getResults, createApp, startServer } = require('./helpers/test-setup');
+const {
+  initTestDb,
+  closeDatabase,
+  seedOwnerUser,
+  api,
+  assertEqual,
+  assert,
+  getResults,
+  createApp,
+  startServer,
+} = require('./helpers/test-setup');
 const { customerRoutes } = require('../main/routes/customers');
 
 async function main() {
@@ -31,7 +42,9 @@ async function main() {
 
   const db = initTestDb();
   const { authHeader } = seedOwnerUser(db);
-  db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('country', 'IN', datetime('now'))").run();
+  db.prepare(
+    "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('country', 'IN', datetime('now'))",
+  ).run();
 
   db.prepare(`
     INSERT INTO customers (id, name, phone, country_code, is_active, created_at, updated_at)
@@ -65,17 +78,40 @@ async function main() {
       },
     });
 
-    assertEqual(res.status, 201, `POST reactivates soft-deleted customer (no binding error); got ${res.status} ${JSON.stringify(res.data)}`);
-    assertEqual(res.data.customer.id, 'cust-soft-1', 'legacy national phone reactivation preserves customer ID');
+    assertEqual(
+      res.status,
+      201,
+      `POST reactivates soft-deleted customer (no binding error); got ${res.status} ${JSON.stringify(res.data)}`,
+    );
+    assertEqual(
+      res.data.customer.id,
+      'cust-soft-1',
+      'legacy national phone reactivation preserves customer ID',
+    );
 
     const after = db.prepare("SELECT * FROM customers WHERE id = 'cust-soft-1'").get();
     assertEqual(after.is_active, 1, 'row reactivated');
-    assertEqual(after.phone, '+919876543210', 'legacy national phone canonicalized on reactivation');
+    assertEqual(
+      after.phone,
+      '+919876543210',
+      'legacy national phone canonicalized on reactivation',
+    );
     assertEqual(after.name, 'New Name', 'name updated');
     assertEqual(after.email, 'new@example.com', 'email updated');
-    assertEqual(after.address, '123 Fake St', 'address updated to its own column, not country_code');
-    assertEqual(after.country_code, '+91', 'country_code follows parsed phone, not contradictory request body');
-    assert(after.country_code !== after.address, 'country_code and address columns hold different values');
+    assertEqual(
+      after.address,
+      '123 Fake St',
+      'address updated to its own column, not country_code',
+    );
+    assertEqual(
+      after.country_code,
+      '+91',
+      'country_code follows parsed phone, not contradictory request body',
+    );
+    assert(
+      after.country_code !== after.address,
+      'country_code and address columns hold different values',
+    );
 
     const canonicalRes = await api(baseUrl + '/api', '/customers', {
       method: 'POST',
@@ -88,8 +124,16 @@ async function main() {
       },
     });
 
-    assertEqual(canonicalRes.status, 201, `POST reactivates canonical soft-deleted customer; got ${canonicalRes.status} ${JSON.stringify(canonicalRes.data)}`);
-    assertEqual(canonicalRes.data.customer.id, 'cust-soft-2', 'canonical phone reactivation preserves customer ID');
+    assertEqual(
+      canonicalRes.status,
+      201,
+      `POST reactivates canonical soft-deleted customer; got ${canonicalRes.status} ${JSON.stringify(canonicalRes.data)}`,
+    );
+    assertEqual(
+      canonicalRes.data.customer.id,
+      'cust-soft-2',
+      'canonical phone reactivation preserves customer ID',
+    );
 
     const canonicalAfter = db.prepare("SELECT * FROM customers WHERE id = 'cust-soft-2'").get();
     assertEqual(canonicalAfter.is_active, 1, 'canonical row reactivated');
@@ -113,19 +157,35 @@ async function main() {
       headers: authHeader,
     });
     assertEqual(alerts.status, 200, 'alerts endpoint returns successfully');
-    assertEqual(alerts.data.invalidPhonesCount, 1, 'invalid-phone alert counts only active malformed rows');
+    assertEqual(
+      alerts.data.invalidPhonesCount,
+      1,
+      'invalid-phone alert counts only active malformed rows',
+    );
 
     const invalidList = await api(baseUrl + '/api', '/customers?filter=invalid_phones', {
       headers: authHeader,
     });
     assertEqual(invalidList.status, 200, 'invalid phone list returns successfully');
-    assertEqual(invalidList.data.data.length, 1, 'invalid-phone filter returns only active malformed rows');
-    assertEqual(invalidList.data.data[0].id, 'cust-invalid-active', 'invalid-phone filter excludes inactive malformed rows');
+    assertEqual(
+      invalidList.data.data.length,
+      1,
+      'invalid-phone filter returns only active malformed rows',
+    );
+    assertEqual(
+      invalidList.data.data[0].id,
+      'cust-invalid-active',
+      'invalid-phone filter excludes inactive malformed rows',
+    );
 
     console.log('\n[DB] Database closed');
     closeDatabase();
     Module._load = originalLoad;
-    try { fs.rmSync(testDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    try {
+      fs.rmSync(testDir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
     const { passed, failed, total } = getResults();
     console.log(`\n${passed}/${total} passed, ${failed} failed`);
     process.exit(failed === 0 ? 0 : 1);

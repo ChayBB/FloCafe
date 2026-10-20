@@ -7,10 +7,12 @@
  */
 
 // Whitespace plus the invisible ranges that survive a copy/paste.
-const INVISIBLE = /[\s\u0000-\u001f\u00ad\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u206f\ufeff]/g;
+const INVISIBLE =
+  /[\s\u0000-\u001f\u00ad\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u206f\ufeff]/g;
 
 /** HTML5's own `input[type=email]` rule, so our check and the browser's agree. */
-const HTML5_EMAIL = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
+const HTML5_EMAIL =
+  /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
 
 /** Drops characters that can never belong in an email address. */
 export function sanitizeEmailInput(value: string): string {

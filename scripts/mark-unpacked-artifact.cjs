@@ -17,7 +17,10 @@ function findResourceDirectories(currentDir, found = []) {
   for (const entry of entries) {
     if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
     const candidate = path.join(currentDir, entry.name);
-    if (entry.name.toLowerCase() === 'resources' && fs.existsSync(path.join(candidate, 'app.asar'))) {
+    if (
+      entry.name.toLowerCase() === 'resources' &&
+      fs.existsSync(path.join(candidate, 'app.asar'))
+    ) {
       found.push(candidate);
       continue;
     }
@@ -36,7 +39,9 @@ function isCurrentPlatformOutput(resourceDir) {
 
 const candidates = findResourceDirectories(releaseDir).filter(isCurrentPlatformOutput);
 if (candidates.length !== 1) {
-  throw new Error(`Expected one unpacked ${process.platform} resources directory, found ${candidates.length}`);
+  throw new Error(
+    `Expected one unpacked ${process.platform} resources directory, found ${candidates.length}`,
+  );
 }
 
 const markerPath = path.join(candidates[0], markerName);

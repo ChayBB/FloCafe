@@ -92,8 +92,10 @@ export function formatCashCloseWhatsAppMessage(
     `• ${labels.billCount?.(report.billCount) || `Total Bills: ${report.billCount}`}`,
     '',
     `💳 *${labels.paymentBreakdown || 'PAYMENTS'}*`,
-    ...report.paymentMethods.map((payment) =>
-      `• ${labels.paymentMethod?.(payment.method) || payment.method}: ${formatAmount(payment.total, tenant.currency, locale)} (${payment.count})`),
+    ...report.paymentMethods.map(
+      (payment) =>
+        `• ${labels.paymentMethod?.(payment.method) || payment.method}: ${formatAmount(payment.total, tenant.currency, locale)} (${payment.count})`,
+    ),
   );
 
   lines.push(
@@ -104,9 +106,12 @@ export function formatCashCloseWhatsAppMessage(
   );
 
   if (isZReport) {
-    const varianceIndicator = report.cashVariance === 0
-      ? `✅ ${labels.varianceExact || 'Exact'}`
-      : report.cashVariance < 0 ? `⚠️ ${labels.varianceShort || 'Short'}` : `⚠️ ${labels.varianceOver || 'Over'}`;
+    const varianceIndicator =
+      report.cashVariance === 0
+        ? `✅ ${labels.varianceExact || 'Exact'}`
+        : report.cashVariance < 0
+          ? `⚠️ ${labels.varianceShort || 'Short'}`
+          : `⚠️ ${labels.varianceOver || 'Over'}`;
     lines.push(
       `• ${labels.countedCash || 'Counted Cash'}: ${formatAmount(report.countedCash, tenant.currency, locale)}`,
       `• ${labels.variance || 'Variance'}: ${formatAmount(report.cashVariance, tenant.currency, locale)} (${varianceIndicator})`,
@@ -157,7 +162,8 @@ export async function shareCashCloseViaWhatsApp(
       popup?.close();
       return false;
     } catch (error: unknown) {
-      const reason = (error as { response?: { data?: { reason?: string } } })?.response?.data?.reason;
+      const reason = (error as { response?: { data?: { reason?: string } } })?.response?.data
+        ?.reason;
       if (reason !== 'not_connected') {
         popup?.close();
         throw error;
@@ -233,7 +239,8 @@ export function shareBillViaWhatsApp(
 ): Promise<boolean> {
   const url = getWhatsAppShareUrl(bill, tenant, customerInfo, opts, localeOverride);
   if (window.electronAPI?.openWhatsAppShare) {
-    return window.electronAPI.openWhatsAppShare(url)
+    return window.electronAPI
+      .openWhatsAppShare(url)
       .then((result) => 'success' in result && result.success === true);
   }
   const popup = window.open('', '_blank');
@@ -300,7 +307,10 @@ function formatAmount(value: number | string, currencyCode: string, locale: stri
     // currencyCode empty/invalid (e.g. tenant regional snapshot not resolved
     // yet) — Intl throws for an empty/invalid currency. Plain number, no
     // symbol, rather than crashing or guessing a currency (never restore INR).
-    return new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(safeAmount);
+    return new Intl.NumberFormat(locale, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(safeAmount);
   }
 }
 
@@ -331,7 +341,10 @@ function formatReportDateTime(value: string, locale: string, timeZone: string): 
 /** One line per ordered item (skipping cancelled ones), e.g. "2x Chicken Biryani - ₹360.00". */
 function formatItemsList(order: Bill['order'], currencyCode: string, locale: string): string[] {
   const items = order?.items?.filter((item) => item.status !== 'cancelled') ?? [];
-  return items.map((item) => `${item.quantity}x ${item.product_name} - ${formatAmount(item.total, currencyCode, locale)}`);
+  return items.map(
+    (item) =>
+      `${item.quantity}x ${item.product_name} - ${formatAmount(item.total, currencyCode, locale)}`,
+  );
 }
 
 /** Sends paid bill receipt through connected WhatsApp session. */

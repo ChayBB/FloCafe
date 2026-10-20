@@ -8,7 +8,13 @@
 import { Router, Request, Response } from 'express';
 import QRCode from 'qrcode';
 import { newGuestToken, qualifyGuestToken } from '../services/guest-tokens';
-import { clearPairingCode, isGuestRelayConnected, issuePairingCode, newRelaySecret, reloadGuestRelay } from '../services/guest-relay';
+import {
+  clearPairingCode,
+  isGuestRelayConnected,
+  issuePairingCode,
+  newRelaySecret,
+  reloadGuestRelay,
+} from '../services/guest-relay';
 import { getDatabase, getSettingValue, now, upsertSettings } from '../db';
 import { requirePermission } from '../services/authorization';
 import { asyncHandler } from '../middleware/async-handler';
@@ -40,43 +46,55 @@ function guestUrl(secret: string): string {
   return `${guestBaseUrl()}/guest-order?t=${encodeURIComponent(qualifyGuestToken(secret))}`;
 }
 
-router.get('/', asyncHandler(async (_req: Request, res: Response) => {
-  const db = getDatabase();
-  const tables = db.prepare(`
+router.get(
+  '/',
+  asyncHandler(async (_req: Request, res: Response) => {
+    const db = getDatabase();
+    const tables = db
+      .prepare(`
     SELECT id, number, guest_token FROM tables WHERE is_active = 1 ORDER BY number
-  `).all() as { id: string; number: string; guest_token: string | null }[];
+  `)
+      .all() as { id: string; number: string; guest_token: string | null }[];
 
-  const withCodes = await Promise.all(tables.map(async (table) => {
-    if (!table.guest_token) {
-      return { id: table.id, number: table.number, url: null, qr_data: null };
-    }
-    const url = guestUrl(table.guest_token);
-    try {
-      return { id: table.id, number: table.number, url, qr_data: await QRCode.toDataURL(url, { errorCorrectionLevel: 'M', width: 320 }) };
-    } catch {
-      return { id: table.id, number: table.number, url, qr_data: null };
-    }
-  }));
+    const withCodes = await Promise.all(
+      tables.map(async (table) => {
+        if (!table.guest_token) {
+          return { id: table.id, number: table.number, url: null, qr_data: null };
+        }
+        const url = guestUrl(table.guest_token);
+        try {
+          return {
+            id: table.id,
+            number: table.number,
+            url,
+            qr_data: await QRCode.toDataURL(url, { errorCorrectionLevel: 'M', width: 320 }),
+          };
+        } catch {
+          return { id: table.id, number: table.number, url, qr_data: null };
+        }
+      }),
+    );
 
-  const relaySecret = getSettingValue('guest_relay_secret') || '';
+    const relaySecret = getSettingValue('guest_relay_secret') || '';
 
-  res.json({
-    enabled: getSettingValue('guest_ordering_enabled') === 'true',
-    public_url: getSettingValue('guest_public_url') || '',
-    base_url: guestBaseUrl(),
-    guest_port: getGuestPort(),
-    tables: withCodes,
-    relay: {
-      url: getSettingValue('guest_relay_url') || '',
-      // Whether a secret exists, and its last four characters so the merchant
-      // can tell at a glance whether the one in their server's .env is still
-      // the current one. The whole secret is fetched separately and on purpose.
-      secret_set: Boolean(relaySecret),
-      secret_tail: relaySecret ? relaySecret.slice(-4) : '',
-      connected: isGuestRelayConnected(),
-    },
-  });
-}));
+    res.json({
+      enabled: getSettingValue('guest_ordering_enabled') === 'true',
+      public_url: getSettingValue('guest_public_url') || '',
+      base_url: guestBaseUrl(),
+      guest_port: getGuestPort(),
+      tables: withCodes,
+      relay: {
+        url: getSettingValue('guest_relay_url') || '',
+        // Whether a secret exists, and its last four characters so the merchant
+        // can tell at a glance whether the one in their server's .env is still
+        // the current one. The whole secret is fetched separately and on purpose.
+        secret_set: Boolean(relaySecret),
+        secret_tail: relaySecret ? relaySecret.slice(-4) : '',
+        connected: isGuestRelayConnected(),
+      },
+    });
+  }),
+);
 
 /**
  * Just the connection state, cheap enough to poll.
@@ -153,19 +171,23 @@ router.put('/', (req: Request, res: Response) => {
     const { enabled, public_url: publicUrl, relay_url: relayUrl } = req.body || {};
 
     if (enabled !== undefined) {
-      if (typeof enabled !== 'boolean') return res.status(400).json({ error: 'enabled must be a boolean' });
+      if (typeof enabled !== 'boolean')
+        return res.status(400).json({ error: 'enabled must be a boolean' });
       upsertSettings({ guest_ordering_enabled: enabled ? 'true' : 'false' });
     }
 
     if (publicUrl !== undefined) {
-      if (typeof publicUrl !== 'string') return res.status(400).json({ error: 'public_url must be a string' });
+      if (typeof publicUrl !== 'string')
+        return res.status(400).json({ error: 'public_url must be a string' });
       const trimmed = publicUrl.trim();
       if (trimmed) {
         let parsed: URL;
         try {
           parsed = new URL(trimmed);
         } catch {
-          return res.status(400).json({ error: 'public_url must be a full URL, e.g. https://order.myshop.com' });
+          return res
+            .status(400)
+            .json({ error: 'public_url must be a full URL, e.g. https://order.myshop.com' });
         }
         if (!['http:', 'https:'].includes(parsed.protocol)) {
           return res.status(400).json({ error: 'public_url must start with http:// or https://' });
@@ -175,7 +197,8 @@ router.put('/', (req: Request, res: Response) => {
     }
 
     if (relayUrl !== undefined) {
-      if (typeof relayUrl !== 'string') return res.status(400).json({ error: 'relay_url must be a string' });
+      if (typeof relayUrl !== 'string')
+        return res.status(400).json({ error: 'relay_url must be a string' });
       const trimmed = relayUrl.trim();
       if (trimmed) {
         const problem = relayUrlError(trimmed);
@@ -207,24 +230,32 @@ router.put('/', (req: Request, res: Response) => {
 });
 
 /** Issues a table's first code, or replaces one that has leaked. */
-router.post('/tables/:tableId/token', asyncHandler(async (req: Request, res: Response) => {
-  const db = getDatabase();
-  const table = db.prepare('SELECT id, number FROM tables WHERE id = ? AND is_active = 1')
-    .get(req.params.tableId) as { id: string; number: string } | undefined;
-  if (!table) return res.status(404).json({ error: 'Table not found' });
+router.post(
+  '/tables/:tableId/token',
+  asyncHandler(async (req: Request, res: Response) => {
+    const db = getDatabase();
+    const table = db
+      .prepare('SELECT id, number FROM tables WHERE id = ? AND is_active = 1')
+      .get(req.params.tableId) as { id: string; number: string } | undefined;
+    if (!table) return res.status(404).json({ error: 'Table not found' });
 
-  const token = newGuestToken();
-  db.prepare('UPDATE tables SET guest_token = ?, updated_at = ? WHERE id = ?').run(token, now(), table.id);
+    const token = newGuestToken();
+    db.prepare('UPDATE tables SET guest_token = ?, updated_at = ? WHERE id = ?').run(
+      token,
+      now(),
+      table.id,
+    );
 
-  const url = guestUrl(token);
-  let qrData: string | null = null;
-  try {
-    qrData = await QRCode.toDataURL(url, { errorCorrectionLevel: 'M', width: 320 });
-  } catch {
-    qrData = null;
-  }
-  res.json({ table: { id: table.id, number: table.number, url, qr_data: qrData } });
-}));
+    const url = guestUrl(token);
+    let qrData: string | null = null;
+    try {
+      qrData = await QRCode.toDataURL(url, { errorCorrectionLevel: 'M', width: 320 });
+    } catch {
+      qrData = null;
+    }
+    res.json({ table: { id: table.id, number: table.number, url, qr_data: qrData } });
+  }),
+);
 
 /**
  * Shows a pairing code for a hosted QR server.
@@ -246,7 +277,8 @@ router.post('/pairing-code', (req: Request, res: Response) => {
     // displays it, and a renamed staff member should not keep an old label for
     // as long as their token lives.
     const row = getDatabase().prepare('SELECT name FROM users WHERE id = ?').get(user.userId) as
-      { name: string } | undefined;
+      | { name: string }
+      | undefined;
 
     const issued = issuePairingCode({ name: row?.name || '', role: user.role });
     res.json(issued);
@@ -271,7 +303,8 @@ router.delete('/pairing-code', (_req: Request, res: Response) => {
 router.delete('/tables/:tableId/token', (req: Request, res: Response) => {
   try {
     const db = getDatabase();
-    const result = db.prepare('UPDATE tables SET guest_token = NULL, updated_at = ? WHERE id = ?')
+    const result = db
+      .prepare('UPDATE tables SET guest_token = NULL, updated_at = ? WHERE id = ?')
       .run(now(), req.params.tableId);
     if (result.changes === 0) return res.status(404).json({ error: 'Table not found' });
     res.json({ ok: true });

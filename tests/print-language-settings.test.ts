@@ -25,10 +25,11 @@ import {
 } from '../main/lib/print-language-settings';
 
 console.log('Testing language-policy settings keys...');
-assert.deepEqual(
-  [...LANGUAGE_POLICY_SETTING_KEYS].sort(),
-  ['bill_language_policy', 'kot_language_policy', 'z_report_language_policy'],
-);
+assert.deepEqual([...LANGUAGE_POLICY_SETTING_KEYS].sort(), [
+  'bill_language_policy',
+  'kot_language_policy',
+  'z_report_language_policy',
+]);
 
 console.log('✓ keys registered');
 
@@ -52,8 +53,10 @@ if (objectPayload.ok) {
   assert.equal(objectPayload.stored, '{"primary":{"mode":"inherit"},"additional":[]}');
 }
 
-const stringPayload = validateLanguagePolicySetting(BILL_LANGUAGE_POLICY_KEY,
-  '{"primary":{"mode":"fixed","language":"fa"},"additional":["es"]}');
+const stringPayload = validateLanguagePolicySetting(
+  BILL_LANGUAGE_POLICY_KEY,
+  '{"primary":{"mode":"fixed","language":"fa"},"additional":["es"]}',
+);
 assert.ok(stringPayload.ok);
 if (stringPayload.ok) {
   const stored = JSON.parse(stringPayload.stored);
@@ -61,11 +64,15 @@ if (stringPayload.ok) {
   assert.deepEqual(stored.additional, ['es']);
 }
 
-const kotFixed = validateLanguagePolicySetting(KOT_LANGUAGE_POLICY_KEY,
-  '{"primary":{"mode":"fixed","language":"pt"},"additional":[]}');
+const kotFixed = validateLanguagePolicySetting(
+  KOT_LANGUAGE_POLICY_KEY,
+  '{"primary":{"mode":"fixed","language":"pt"},"additional":[]}',
+);
 assert.ok(kotFixed.ok);
-const zFixed = validateLanguagePolicySetting(Z_REPORT_LANGUAGE_POLICY_KEY,
-  '{"primary":{"mode":"fixed","language":"fa"},"additional":["en"]}');
+const zFixed = validateLanguagePolicySetting(
+  Z_REPORT_LANGUAGE_POLICY_KEY,
+  '{"primary":{"mode":"fixed","language":"fa"},"additional":["en"]}',
+);
 assert.ok(zFixed.ok);
 if (zFixed.ok) {
   assert.equal(zFixed.stored, '{"primary":{"mode":"fixed","language":"fa"},"additional":["en"]}');
@@ -97,16 +104,21 @@ console.log('✓ strict writer validation');
 console.log('Testing lenient reader fallbacks...');
 // Malformed or invalid stored rows fall back to defaults; printing never
 // breaks because of one bad settings row.
+assert.deepEqual(parseStoredLanguagePolicy(BILL_LANGUAGE_POLICY_KEY, '{broken'), {
+  primary: { mode: 'inherit' },
+  additional: [],
+});
 assert.deepEqual(
-  parseStoredLanguagePolicy(BILL_LANGUAGE_POLICY_KEY, '{broken'),
+  parseStoredLanguagePolicy(
+    BILL_LANGUAGE_POLICY_KEY,
+    '{"primary":{"mode":"fixed","language":"xx"}}',
+  ),
   { primary: { mode: 'inherit' }, additional: [] },
 );
-assert.deepEqual(
-  parseStoredLanguagePolicy(BILL_LANGUAGE_POLICY_KEY, '{"primary":{"mode":"fixed","language":"xx"}}'),
-  { primary: { mode: 'inherit' }, additional: [] },
+const okStored = parseStoredLanguagePolicy(
+  BILL_LANGUAGE_POLICY_KEY,
+  '{"primary":{"mode":"fixed","language":"fa"},"additional":["en"]}',
 );
-const okStored = parseStoredLanguagePolicy(BILL_LANGUAGE_POLICY_KEY,
-  '{"primary":{"mode":"fixed","language":"fa"},"additional":["en"]}');
 assert.ok('primary' in okStored && okStored.primary.mode === 'fixed');
 
 console.log('✓ lenient reader with safe fallback');

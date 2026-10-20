@@ -28,7 +28,10 @@ function canonicalize(value: unknown): string {
       }
       const entries = Object.keys(value as Record<string, unknown>)
         .sort()
-        .map((key) => `${JSON.stringify(key)}:${canonicalize((value as Record<string, unknown>)[key])}`);
+        .map(
+          (key) =>
+            `${JSON.stringify(key)}:${canonicalize((value as Record<string, unknown>)[key])}`,
+        );
       return `{${entries.join(',')}}`;
     }
     default:
@@ -79,7 +82,12 @@ export function generateCartItemId(
 export function normalizeCartItems(items: CartItem[]): CartItem[] {
   const normalized: CartItem[] = [];
   for (const item of items) {
-    const id = generateCartItemId(item.product.id, item.variant?.id ?? null, item.addons || [], item.special_instructions || '');
+    const id = generateCartItemId(
+      item.product.id,
+      item.variant?.id ?? null,
+      item.addons || [],
+      item.special_instructions || '',
+    );
     const existing = normalized.find((candidate) => candidate.id === id);
     if (existing) {
       existing.quantity += item.quantity;

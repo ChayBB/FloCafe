@@ -21,8 +21,9 @@ async function login(page: Page): Promise<void> {
 
 async function openPrintTest(page: Page): Promise<void> {
   await page.goto(`${BASE}/print-test`);
-  await expect(page.getByRole('heading', { name: 'Printing Test Page', exact: true }))
-    .toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('heading', { name: 'Printing Test Page', exact: true })).toBeVisible({
+    timeout: 30_000,
+  });
   await page.waitForLoadState('networkidle');
 }
 
@@ -45,7 +46,9 @@ test.describe('@ci-tier2 Printing Test Page (inspection only - never runs a job)
     await expect(page.getByRole('button', { name: 'Browser Print', exact: true })).toBeVisible();
   });
 
-  test('the print method hint names the transport the button would actually use', async ({ page }) => {
+  test('the print method hint names the transport the button would actually use', async ({
+    page,
+  }) => {
     await openPrintTest(page);
 
     // ESC/POS is the configured default here, and its hint reports the live
@@ -82,7 +85,12 @@ test.describe('@ci-tier2 Printing Test Page (inspection only - never runs a job)
     const preview = page.locator('pre').first();
     await expect(preview).toBeVisible();
     const text = (await preview.textContent()) ?? '';
-    const parsed = JSON.parse(text) as { bill: string; total: number; items: number; customer: string };
+    const parsed = JSON.parse(text) as {
+      bill: string;
+      total: number;
+      items: number;
+      customer: string;
+    };
 
     expect(parsed).toEqual({ bill: 'BILL-001', total: 504, items: 3, customer: 'John Doe' });
   });
@@ -103,7 +111,9 @@ test.describe('@ci-tier2 Printing Test Page (inspection only - never runs a job)
     await expect(page.getByRole('button', { name: 'Copy Text', exact: true })).toHaveCount(0);
   });
 
-  test('changing modes and settings sends no matching print or WhatsApp HTTP requests', async ({ page }) => {
+  test('changing modes and settings sends no matching print or WhatsApp HTTP requests', async ({
+    page,
+  }) => {
     const outbound: Request[] = [];
     const record = (request: Request) => {
       const url = request.url();

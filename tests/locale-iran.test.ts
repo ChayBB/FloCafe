@@ -166,7 +166,10 @@ test('formatMoney: IR Toman short uses Persian suffix by default', () => {
 });
 
 test('formatMoney: IR Toman short uses Latin suffix with Latin digits', () => {
-  const out = formatMoney(6000000, 'IRR', 'fa-IR', { currencyDisplay: 'toman_short', digits: 'latin' });
+  const out = formatMoney(6000000, 'IRR', 'fa-IR', {
+    currencyDisplay: 'toman_short',
+    digits: 'latin',
+  });
   assert.equal(out, '600,000T');
 });
 
@@ -185,18 +188,33 @@ test('formatMoney: non-IRR currencies ignore currencyDisplay preferences', () =>
 
 test('formatNumberForTenant: IR Latin digits', () => {
   assert.equal(formatNumberForTenant(1234, 'IR', { digits: 'latin' }), '1,234');
-  assert.equal(formatNumberForTenant(1234, 'IR'), formatNumberForTenant(1234, 'IR', { digits: 'locale' }));
+  assert.equal(
+    formatNumberForTenant(1234, 'IR'),
+    formatNumberForTenant(1234, 'IR', { digits: 'locale' }),
+  );
 });
 
 test('formatDateForTenant: IR Gregorian calendar', () => {
   const date = new Date(Date.UTC(2026, 7, 17, 12, 30, 0));
-  const out = formatDateForTenant(date, 'IR', 'Asia/Tehran', { calendar: 'gregorian' }, { year: 'numeric', month: 'short', day: 'numeric' });
+  const out = formatDateForTenant(
+    date,
+    'IR',
+    'Asia/Tehran',
+    { calendar: 'gregorian' },
+    { year: 'numeric', month: 'short', day: 'numeric' },
+  );
   assert.ok(out.includes('۲۰۲۶'), `expected Gregorian year 2026, got: ${out}`);
 });
 
 test('formatDateForTenant: IR Persian calendar with Latin digits', () => {
   const date = new Date(Date.UTC(2026, 7, 17, 12, 30, 0));
-  const out = formatDateForTenant(date, 'IR', 'Asia/Tehran', { calendar: 'persian', digits: 'latin' }, { year: 'numeric', month: 'short', day: 'numeric' });
+  const out = formatDateForTenant(
+    date,
+    'IR',
+    'Asia/Tehran',
+    { calendar: 'persian', digits: 'latin' },
+    { year: 'numeric', month: 'short', day: 'numeric' },
+  );
   assert.ok(out.includes('1405'), `expected Shamsi year 1405, got: ${out}`);
   assert.ok(out.includes('مرداد'), `expected Mordad month, got: ${out}`);
 });
@@ -211,14 +229,23 @@ test('formatDateForTenant: locale defaults remain tenant-authoritative under a U
     { year: 'numeric', month: 'short', day: 'numeric' },
     'en-US',
   );
-  assert.ok(out.includes('مرداد') || out.includes('Mordad'), `expected tenant Persian calendar month, got: ${out}`);
+  assert.ok(
+    out.includes('مرداد') || out.includes('Mordad'),
+    `expected tenant Persian calendar month, got: ${out}`,
+  );
   assert.ok(!out.includes('2026'), `expected tenant Persian calendar year, got: ${out}`);
   assert.match(out, /[۰-۹]/, `expected tenant Persian digits, got: ${out}`);
 });
 
 test('formatDateForTenant: non-Iran tenants stay Gregorian', () => {
   const date = new Date(Date.UTC(2026, 7, 17, 12, 30, 0));
-  const out = formatDateForTenant(date, 'IN', 'Asia/Kolkata', {}, { year: 'numeric', month: 'short', day: 'numeric' });
+  const out = formatDateForTenant(
+    date,
+    'IN',
+    'Asia/Kolkata',
+    {},
+    { year: 'numeric', month: 'short', day: 'numeric' },
+  );
   assert.ok(out.includes('2026'), `expected Gregorian year 2026, got: ${out}`);
 });
 
@@ -233,8 +260,14 @@ test('formatDateForTenant: UI locale override decouples display language from te
     { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' },
     'en-US',
   );
-  assert.ok(enOut.includes('Aug') || enOut.includes('August'), `expected English month in en-US output, got: ${enOut}`);
-  assert.ok(enOut.includes('PM') || enOut.includes('pm'), `expected English 12-hour period in en-US output, got: ${enOut}`);
+  assert.ok(
+    enOut.includes('Aug') || enOut.includes('August'),
+    `expected English month in en-US output, got: ${enOut}`,
+  );
+  assert.ok(
+    enOut.includes('PM') || enOut.includes('pm'),
+    `expected English 12-hour period in en-US output, got: ${enOut}`,
+  );
   assert.ok(!enOut.includes('de ago'), `unexpected Spanish preposition in en-US output: ${enOut}`);
 
   // Argentina store with Spanish UI
@@ -262,11 +295,17 @@ test('getCurrencyUnitAdapter: IR with toman display scales amounts and labels co
 });
 
 test('getCurrencyUnitAdapter: IR with toman_short latin and locale digits', () => {
-  const latinAdapter = getCurrencyUnitAdapter('IRR', 'IR', { currencyDisplay: 'toman_short', digits: 'latin' });
+  const latinAdapter = getCurrencyUnitAdapter('IRR', 'IR', {
+    currencyDisplay: 'toman_short',
+    digits: 'latin',
+  });
   assert.equal(latinAdapter.label, 'T');
   assert.equal(latinAdapter.scale, 0.1);
 
-  const localeAdapter = getCurrencyUnitAdapter('IRR', 'IR', { currencyDisplay: 'toman_short', digits: 'locale' });
+  const localeAdapter = getCurrencyUnitAdapter('IRR', 'IR', {
+    currencyDisplay: 'toman_short',
+    digits: 'locale',
+  });
   assert.equal(localeAdapter.label, 'ت');
   assert.equal(localeAdapter.scale, 0.1);
 });

@@ -28,7 +28,5 @@ export default defineConfig({
       E2E_SERVER_APP_BASE_URL,
     },
   },
-  projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'], baseURL: E2E_BASE_URL } },
-  ],
+  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'], baseURL: E2E_BASE_URL } }],
 });

@@ -55,28 +55,36 @@ async function setPosSetting(page: Page, key: string, value: boolean | string): 
   // persisted Zustand store. The settings page also fetches the server value
   // asynchronously, so changing localStorage only after that page has loaded
   // can be overwritten by its late response before print-test mounts.
-  await page.addInitScript(({ key: initKey, value: initValue }) => {
-    try {
-      const raw = localStorage.getItem('pos-settings');
-      const parsed = raw ? JSON.parse(raw) : { state: {}, version: 3 };
-      parsed.state = { ...parsed.state, [initKey]: initValue };
-      parsed.version ??= 3;
-      localStorage.setItem('pos-settings', JSON.stringify(parsed));
-    } catch {}
-  }, { key, value });
-  await page.evaluate(({ key, value }) => {
-    try {
-      const raw = localStorage.getItem('pos-settings');
-      const parsed = raw ? JSON.parse(raw) : { state: {}, version: 3 };
-      parsed.state = { ...parsed.state, [key]: value };
-      parsed.version ??= 3;
-      localStorage.setItem('pos-settings', JSON.stringify(parsed));
-    } catch {}
-  }, { key, value });
+  await page.addInitScript(
+    ({ key: initKey, value: initValue }) => {
+      try {
+        const raw = localStorage.getItem('pos-settings');
+        const parsed = raw ? JSON.parse(raw) : { state: {}, version: 3 };
+        parsed.state = { ...parsed.state, [initKey]: initValue };
+        parsed.version ??= 3;
+        localStorage.setItem('pos-settings', JSON.stringify(parsed));
+      } catch {}
+    },
+    { key, value },
+  );
+  await page.evaluate(
+    ({ key, value }) => {
+      try {
+        const raw = localStorage.getItem('pos-settings');
+        const parsed = raw ? JSON.parse(raw) : { state: {}, version: 3 };
+        parsed.state = { ...parsed.state, [key]: value };
+        parsed.version ??= 3;
+        localStorage.setItem('pos-settings', JSON.stringify(parsed));
+      } catch {}
+    },
+    { key, value },
+  );
 }
 
 test.describe('Localized Error Fallbacks', () => {
-  test('Login failure renders localized fallback across all 5 locales (EN, ES, FR, PT, FA)', async ({ page }) => {
+  test('Login failure renders localized fallback across all 5 locales (EN, ES, FR, PT, FA)', async ({
+    page,
+  }) => {
     await page.route('**/api/auth/login', (route) => {
       route.fulfill({
         status: 500,
@@ -96,7 +104,10 @@ test.describe('Localized Error Fallbacks', () => {
 
     // 2. Spanish (es)
     await page.addInitScript(() => {
-      localStorage.setItem('pos-settings', JSON.stringify({ state: { language: 'es' }, version: 3 }));
+      localStorage.setItem(
+        'pos-settings',
+        JSON.stringify({ state: { language: 'es' }, version: 3 }),
+      );
     });
     await page.goto(`${BASE}/auth/login`);
     await page.locator('#email').fill('manager@flo.local');
@@ -108,7 +119,10 @@ test.describe('Localized Error Fallbacks', () => {
 
     // 3. French (fr)
     await page.addInitScript(() => {
-      localStorage.setItem('pos-settings', JSON.stringify({ state: { language: 'fr' }, version: 3 }));
+      localStorage.setItem(
+        'pos-settings',
+        JSON.stringify({ state: { language: 'fr' }, version: 3 }),
+      );
     });
     await page.goto(`${BASE}/auth/login`);
     await page.locator('#email').fill('manager@flo.local');
@@ -120,7 +134,10 @@ test.describe('Localized Error Fallbacks', () => {
 
     // 4. Portuguese (pt)
     await page.addInitScript(() => {
-      localStorage.setItem('pos-settings', JSON.stringify({ state: { language: 'pt' }, version: 3 }));
+      localStorage.setItem(
+        'pos-settings',
+        JSON.stringify({ state: { language: 'pt' }, version: 3 }),
+      );
     });
     await page.goto(`${BASE}/auth/login`);
     await page.locator('#email').fill('manager@flo.local');
@@ -132,7 +149,10 @@ test.describe('Localized Error Fallbacks', () => {
 
     // 5. Persian (fa)
     await page.addInitScript(() => {
-      localStorage.setItem('pos-settings', JSON.stringify({ state: { language: 'fa' }, version: 3 }));
+      localStorage.setItem(
+        'pos-settings',
+        JSON.stringify({ state: { language: 'fa' }, version: 3 }),
+      );
     });
     await page.goto(`${BASE}/auth/login`);
     await page.locator('#email').fill('manager@flo.local');
@@ -143,7 +163,9 @@ test.describe('Localized Error Fallbacks', () => {
     await captureScreenshot(page, 'error-login-fallback-fa.png');
   });
 
-  test('Login 429 lockout renders localized lockout message without raw string', async ({ page }) => {
+  test('Login 429 lockout renders localized lockout message without raw string', async ({
+    page,
+  }) => {
     await page.route('**/api/auth/login', (route) => {
       route.fulfill({
         status: 429,
@@ -154,7 +176,10 @@ test.describe('Localized Error Fallbacks', () => {
 
     // Persian lockout
     await page.addInitScript(() => {
-      localStorage.setItem('pos-settings', JSON.stringify({ state: { language: 'fa' }, version: 3 }));
+      localStorage.setItem(
+        'pos-settings',
+        JSON.stringify({ state: { language: 'fa' }, version: 3 }),
+      );
     });
     await page.goto(`${BASE}/auth/login`);
     await page.locator('#email').fill('manager@flo.local');
@@ -166,7 +191,9 @@ test.describe('Localized Error Fallbacks', () => {
     await captureScreenshot(page, 'error-login-lockout-fa.png');
   });
 
-  test('Password recovery failure renders localized fallback across locales (EN, ES, FA)', async ({ page }) => {
+  test('Password recovery failure renders localized fallback across locales (EN, ES, FA)', async ({
+    page,
+  }) => {
     await page.route('**/api/auth/setup/status', (route) => {
       route.fulfill({
         status: 200,
@@ -196,7 +223,10 @@ test.describe('Localized Error Fallbacks', () => {
 
     // 2. Spanish recover error
     await page.addInitScript(() => {
-      localStorage.setItem('pos-settings', JSON.stringify({ state: { language: 'es' }, version: 3 }));
+      localStorage.setItem(
+        'pos-settings',
+        JSON.stringify({ state: { language: 'es' }, version: 3 }),
+      );
     });
     await page.goto(`${BASE}/auth/recover`);
     await page.locator('#recover-email').fill('owner@flo.local');
@@ -211,7 +241,10 @@ test.describe('Localized Error Fallbacks', () => {
 
     // 3. Persian recover error
     await page.addInitScript(() => {
-      localStorage.setItem('pos-settings', JSON.stringify({ state: { language: 'fa' }, version: 3 }));
+      localStorage.setItem(
+        'pos-settings',
+        JSON.stringify({ state: { language: 'fa' }, version: 3 }),
+      );
     });
     await page.goto(`${BASE}/auth/recover`);
     await page.locator('#recover-email').fill('owner@flo.local');
@@ -225,7 +258,9 @@ test.describe('Localized Error Fallbacks', () => {
     await captureScreenshot(page, 'error-recover-pin-fallback-fa.png');
   });
 
-  test('Authenticated screens error toasts render localized fallbacks (Settings, Print Test, POS)', async ({ page }) => {
+  test('Authenticated screens error toasts render localized fallbacks (Settings, Print Test, POS)', async ({
+    page,
+  }) => {
     await loginAsOwner(page);
 
     try {
@@ -246,7 +281,9 @@ test.describe('Localized Error Fallbacks', () => {
       const rotateBtn = page.locator('button', { hasText: /تولید مجدد|Rotate/ }).first();
       if (await rotateBtn.isVisible()) {
         await rotateBtn.click();
-        await expect(page.locator('text=تولید مجدد کد اتصال انجام نشد')).toBeVisible({ timeout: 5000 });
+        await expect(page.locator('text=تولید مجدد کد اتصال انجام نشد')).toBeVisible({
+          timeout: 5000,
+        });
         await expect(page.locator('text=RAW_FLOADMIN_DOWNSTREAM_TIMEOUT')).not.toBeVisible();
         await captureScreenshot(page, 'error-settings-pairing-rotate-fa.png');
       }
@@ -264,10 +301,14 @@ test.describe('Localized Error Fallbacks', () => {
       // The account card is populated asynchronously; wait for its fetches to
       // settle before clicking a conditionally rendered verification action.
       await page.waitForLoadState('networkidle');
-      const sendVerifyBtn = page.locator('button', { hasText: /Send verification email|ارسال ایمیل/ }).first();
+      const sendVerifyBtn = page
+        .locator('button', { hasText: /Send verification email|ارسال ایمیل/ })
+        .first();
       if (await sendVerifyBtn.isVisible()) {
         await sendVerifyBtn.click();
-        await expect(page.locator('text=ارسال ایمیل تأیید انجام نشد')).toBeVisible({ timeout: 5000 });
+        await expect(page.locator('text=ارسال ایمیل تأیید انجام نشد')).toBeVisible({
+          timeout: 5000,
+        });
         await expect(page.locator('text=RAW_SMTP_SENDMAIL_FAILED')).not.toBeVisible();
         await captureScreenshot(page, 'error-settings-verification-email-fa.png');
       }
@@ -309,7 +350,9 @@ test.describe('Localized Error Fallbacks', () => {
         const holdBtn = page.locator('button', { hasText: /نگه‌داشتن|Hold/ }).first();
         if (await holdBtn.isVisible()) {
           await holdBtn.click();
-          await expect(page.locator('text=نگه‌داشتن سفارش انجام نشد')).toBeVisible({ timeout: 5000 });
+          await expect(page.locator('text=نگه‌داشتن سفارش انجام نشد')).toBeVisible({
+            timeout: 5000,
+          });
           await expect(page.locator('text=RAW_SQLITE_HOLD_FAILURE_FOREIGN_KEY')).not.toBeVisible();
           await captureScreenshot(page, 'error-pos-hold-order-fa.png');
         }

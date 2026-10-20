@@ -13,7 +13,10 @@ const MAX_POLLS = 20;
 
 /** Polls local status route until ticket delivery is confirmed
  * or max retry threshold is reached. */
-export function useSupportTicketStatus(clientTicketId: string | null, statusBasePath = '/support-ticket'): SupportTicketDelivery {
+export function useSupportTicketStatus(
+  clientTicketId: string | null,
+  statusBasePath = '/support-ticket',
+): SupportTicketDelivery {
   const [state, setState] = useState<SupportTicketDelivery>({ status: null, supportCode: null });
   const pollsRef = useRef(0);
 

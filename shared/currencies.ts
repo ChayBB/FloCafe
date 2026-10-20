@@ -1,4 +1,13 @@
-export const POPULAR_CURRENCY_CODES = ['USD', 'EUR', 'GBP', 'AED', 'AUD', 'CAD', 'SGD', 'JPY'] as const;
+export const POPULAR_CURRENCY_CODES = [
+  'USD',
+  'EUR',
+  'GBP',
+  'AED',
+  'AUD',
+  'CAD',
+  'SGD',
+  'JPY',
+] as const;
 
 const RESERVED_CURRENCY_CODES = new Set(['XXX', 'XTS']);
 

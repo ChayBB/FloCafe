@@ -52,7 +52,7 @@ export const MERCHANT_TEMPLATE_FORMAT = 'flocafe-merchant-print-template';
 
 /** Supported document types (v1 ships receipts only). */
 export const MERCHANT_TEMPLATE_DOCUMENT_TYPES = ['receipt'] as const;
-export type MerchantTemplateDocumentType = typeof MERCHANT_TEMPLATE_DOCUMENT_TYPES[number];
+export type MerchantTemplateDocumentType = (typeof MERCHANT_TEMPLATE_DOCUMENT_TYPES)[number];
 
 /** Current schema major version. Bumping this is a breaking contract change. */
 export const MERCHANT_TEMPLATE_SCHEMA_VERSION = 1;
@@ -102,12 +102,20 @@ export const MERCHANT_TEMPLATE_LABEL_FIELDS: Readonly<
 > = Object.freeze({
   'business-header': [],
   'document-meta': ['title', 'invoiceNumber'],
-  'customer': [],
+  customer: [],
   'item-table': ['item', 'quantity', 'amount', 'note'],
   'tax-breakdown': [],
-  'totals': ['subtotal', 'discount', 'tax', 'grandTotal', 'pointsRedeemed', 'pointsEarned', 'pointsBalance'],
-  'payments': [],
-  'message': ['reprintBanner', 'onlineOrderBanner', 'thankYou'],
+  totals: [
+    'subtotal',
+    'discount',
+    'tax',
+    'grandTotal',
+    'pointsRedeemed',
+    'pointsEarned',
+    'pointsBalance',
+  ],
+  payments: [],
+  message: ['reprintBanner', 'onlineOrderBanner', 'thankYou'],
 });
 
 // ---------------------------------------------------------------------------
@@ -143,9 +151,18 @@ export type MerchantTemplateEnvelopeValidation =
   | { readonly ok: true; readonly envelope: ValidatedMerchantTemplateEnvelope }
   | { readonly ok: false; readonly errors: readonly string[] };
 
-const ENVELOPE_ROOT_FIELDS = ['format', 'schemaVersion', 'exportedAt', 'appVersion', 'origin', 'checksum', 'template'];
+const ENVELOPE_ROOT_FIELDS = [
+  'format',
+  'schemaVersion',
+  'exportedAt',
+  'appVersion',
+  'origin',
+  'checksum',
+  'template',
+];
 const ENVELOPE_ORIGIN_FIELDS = ['sourceTemplateId', 'sourceName', 'sourceChecksum'];
-const ISO8601_DATE_TIME_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
+const ISO8601_DATE_TIME_PATTERN =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 const UNSAFE_LABEL_TEXT_PATTERN = /[\u0000-\u001F\u007F]|\{[A-Z_/]+\}/;
 
 function isSha256Hex(value: unknown): value is string {
@@ -184,7 +201,9 @@ function isIso8601DateTime(value: unknown): value is string {
  * validator owns payload rules. Checksum equality is likewise verified by
  * the caller (it needs hashing); this function only checks its SHA-256 shape.
  */
-export function validateMerchantTemplateEnvelope(value: unknown): MerchantTemplateEnvelopeValidation {
+export function validateMerchantTemplateEnvelope(
+  value: unknown,
+): MerchantTemplateEnvelopeValidation {
   const errors: string[] = [];
   if (!isPlainObject(value)) {
     return { ok: false, errors: ['transfer file must be a single JSON object'] };
@@ -197,10 +216,16 @@ export function validateMerchantTemplateEnvelope(value: unknown): MerchantTempla
   }
 
   if (value.format !== MERCHANT_TEMPLATE_EXPORT_FORMAT) {
-    reject(errors, `root.format: expected "${MERCHANT_TEMPLATE_EXPORT_FORMAT}", got ${JSON.stringify(value.format)}`);
+    reject(
+      errors,
+      `root.format: expected "${MERCHANT_TEMPLATE_EXPORT_FORMAT}", got ${JSON.stringify(value.format)}`,
+    );
   }
   if (value.schemaVersion !== MERCHANT_TEMPLATE_EXPORT_SCHEMA_VERSION) {
-    reject(errors, `root.schemaVersion: unsupported transfer-file version ${JSON.stringify(value.schemaVersion)}; this build supports major version ${MERCHANT_TEMPLATE_EXPORT_SCHEMA_VERSION} only`);
+    reject(
+      errors,
+      `root.schemaVersion: unsupported transfer-file version ${JSON.stringify(value.schemaVersion)}; this build supports major version ${MERCHANT_TEMPLATE_EXPORT_SCHEMA_VERSION} only`,
+    );
   }
   if (!isIso8601DateTime(value.exportedAt)) {
     reject(errors, 'root.exportedAt: expected an ISO-8601 date-time string');
@@ -223,7 +248,10 @@ export function validateMerchantTemplateEnvelope(value: unknown): MerchantTempla
     } else {
       for (const key of Object.keys(value.origin)) {
         if (!ENVELOPE_ORIGIN_FIELDS.includes(key)) {
-          reject(errors, `root.origin: unknown field "${key}" (allowed: ${ENVELOPE_ORIGIN_FIELDS.join(', ')})`);
+          reject(
+            errors,
+            `root.origin: unknown field "${key}" (allowed: ${ENVELOPE_ORIGIN_FIELDS.join(', ')})`,
+          );
         }
       }
       for (const key of ENVELOPE_ORIGIN_FIELDS) {
@@ -233,9 +261,15 @@ export function validateMerchantTemplateEnvelope(value: unknown): MerchantTempla
         }
       }
       origin = {
-        ...(typeof value.origin.sourceTemplateId === 'string' ? { sourceTemplateId: value.origin.sourceTemplateId } : {}),
-        ...(typeof value.origin.sourceName === 'string' ? { sourceName: value.origin.sourceName } : {}),
-        ...(typeof value.origin.sourceChecksum === 'string' ? { sourceChecksum: value.origin.sourceChecksum } : {}),
+        ...(typeof value.origin.sourceTemplateId === 'string'
+          ? { sourceTemplateId: value.origin.sourceTemplateId }
+          : {}),
+        ...(typeof value.origin.sourceName === 'string'
+          ? { sourceName: value.origin.sourceName }
+          : {}),
+        ...(typeof value.origin.sourceChecksum === 'string'
+          ? { sourceChecksum: value.origin.sourceChecksum }
+          : {}),
       };
     }
   }
@@ -323,17 +357,28 @@ export function validateMerchantTemplate(value: unknown): MerchantTemplateValida
 
   // --- Format discriminator -------------------------------------------------
   if (value.format !== MERCHANT_TEMPLATE_FORMAT) {
-    reject(errors, `root.format: expected "${MERCHANT_TEMPLATE_FORMAT}", got ${JSON.stringify(value.format)}`);
+    reject(
+      errors,
+      `root.format: expected "${MERCHANT_TEMPLATE_FORMAT}", got ${JSON.stringify(value.format)}`,
+    );
   }
 
   // --- Document type --------------------------------------------------------
-  if (!MERCHANT_TEMPLATE_DOCUMENT_TYPES.includes(value.documentType as MerchantTemplateDocumentType)) {
-    reject(errors, `root.documentType: unsupported document type ${JSON.stringify(value.documentType)} (supported: ${MERCHANT_TEMPLATE_DOCUMENT_TYPES.join(', ')})`);
+  if (
+    !MERCHANT_TEMPLATE_DOCUMENT_TYPES.includes(value.documentType as MerchantTemplateDocumentType)
+  ) {
+    reject(
+      errors,
+      `root.documentType: unsupported document type ${JSON.stringify(value.documentType)} (supported: ${MERCHANT_TEMPLATE_DOCUMENT_TYPES.join(', ')})`,
+    );
   }
 
   // --- Schema version gate (fail-closed on unknown majors) ------------------
   if (value.schemaVersion !== MERCHANT_TEMPLATE_SCHEMA_VERSION) {
-    reject(errors, `root.schemaVersion: unsupported schema version ${JSON.stringify(value.schemaVersion)}; this build supports major version ${MERCHANT_TEMPLATE_SCHEMA_VERSION} only`);
+    reject(
+      errors,
+      `root.schemaVersion: unsupported schema version ${JSON.stringify(value.schemaVersion)}; this build supports major version ${MERCHANT_TEMPLATE_SCHEMA_VERSION} only`,
+    );
   }
 
   // --- Blocks ---------------------------------------------------------------
@@ -353,16 +398,28 @@ export function validateMerchantTemplate(value: unknown): MerchantTemplateValida
       const allowedBlockFields = ['kind', 'visible', 'labels'];
       for (const key of Object.keys(entry)) {
         if (!allowedBlockFields.includes(key)) {
-          reject(errors, `${at}: unknown field "${key}" (allowed: ${allowedBlockFields.join(', ')})`);
+          reject(
+            errors,
+            `${at}: unknown field "${key}" (allowed: ${allowedBlockFields.join(', ')})`,
+          );
         }
       }
       const kind = entry.kind;
-      if (typeof kind !== 'string' || !MERCHANT_TEMPLATE_BLOCK_KINDS.includes(kind as MerchantTemplateBlockKind)) {
-        reject(errors, `${at}.kind: unknown block kind ${JSON.stringify(kind)} (allowed: ${MERCHANT_TEMPLATE_BLOCK_KINDS.join(', ')})`);
+      if (
+        typeof kind !== 'string' ||
+        !MERCHANT_TEMPLATE_BLOCK_KINDS.includes(kind as MerchantTemplateBlockKind)
+      ) {
+        reject(
+          errors,
+          `${at}.kind: unknown block kind ${JSON.stringify(kind)} (allowed: ${MERCHANT_TEMPLATE_BLOCK_KINDS.join(', ')})`,
+        );
         return;
       }
       if (seenKinds.has(kind)) {
-        reject(errors, `${at}.kind: duplicate block "${kind}" — each block may appear at most once`);
+        reject(
+          errors,
+          `${at}.kind: duplicate block "${kind}" — each block may appear at most once`,
+        );
       }
       seenKinds.add(kind);
 
@@ -372,12 +429,18 @@ export function validateMerchantTemplate(value: unknown): MerchantTemplateValida
 
       if (entry.labels !== undefined) {
         if (!isPlainObject(entry.labels)) {
-          reject(errors, `${at}.labels: expected an object of semantic label field -> literal text`);
+          reject(
+            errors,
+            `${at}.labels: expected an object of semantic label field -> literal text`,
+          );
         } else {
           const allowedLabels = MERCHANT_TEMPLATE_LABEL_FIELDS[kind as MerchantTemplateBlockKind];
           for (const [key, fieldValue] of Object.entries(entry.labels)) {
             if (!allowedLabels.includes(key)) {
-              reject(errors, `${at}.labels: unknown label field "${key}" for block "${kind}" (allowed: ${allowedLabels.length > 0 ? allowedLabels.join(', ') : 'none'})`);
+              reject(
+                errors,
+                `${at}.labels: unknown label field "${key}" for block "${kind}" (allowed: ${allowedLabels.length > 0 ? allowedLabels.join(', ') : 'none'})`,
+              );
             }
             if (typeof fieldValue !== 'string') {
               reject(errors, `${at}.labels.${key}: expected a literal string`);
@@ -406,7 +469,9 @@ export function validateMerchantTemplateText(raw: string): MerchantTemplateValid
   if (byteLength > MAX_MERCHANT_TEMPLATE_PAYLOAD_BYTES) {
     return {
       ok: false,
-      errors: [`payload is ${byteLength} bytes; the maximum allowed size is ${MAX_MERCHANT_TEMPLATE_PAYLOAD_BYTES} bytes`],
+      errors: [
+        `payload is ${byteLength} bytes; the maximum allowed size is ${MAX_MERCHANT_TEMPLATE_PAYLOAD_BYTES} bytes`,
+      ],
     };
   }
   let parsed: unknown;
@@ -466,58 +531,100 @@ function applyLabelOverrides(
     case 'document-meta': {
       return Object.freeze({
         ...block,
-        ...(labels.title !== undefined && block.title ? { title: overrideLabel(block.title, labels.title) } : {}),
-        ...(labels.invoiceNumber !== undefined ? { invoiceNumberLabel: overrideLabel(block.invoiceNumberLabel, labels.invoiceNumber) } : {}),
+        ...(labels.title !== undefined && block.title
+          ? { title: overrideLabel(block.title, labels.title) }
+          : {}),
+        ...(labels.invoiceNumber !== undefined
+          ? { invoiceNumberLabel: overrideLabel(block.invoiceNumberLabel, labels.invoiceNumber) }
+          : {}),
       });
     }
     case 'item-table': {
       return Object.freeze({
         ...block,
         header: Object.freeze({
-          item: labels.item !== undefined ? overrideLabel(block.header.item, labels.item) : block.header.item,
-          quantity: labels.quantity !== undefined ? overrideLabel(block.header.quantity, labels.quantity) : block.header.quantity,
+          item:
+            labels.item !== undefined
+              ? overrideLabel(block.header.item, labels.item)
+              : block.header.item,
+          quantity:
+            labels.quantity !== undefined
+              ? overrideLabel(block.header.quantity, labels.quantity)
+              : block.header.quantity,
           rate: block.header.rate,
-          amount: labels.amount !== undefined ? overrideLabel(block.header.amount, labels.amount) : block.header.amount,
+          amount:
+            labels.amount !== undefined
+              ? overrideLabel(block.header.amount, labels.amount)
+              : block.header.amount,
         }),
-        ...(labels.note !== undefined ? { noteLabel: overrideLabel(block.noteLabel, labels.note) } : {}),
+        ...(labels.note !== undefined
+          ? { noteLabel: overrideLabel(block.noteLabel, labels.note) }
+          : {}),
       });
     }
     case 'totals': {
       return Object.freeze({
         ...block,
-        subtotal: labels.subtotal !== undefined ? { ...block.subtotal, label: overrideLabel(block.subtotal.label, labels.subtotal) } : block.subtotal,
-        discount: block.discount && labels.discount !== undefined
-          ? { ...block.discount, label: overrideLabel(block.discount.label, labels.discount) }
-          : block.discount,
-        tax: block.tax && labels.tax !== undefined
-          ? { ...block.tax, label: overrideLabel(block.tax.label, labels.tax) }
-          : block.tax,
-        grandTotal: labels.grandTotal !== undefined
-          ? { ...block.grandTotal, label: overrideLabel(block.grandTotal.label, labels.grandTotal) }
-          : block.grandTotal,
-        pointsRedeemed: block.pointsRedeemed && labels.pointsRedeemed !== undefined
-          ? { ...block.pointsRedeemed, label: overrideLabel(block.pointsRedeemed.label, labels.pointsRedeemed) }
-          : block.pointsRedeemed,
-        pointsEarned: block.pointsEarned && labels.pointsEarned !== undefined
-          ? { ...block.pointsEarned, label: overrideLabel(block.pointsEarned.label, labels.pointsEarned) }
-          : block.pointsEarned,
-        pointsBalance: block.pointsBalance && labels.pointsBalance !== undefined
-          ? { ...block.pointsBalance, label: overrideLabel(block.pointsBalance.label, labels.pointsBalance) }
-          : block.pointsBalance,
+        subtotal:
+          labels.subtotal !== undefined
+            ? { ...block.subtotal, label: overrideLabel(block.subtotal.label, labels.subtotal) }
+            : block.subtotal,
+        discount:
+          block.discount && labels.discount !== undefined
+            ? { ...block.discount, label: overrideLabel(block.discount.label, labels.discount) }
+            : block.discount,
+        tax:
+          block.tax && labels.tax !== undefined
+            ? { ...block.tax, label: overrideLabel(block.tax.label, labels.tax) }
+            : block.tax,
+        grandTotal:
+          labels.grandTotal !== undefined
+            ? {
+                ...block.grandTotal,
+                label: overrideLabel(block.grandTotal.label, labels.grandTotal),
+              }
+            : block.grandTotal,
+        pointsRedeemed:
+          block.pointsRedeemed && labels.pointsRedeemed !== undefined
+            ? {
+                ...block.pointsRedeemed,
+                label: overrideLabel(block.pointsRedeemed.label, labels.pointsRedeemed),
+              }
+            : block.pointsRedeemed,
+        pointsEarned:
+          block.pointsEarned && labels.pointsEarned !== undefined
+            ? {
+                ...block.pointsEarned,
+                label: overrideLabel(block.pointsEarned.label, labels.pointsEarned),
+              }
+            : block.pointsEarned,
+        pointsBalance:
+          block.pointsBalance && labels.pointsBalance !== undefined
+            ? {
+                ...block.pointsBalance,
+                label: overrideLabel(block.pointsBalance.label, labels.pointsBalance),
+              }
+            : block.pointsBalance,
       });
     }
     case 'message': {
       return Object.freeze({
         ...block,
-        reprintBanner: block.reprintBanner && labels.reprintBanner !== undefined
-          ? overrideLabel(block.reprintBanner, labels.reprintBanner)
-          : block.reprintBanner,
-        onlineOrderBanner: block.onlineOrderBanner && labels.onlineOrderBanner !== undefined
-          ? { ...block.onlineOrderBanner, label: overrideLabel(block.onlineOrderBanner.label, labels.onlineOrderBanner) }
-          : block.onlineOrderBanner,
-        thankYou: block.thankYou && labels.thankYou !== undefined
-          ? overrideLabel(block.thankYou, labels.thankYou)
-          : block.thankYou,
+        reprintBanner:
+          block.reprintBanner && labels.reprintBanner !== undefined
+            ? overrideLabel(block.reprintBanner, labels.reprintBanner)
+            : block.reprintBanner,
+        onlineOrderBanner:
+          block.onlineOrderBanner && labels.onlineOrderBanner !== undefined
+            ? {
+                ...block.onlineOrderBanner,
+                label: overrideLabel(block.onlineOrderBanner.label, labels.onlineOrderBanner),
+              }
+            : block.onlineOrderBanner,
+        thankYou:
+          block.thankYou && labels.thankYou !== undefined
+            ? overrideLabel(block.thankYou, labels.thankYou)
+            : block.thankYou,
       });
     }
     default:

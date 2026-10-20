@@ -84,7 +84,11 @@ async function main() {
       headers: owner.authHeader,
     });
     assert.equal(usPersian.status, 400, 'US + calendar "persian" returns HTTP 400');
-    assert.equal(usPersian.data.error, 'Invalid calendar for country US', 'calendar rejection message is country-scoped');
+    assert.equal(
+      usPersian.data.error,
+      'Invalid calendar for country US',
+      'calendar rejection message is country-scoped',
+    );
 
     const usToman = await api(baseUrl, '/api/settings/business', {
       method: 'PUT',
@@ -92,7 +96,11 @@ async function main() {
       headers: owner.authHeader,
     });
     assert.equal(usToman.status, 400, 'US + currency_display "toman" returns HTTP 400');
-    assert.equal(usToman.data.error, 'Invalid currency_display for country US', 'currency_display rejection message is country-scoped');
+    assert.equal(
+      usToman.data.error,
+      'Invalid currency_display for country US',
+      'currency_display rejection message is country-scoped',
+    );
 
     const usLatin = await api(baseUrl, '/api/settings/business', {
       method: 'PUT',
@@ -100,7 +108,11 @@ async function main() {
       headers: owner.authHeader,
     });
     assert.equal(usLatin.status, 400, 'US + number_digits "latin" returns HTTP 400');
-    assert.equal(usLatin.data.error, 'Invalid number_digits for country US', 'number_digits rejection message is country-scoped');
+    assert.equal(
+      usLatin.data.error,
+      'Invalid number_digits for country US',
+      'number_digits rejection message is country-scoped',
+    );
 
     // ── 2. Valid IR preferences save and keep canonical IRR storage ──
     // Currency selection/reset is tested separately. Establish IRR directly so
@@ -123,7 +135,11 @@ async function main() {
     assert.equal(irSave.data.currency_display, 'toman', 'IR currency_display "toman" persists');
     assert.equal(irSave.data.number_digits, 'latin', 'IR number_digits "latin" persists');
     assert.equal(irSave.data.calendar, 'persian', 'IR calendar "persian" persists');
-    assert.equal(settingValue(db, 'currency'), 'IRR', 'canonical currency storage remains IRR (no Toman in DB)');
+    assert.equal(
+      settingValue(db, 'currency'),
+      'IRR',
+      'canonical currency storage remains IRR (no Toman in DB)',
+    );
 
     // ── 3. IR -> US transition neutralizes stale display preferences ──
     const usTransition = await api(baseUrl, '/api/settings/business', {
@@ -132,12 +148,32 @@ async function main() {
       headers: owner.authHeader,
     });
     assert.equal(usTransition.status, 200, 'IR -> US transition saves without error');
-    assert.equal(usTransition.data.currency_display, 'rial', 'IR -> US resets currency_display to neutral');
-    assert.equal(usTransition.data.number_digits, 'locale', 'IR -> US resets number_digits to neutral');
+    assert.equal(
+      usTransition.data.currency_display,
+      'rial',
+      'IR -> US resets currency_display to neutral',
+    );
+    assert.equal(
+      usTransition.data.number_digits,
+      'locale',
+      'IR -> US resets number_digits to neutral',
+    );
     assert.equal(usTransition.data.calendar, 'locale', 'IR -> US resets calendar to neutral');
-    assert.equal(settingValue(db, 'currency_display'), 'rial', 'stored currency_display is neutralized after IR -> US');
-    assert.equal(settingValue(db, 'number_digits'), 'locale', 'stored number_digits is neutralized after IR -> US');
-    assert.equal(settingValue(db, 'calendar'), 'locale', 'stored calendar is neutralized after IR -> US');
+    assert.equal(
+      settingValue(db, 'currency_display'),
+      'rial',
+      'stored currency_display is neutralized after IR -> US',
+    );
+    assert.equal(
+      settingValue(db, 'number_digits'),
+      'locale',
+      'stored number_digits is neutralized after IR -> US',
+    );
+    assert.equal(
+      settingValue(db, 'calendar'),
+      'locale',
+      'stored calendar is neutralized after IR -> US',
+    );
 
     // ── 4. US -> IR country transition re-accepts Iran preferences ──
     const usToIr = await api(baseUrl, '/api/settings/business', {
@@ -153,7 +189,11 @@ async function main() {
       headers: owner.authHeader,
     });
     assert.equal(usToIr.status, 200, 'US -> IR transition with valid preferences returns 200');
-    assert.equal(usToIr.data.currency_display, 'toman_short', 'US -> IR persists currency_display "toman_short"');
+    assert.equal(
+      usToIr.data.currency_display,
+      'toman_short',
+      'US -> IR persists currency_display "toman_short"',
+    );
     assert.equal(usToIr.data.calendar, 'gregorian', 'US -> IR persists calendar "gregorian"');
 
     // ── 5. Legacy non-IR DB with stale Iran values normalizes on save ──
@@ -165,9 +205,21 @@ async function main() {
 
     const legacyRead = await api(baseUrl, '/api/settings/business', { headers: owner.authHeader });
     assert.equal(legacyRead.status, 200, 'legacy non-IR DB GET /settings/business returns 200');
-    assert.equal(legacyRead.data.currency_display, 'rial', 'businessShape neutralizes stale currency_display for non-IR');
-    assert.equal(legacyRead.data.number_digits, 'locale', 'businessShape neutralizes stale number_digits for non-IR');
-    assert.equal(legacyRead.data.calendar, 'locale', 'businessShape neutralizes stale calendar for non-IR');
+    assert.equal(
+      legacyRead.data.currency_display,
+      'rial',
+      'businessShape neutralizes stale currency_display for non-IR',
+    );
+    assert.equal(
+      legacyRead.data.number_digits,
+      'locale',
+      'businessShape neutralizes stale number_digits for non-IR',
+    );
+    assert.equal(
+      legacyRead.data.calendar,
+      'locale',
+      'businessShape neutralizes stale calendar for non-IR',
+    );
 
     const legacySave = await api(baseUrl, '/api/settings/business', {
       method: 'PUT',
@@ -175,16 +227,34 @@ async function main() {
       headers: owner.authHeader,
     });
     assert.equal(legacySave.status, 200, 'legacy non-IR DB general business save does not error');
-    assert.equal(settingValue(db, 'currency_display'), 'rial', 'legacy stale currency_display is cleansed on save');
-    assert.equal(settingValue(db, 'number_digits'), 'locale', 'legacy stale number_digits is cleansed on save');
-    assert.equal(settingValue(db, 'calendar'), 'locale', 'legacy stale calendar is cleansed on save');
-    assert.equal(settingValue(db, 'currency'), 'USD', 'canonical currency storage remains USD after normalization');
+    assert.equal(
+      settingValue(db, 'currency_display'),
+      'rial',
+      'legacy stale currency_display is cleansed on save',
+    );
+    assert.equal(
+      settingValue(db, 'number_digits'),
+      'locale',
+      'legacy stale number_digits is cleansed on save',
+    );
+    assert.equal(
+      settingValue(db, 'calendar'),
+      'locale',
+      'legacy stale calendar is cleansed on save',
+    );
+    assert.equal(
+      settingValue(db, 'currency'),
+      'USD',
+      'canonical currency storage remains USD after normalization',
+    );
 
     console.log('\n✅ Issue #390 locale-preference invariant checks passed');
   } finally {
     cloudSync.refreshRegistrationProfile = originalRefreshRegistrationProfile;
     server.close();
-    try { closeDatabase(); } catch {}
+    try {
+      closeDatabase();
+    } catch {}
     Module._load = originalLoad;
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
@@ -192,7 +262,9 @@ async function main() {
 
 main().catch((error) => {
   console.error(error);
-  try { closeDatabase(); } catch {}
+  try {
+    closeDatabase();
+  } catch {}
   Module._load = originalLoad;
   fs.rmSync(tempDir, { recursive: true, force: true });
   process.exit(1);

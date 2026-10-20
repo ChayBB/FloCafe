@@ -21,7 +21,12 @@ const originalResolveFilename = moduleApi._resolveFilename;
 
 /** Keep alias resolution active for the whole run: usePrinter dynamically
  *  imports kot-web-print via '@/lib/printer/kot-web-print' at print time. */
-moduleApi._resolveFilename = function (request: string, parent: any, isMain: boolean, options?: any) {
+moduleApi._resolveFilename = function (
+  request: string,
+  parent: any,
+  isMain: boolean,
+  options?: any,
+) {
   let resolvedRequest = request;
   if (request === '@countries') {
     resolvedRequest = path.resolve(__dirname, '../main/countries.ts');
@@ -111,7 +116,11 @@ async function run(): Promise<void> {
     const html = captured[0] ?? '';
     // The fixed fa policy's banner label — proof the fa bundle was loaded
     // before generation instead of falling back to English.
-    check('KOT labels render in the fixed fa language on cold start', html.includes('برگ سفارش آشپزخانه'), html.slice(0, 200));
+    check(
+      'KOT labels render in the fixed fa language on cold start',
+      html.includes('برگ سفارش آشپزخانه'),
+      html.slice(0, 200),
+    );
     check('KOT labels do NOT fall back to English', !html.includes('KITCHEN ORDER TICKET'));
     check('order number still rendered', html.includes('ORD-KOT-COLD-001'));
   } finally {
@@ -148,7 +157,13 @@ async function run(): Promise<void> {
         status: 'pending',
         created_at: '2026-08-22T18:42:00Z',
         items: [
-          { product_name: 'Espresso', quantity: 1, status: 'pending', addons: [], special_instructions: null },
+          {
+            product_name: 'Espresso',
+            quantity: 1,
+            status: 'pending',
+            addons: [],
+            special_instructions: null,
+          },
         ],
       } as any;
 
@@ -160,14 +175,21 @@ async function run(): Promise<void> {
       }
 
       check('KOT print proceeds despite failed locale load', failureCaptured.length === 1);
-      check('failed KOT locale is surfaced as a print warning',
-        warnings.some((w) => w.field === 'kot language' && w.text === 'fa' && /could not be loaded/.test(w.message)),
+      check(
+        'failed KOT locale is surfaced as a print warning',
+        warnings.some(
+          (w) =>
+            w.field === 'kot language' && w.text === 'fa' && /could not be loaded/.test(w.message),
+        ),
         JSON.stringify(warnings),
       );
       // Note: scenario 1 already warmed the fa cache, so the ticket may
       // render cached Persian labels here; what matters is that printing
       // proceeds and the failure is surfaced rather than silent.
-      check('ticket still renders content', (failureCaptured[0] ?? '').includes('ORD-KOT-COLD-002'));
+      check(
+        'ticket still renders content',
+        (failureCaptured[0] ?? '').includes('ORD-KOT-COLD-002'),
+      );
     } finally {
       loaderModule.loadLocaleMessages = originalLoad;
       (printerService as any).printViaBrowser = originalPrintViaBrowser;

@@ -25,7 +25,9 @@ async function getFreeTcpPort(): Promise<number> {
   const address = probe.address();
   assert(address && typeof address !== 'string');
   const port = address.port;
-  await new Promise<void>((resolve, reject) => probe.close((error) => error ? reject(error) : resolve()));
+  await new Promise<void>((resolve, reject) =>
+    probe.close((error) => (error ? reject(error) : resolve())),
+  );
   return port;
 }
 
@@ -36,7 +38,11 @@ async function call(baseUrl: string, pathName: string, init: RequestInit = {}) {
   });
   const text = await response.text();
   let body: any = text;
-  try { body = JSON.parse(text); } catch { /* HTML or empty */ }
+  try {
+    body = JSON.parse(text);
+  } catch {
+    /* HTML or empty */
+  }
   return { status: response.status, body };
 }
 
@@ -78,8 +84,12 @@ async function main() {
 
   // Order creation resolves a regional snapshot and refuses when the shop's
   // country is unset, so a bare test database cannot place one.
-  db.prepare("INSERT INTO settings (key, value, updated_at) VALUES ('country', 'TH', ?) ON CONFLICT(key) DO UPDATE SET value='TH', updated_at=excluded.updated_at").run(now());
-  db.prepare("INSERT INTO settings (key, value, updated_at) VALUES ('currency', 'THB', ?) ON CONFLICT(key) DO UPDATE SET value='THB', updated_at=excluded.updated_at").run(now());
+  db.prepare(
+    "INSERT INTO settings (key, value, updated_at) VALUES ('country', 'TH', ?) ON CONFLICT(key) DO UPDATE SET value='TH', updated_at=excluded.updated_at",
+  ).run(now());
+  db.prepare(
+    "INSERT INTO settings (key, value, updated_at) VALUES ('currency', 'THB', ?) ON CONFLICT(key) DO UPDATE SET value='THB', updated_at=excluded.updated_at",
+  ).run(now());
 
   db.prepare(`
     INSERT INTO products (id, name, price, cost, is_active, created_at, updated_at)
@@ -94,9 +104,13 @@ async function main() {
   // are told which table ordered, not merely that something changed.
   const { onGuestOrder } = await import('../main/services/server-app-events');
   const announced: { tableName: string; itemCount: number; appended: boolean }[] = [];
-  const stopListening = onGuestOrder((event) => announced.push({
-    tableName: event.tableName, itemCount: event.itemCount, appended: event.appended,
-  }));
+  const stopListening = onGuestOrder((event) =>
+    announced.push({
+      tableName: event.tableName,
+      itemCount: event.itemCount,
+      appended: event.appended,
+    }),
+  );
 
   await startServer();
   await startGuestServer();
@@ -106,7 +120,11 @@ async function main() {
   try {
     // Off by default: a fresh install must never be publicly writable.
     const whileDisabled = await call(guestUrl, `/api/guest/${token}/session`);
-    assert.equal(whileDisabled.status, 404, 'guest routes stay closed until the merchant turns them on');
+    assert.equal(
+      whileDisabled.status,
+      404,
+      'guest routes stay closed until the merchant turns them on',
+    );
 
     db.prepare(`
       INSERT INTO settings (key, value, updated_at) VALUES ('guest_ordering_enabled', 'true', ?)
@@ -125,7 +143,11 @@ async function main() {
     const menuEntry = session.body.products.find((item: any) => item.id === 'guest-product');
     assert.ok(menuEntry, 'the sellable product is listed');
     assert.equal(menuEntry.cost, undefined, 'cost price is never exposed to a customer');
-    assert.equal(menuEntry.stock_quantity, undefined, 'stock levels are never exposed to a customer');
+    assert.equal(
+      menuEntry.stock_quantity,
+      undefined,
+      'stock levels are never exposed to a customer',
+    );
     assert.equal(
       session.body.products.some((item: any) => item.id === 'hidden-product'),
       false,
@@ -162,8 +184,14 @@ async function main() {
     assert.equal(announced.length, 2, 'a second round announces again');
     assert.equal(announced[1].appended, true, 'adding to an open ticket is marked as an append');
 
-    const order = db.prepare("SELECT id, user_id, table_id, type FROM orders WHERE table_id = 'tbl-guest'").get() as any;
-    assert.equal(order.user_id, 'guest-ordering', 'the order is attributed to the locked system account');
+    const order = db
+      .prepare("SELECT id, user_id, table_id, type FROM orders WHERE table_id = 'tbl-guest'")
+      .get() as any;
+    assert.equal(
+      order.user_id,
+      'guest-ordering',
+      'the order is attributed to the locked system account',
+    );
     assert.equal(order.type, 'dine_in', 'a scanned table orders as dine-in');
 
     // Rubbish a customer could type into the request never reaches the kitchen.
@@ -174,7 +202,11 @@ async function main() {
       { items: [{ product_id: 'guest-product', quantity: 999 }] },
       { items: [{ product_id: 'guest-product', quantity: 1.5 }] },
     ]) {
-      const rejected = await call(guestUrl, `/api/guest/${token}/order`, { method: 'POST', headers: round(roundToken), body: JSON.stringify(payload) });
+      const rejected = await call(guestUrl, `/api/guest/${token}/order`, {
+        method: 'POST',
+        headers: round(roundToken),
+        body: JSON.stringify(payload),
+      });
       assert.equal(rejected.status, 400, `rejected: ${JSON.stringify(payload)}`);
     }
 
@@ -183,7 +215,13 @@ async function main() {
     assert.equal(noCode.status, 404, 'a table id is not a token');
 
     // The guest port exposes nothing else — no staff API, no login.
-    for (const closed of ['/api/orders', '/api/products', '/api/bills', '/api/staff', '/api/settings']) {
+    for (const closed of [
+      '/api/orders',
+      '/api/products',
+      '/api/bills',
+      '/api/staff',
+      '/api/settings',
+    ]) {
       const response = await call(guestUrl, closed);
       assert.equal(response.status, 404, `${closed} is not reachable from the guest port`);
     }
@@ -194,13 +232,23 @@ async function main() {
     assert.equal(login.status, 404, 'there is no staff login on the guest port');
 
     // Rotating the code retires the printed one immediately.
-    db.prepare("UPDATE tables SET guest_token = 'rotated-token-g1-11111' WHERE id = 'tbl-guest'").run();
+    db.prepare(
+      "UPDATE tables SET guest_token = 'rotated-token-g1-11111' WHERE id = 'tbl-guest'",
+    ).run();
     const afterRotation = await call(guestUrl, `/api/guest/${token}/session`);
-    assert.equal(afterRotation.status, 404, 'the old QR stops working the moment a new code is issued');
+    assert.equal(
+      afterRotation.status,
+      404,
+      'the old QR stops working the moment a new code is issued',
+    );
     const rotatedToken = 'rotated-token-g1-11111';
     const withNewToken = await call(guestUrl, `/api/guest/${rotatedToken}/session`);
     assert.equal(withNewToken.status, 200, 'the new code works');
-    assert.equal(withNewToken.body.ticket.items.length, 2, 'the table keeps its open ticket across a rotation');
+    assert.equal(
+      withNewToken.body.ticket.items.length,
+      2,
+      'the table keeps its open ticket across a rotation',
+    );
 
     // Settling the bill ends the sitting: the round token dies, the printed
     // code does not. This is the difference the merchant asked for — the
@@ -214,11 +262,17 @@ async function main() {
       body: JSON.stringify({ items: [{ product_id: 'guest-product', quantity: 1 }] }),
     });
     assert.equal(afterCheckout.status, 409, 'the previous sitting can no longer order');
-    const staleTicket = await call(guestUrl, `/api/guest/${rotatedToken}/ticket`, { headers: round(roundToken) });
+    const staleTicket = await call(guestUrl, `/api/guest/${rotatedToken}/ticket`, {
+      headers: round(roundToken),
+    });
     assert.equal(staleTicket.status, 409, 'nor read the tab it left behind');
 
     const rescan = await call(guestUrl, `/api/guest/${rotatedToken}/session`);
-    assert.equal(rescan.status, 200, 'the same printed code still opens the menu for the next party');
+    assert.equal(
+      rescan.status,
+      200,
+      'the same printed code still opens the menu for the next party',
+    );
     roundToken = rescan.body.round_token;
     const nextParty = await call(guestUrl, `/api/guest/${rotatedToken}/order`, {
       method: 'POST',
@@ -229,7 +283,9 @@ async function main() {
 
     // A round token from another table, or a forged one, opens nothing.
     for (const forged of ['not-a-round-token', 'AAAA.BBBB', '']) {
-      const refused = await call(guestUrl, `/api/guest/${rotatedToken}/ticket`, { headers: round(forged) });
+      const refused = await call(guestUrl, `/api/guest/${rotatedToken}/ticket`, {
+        headers: round(forged),
+      });
       assert.equal(refused.status, 409, `forged round token rejected: ${forged || '(empty)'}`);
     }
 
@@ -245,7 +301,11 @@ async function main() {
     const staffOrder = await call(posUrl, '/api/orders', {
       method: 'POST',
       headers: { Authorization: `Bearer ${signIn.body.access_token}` },
-      body: JSON.stringify({ table_id: 'tbl-guest', type: 'dine_in', items: [{ product_id: 'guest-product', quantity: 1 }] }),
+      body: JSON.stringify({
+        table_id: 'tbl-guest',
+        type: 'dine_in',
+        items: [{ product_id: 'guest-product', quantity: 1 }],
+      }),
     });
     assert.equal(staffOrder.status, 201, 'sanity: the staff order was accepted');
     assert.equal(announced.length, before, 'a staff-placed order raises no guest alert');
@@ -254,13 +314,23 @@ async function main() {
     // a hosted QR server. Checked here rather than only in the relay test
     // because the route is what the Settings screen actually calls.
     const asOwner = { Authorization: `Bearer ${signIn.body.access_token}` };
-    const issued = await call(posUrl, '/api/guest-ordering/pairing-code', { method: 'POST', headers: asOwner });
+    const issued = await call(posUrl, '/api/guest-ordering/pairing-code', {
+      method: 'POST',
+      headers: asOwner,
+    });
     assert.equal(issued.status, 200, 'the owner can ask for a pairing code');
     assert.match(issued.body.code, /^[0-9A-HJKMNP-TV-Z]{8}$/, 'eight unambiguous characters');
     assert.ok(Date.parse(issued.body.expires_at) > Date.now(), 'and it has not already expired');
 
-    const reissued = await call(posUrl, '/api/guest-ordering/pairing-code', { method: 'POST', headers: asOwner });
-    assert.notEqual(reissued.body.code, issued.body.code, 'asking again gives a fresh code, not the same one');
+    const reissued = await call(posUrl, '/api/guest-ordering/pairing-code', {
+      method: 'POST',
+      headers: asOwner,
+    });
+    assert.notEqual(
+      reissued.body.code,
+      issued.body.code,
+      'asking again gives a fresh code, not the same one',
+    );
 
     const serverIn = await call(posUrl, '/api/auth/login', {
       method: 'POST',
@@ -271,47 +341,84 @@ async function main() {
       method: 'POST',
       headers: { Authorization: `Bearer ${serverIn.body.access_token}` },
     });
-    assert.equal(serverTry.status, 403, 'a server-role staff member cannot publish the shop to the internet');
+    assert.equal(
+      serverTry.status,
+      403,
+      'a server-role staff member cannot publish the shop to the internet',
+    );
 
     const anonymous = await call(posUrl, '/api/guest-ordering/pairing-code', { method: 'POST' });
     assert.equal(anonymous.status, 401, 'and nor can an unauthenticated caller');
 
-    const dismissed = await call(posUrl, '/api/guest-ordering/pairing-code', { method: 'DELETE', headers: asOwner });
+    const dismissed = await call(posUrl, '/api/guest-ordering/pairing-code', {
+      method: 'DELETE',
+      headers: asOwner,
+    });
     assert.equal(dismissed.status, 200, 'closing the dialog retires the code immediately');
 
     // Relay configuration. Until this is reachable from the settings screen the
     // whole hosted-ordering feature is unreachable, so the route is worth
     // covering rather than trusting.
-    const noSecretYet = await call(posUrl, '/api/guest-ordering/relay-secret', { headers: asOwner });
+    const noSecretYet = await call(posUrl, '/api/guest-ordering/relay-secret', {
+      headers: asOwner,
+    });
     assert.equal(noSecretYet.status, 404, 'there is no secret until one is generated');
 
-    const generated = await call(posUrl, '/api/guest-ordering/relay-secret', { method: 'POST', headers: asOwner });
+    const generated = await call(posUrl, '/api/guest-ordering/relay-secret', {
+      method: 'POST',
+      headers: asOwner,
+    });
     assert.equal(generated.status, 200);
-    assert.ok(generated.body.secret && generated.body.secret.length >= 40, 'the secret is long enough to be worth signing with');
+    assert.ok(
+      generated.body.secret && generated.body.secret.length >= 40,
+      'the secret is long enough to be worth signing with',
+    );
 
     const revealed = await call(posUrl, '/api/guest-ordering/relay-secret', { headers: asOwner });
-    assert.equal(revealed.body.secret, generated.body.secret, 'and can be read back for pasting into the server');
+    assert.equal(
+      revealed.body.secret,
+      generated.body.secret,
+      'and can be read back for pasting into the server',
+    );
 
-    const replaced = await call(posUrl, '/api/guest-ordering/relay-secret', { method: 'POST', headers: asOwner });
-    assert.notEqual(replaced.body.secret, generated.body.secret, 'generating again really replaces it');
+    const replaced = await call(posUrl, '/api/guest-ordering/relay-secret', {
+      method: 'POST',
+      headers: asOwner,
+    });
+    assert.notEqual(
+      replaced.body.secret,
+      generated.body.secret,
+      'generating again really replaces it',
+    );
 
     // Orders carry what a table is eating and what it will be charged, so a
     // plaintext link to anywhere but this machine is refused outright.
     for (const bad of ['http://orders.example.com', 'ws://orders.example.com/relay', 'not a url']) {
       const rejected = await call(posUrl, '/api/guest-ordering', {
-        method: 'PUT', headers: asOwner, body: JSON.stringify({ relay_url: bad }),
+        method: 'PUT',
+        headers: asOwner,
+        body: JSON.stringify({ relay_url: bad }),
       });
       assert.equal(rejected.status, 400, `refused: ${bad}`);
     }
 
     const accepted = await call(posUrl, '/api/guest-ordering', {
-      method: 'PUT', headers: asOwner, body: JSON.stringify({ relay_url: 'wss://orders.example.com/relay' }),
+      method: 'PUT',
+      headers: asOwner,
+      body: JSON.stringify({ relay_url: 'wss://orders.example.com/relay' }),
     });
     assert.equal(accepted.status, 200, 'a wss:// address is accepted');
     assert.equal(accepted.body.relay.url, 'wss://orders.example.com/relay');
     assert.equal(accepted.body.relay.secret_set, true);
-    assert.equal(accepted.body.relay.secret_tail, replaced.body.secret.slice(-4), 'the tail identifies which secret is live');
-    assert.ok(!JSON.stringify(accepted.body).includes(replaced.body.secret), 'the secret itself does not ride along in the config payload');
+    assert.equal(
+      accepted.body.relay.secret_tail,
+      replaced.body.secret.slice(-4),
+      'the tail identifies which secret is live',
+    );
+    assert.ok(
+      !JSON.stringify(accepted.body).includes(replaced.body.secret),
+      'the secret itself does not ride along in the config payload',
+    );
 
     const status = await call(posUrl, '/api/guest-ordering/relay-status', { headers: asOwner });
     assert.equal(status.status, 200);
@@ -326,7 +433,9 @@ async function main() {
     // Leave the relay switched off: this install is not pointed at a real
     // server, and a configured URL would have it dialling out after the test.
     await call(posUrl, '/api/guest-ordering', {
-      method: 'PUT', headers: asOwner, body: JSON.stringify({ relay_url: '' }),
+      method: 'PUT',
+      headers: asOwner,
+      body: JSON.stringify({ relay_url: '' }),
     });
   } finally {
     stopListening();

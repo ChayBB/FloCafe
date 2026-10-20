@@ -56,12 +56,17 @@ function assertEqual(actual: any, expected: any, message: string) {
     console.log(`  ✓ ${message}`);
   } else {
     failed++;
-    console.error(`  ✗ ${message} — expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+    console.error(
+      `  ✗ ${message} — expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`,
+    );
   }
 }
 
 function isNativeAbiMismatch(error: any): boolean {
-  return error?.code === 'ERR_DLOPEN_FAILED' && String(error?.message || '').includes('NODE_MODULE_VERSION');
+  return (
+    error?.code === 'ERR_DLOPEN_FAILED' &&
+    String(error?.message || '').includes('NODE_MODULE_VERSION')
+  );
 }
 
 function dbTimestamp(date: Date): string {
@@ -89,15 +94,37 @@ async function main() {
   const db = getDatabase();
   // Regional settings come from signup, never a fallback; seed one
   // explicitly so resolveRegionalSnapshot() resolves.
-  db.prepare(`INSERT INTO settings (key, value, updated_at) VALUES ('country', 'IN', ?) ON CONFLICT(key) DO UPDATE SET value='IN', updated_at=excluded.updated_at`).run(now());
-  db.prepare(`INSERT INTO settings (key, value, updated_at) VALUES ('timezone', 'Asia/Kolkata', ?) ON CONFLICT(key) DO UPDATE SET value='Asia/Kolkata', updated_at=excluded.updated_at`).run(now());
+  db.prepare(
+    `INSERT INTO settings (key, value, updated_at) VALUES ('country', 'IN', ?) ON CONFLICT(key) DO UPDATE SET value='IN', updated_at=excluded.updated_at`,
+  ).run(now());
+  db.prepare(
+    `INSERT INTO settings (key, value, updated_at) VALUES ('timezone', 'Asia/Kolkata', ?) ON CONFLICT(key) DO UPDATE SET value='Asia/Kolkata', updated_at=excluded.updated_at`,
+  ).run(now());
 
   const ownerId = 'owner-daily-stats-turn';
-  db.prepare(`INSERT INTO users (id, name, email, password, role, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)`)
-    .run(ownerId, 'Owner', 'owner-daily-stats-turn@test.local', bcrypt.hashSync('pw', 10), 'owner', now(), now());
+  db.prepare(
+    `INSERT INTO users (id, name, email, password, role, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
+  ).run(
+    ownerId,
+    'Owner',
+    'owner-daily-stats-turn@test.local',
+    bcrypt.hashSync('pw', 10),
+    'owner',
+    now(),
+    now(),
+  );
   const waiterId = 'server-daily-stats-turn';
-  db.prepare(`INSERT INTO users (id, name, email, password, role, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)`)
-    .run(waiterId, 'Server', 'server-daily-stats-turn@test.local', bcrypt.hashSync('pw', 10), 'server', now(), now());
+  db.prepare(
+    `INSERT INTO users (id, name, email, password, role, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
+  ).run(
+    waiterId,
+    'Server',
+    'server-daily-stats-turn@test.local',
+    bcrypt.hashSync('pw', 10),
+    'server',
+    now(),
+    now(),
+  );
 
   const app = express();
   app.use(express.json());
@@ -107,7 +134,8 @@ async function main() {
   app.use(expressRateLimit({ windowMs: 60 * 1000, limit: 1000 }));
   app.use((req: any, res: any, next: any) => {
     const authHeader = req.headers.authorization;
-    if (!authHeader?.startsWith('Bearer ')) return res.status(401).json({ error: 'Authentication required' });
+    if (!authHeader?.startsWith('Bearer '))
+      return res.status(401).json({ error: 'Authentication required' });
     try {
       req.user = jwt.verify(authHeader.split(' ')[1], getJWTSecret());
       next();
@@ -117,33 +145,57 @@ async function main() {
   });
   app.use('/api/reports', reportRoutes);
 
-  const ownerToken = jwt.sign({ userId: ownerId, email: 'owner-daily-stats-turn@test.local', role: 'owner' }, getJWTSecret(), { expiresIn: '1h' });
-  const waiterToken = jwt.sign({ userId: waiterId, email: 'server-daily-stats-turn@test.local', role: 'server' }, getJWTSecret(), { expiresIn: '1h' });
+  const ownerToken = jwt.sign(
+    { userId: ownerId, email: 'owner-daily-stats-turn@test.local', role: 'owner' },
+    getJWTSecret(),
+    { expiresIn: '1h' },
+  );
+  const waiterToken = jwt.sign(
+    { userId: waiterId, email: 'server-daily-stats-turn@test.local', role: 'server' },
+    getJWTSecret(),
+    { expiresIn: '1h' },
+  );
 
   try {
     console.log('\n1. Role gating');
     {
-      const forbidden = await request(app).get('/api/reports/daily-stats').set('Authorization', `Bearer ${waiterToken}`);
+      const forbidden = await request(app)
+        .get('/api/reports/daily-stats')
+        .set('Authorization', `Bearer ${waiterToken}`);
       assertEqual(forbidden.status, 403, `server is forbidden (got ${forbidden.status})`);
     }
 
     console.log('\n2. Empty database: both metrics are null');
     {
-      const res = await request(app).get('/api/reports/daily-stats').set('Authorization', `Bearer ${ownerToken}`);
+      const res = await request(app)
+        .get('/api/reports/daily-stats')
+        .set('Authorization', `Bearer ${ownerToken}`);
       assertEqual(res.status, 200, `owner gets 200 (got ${res.status})`);
-      assertEqual(res.body.avgTableTurnMinutes, null, 'avgTableTurnMinutes is null with no completed dine-in orders today');
-      assertEqual(res.body.avgCurrentOccupancyMinutes, null, 'avgCurrentOccupancyMinutes is null with no occupied tables');
+      assertEqual(
+        res.body.avgTableTurnMinutes,
+        null,
+        'avgTableTurnMinutes is null with no completed dine-in orders today',
+      );
+      assertEqual(
+        res.body.avgCurrentOccupancyMinutes,
+        null,
+        'avgCurrentOccupancyMinutes is null with no occupied tables',
+      );
     }
 
     console.log('\n3. Avg table turn: two completed dine-in orders today, 10 and 20 minutes long');
     {
-      db.prepare(`INSERT INTO tables (id, number, capacity, status, created_at, updated_at) VALUES (?, ?, ?, 'available', ?, ?)`)
-        .run('tbl-turn-1', 'TT1', 4, now(), now());
+      db.prepare(
+        `INSERT INTO tables (id, number, capacity, status, created_at, updated_at) VALUES (?, ?, ?, 'available', ?, ?)`,
+      ).run('tbl-turn-1', 'TT1', 4, now(), now());
 
       // Anchor to noon of the store-local (Asia/Kolkata) day so fixtures fall
       // inside the report bounds no matter what UTC time the suite runs at.
       const kolkataParts = new Intl.DateTimeFormat('en-US', {
-        timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit',
+        timeZone: 'Asia/Kolkata',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
       }).formatToParts(new Date());
       const part = (type: string) => Number(kolkataParts.find((p) => p.type === type)?.value);
       const todayBase = new Date(Date.UTC(part('year'), part('month') - 1, part('day'), 6, 30)); // 12:00 IST
@@ -152,49 +204,91 @@ async function main() {
       db.prepare(`
         INSERT INTO orders (order_number, table_id, user_id, type, status, subtotal, total, created_at, updated_at, completed_at)
         VALUES (?, ?, ?, 'dine_in', 'completed', 100, 100, ?, ?, ?)
-      `).run('ORD-TURN-1', 'tbl-turn-1', ownerId, order1CreatedAt, order1CompletedAt, order1CompletedAt);
+      `).run(
+        'ORD-TURN-1',
+        'tbl-turn-1',
+        ownerId,
+        order1CreatedAt,
+        order1CompletedAt,
+        order1CompletedAt,
+      );
 
       const order2CreatedAt = dbTimestamp(new Date(todayBase.getTime() + 20 * 60 * 1000));
       const order2CompletedAt = dbTimestamp(new Date(todayBase.getTime() + 40 * 60 * 1000)); // 20 minutes
       db.prepare(`
         INSERT INTO orders (order_number, table_id, user_id, type, status, subtotal, total, created_at, updated_at, completed_at)
         VALUES (?, ?, ?, 'dine_in', 'completed', 100, 100, ?, ?, ?)
-      `).run('ORD-TURN-2', 'tbl-turn-1', ownerId, order2CreatedAt, order2CompletedAt, order2CompletedAt);
+      `).run(
+        'ORD-TURN-2',
+        'tbl-turn-1',
+        ownerId,
+        order2CreatedAt,
+        order2CompletedAt,
+        order2CompletedAt,
+      );
 
       // A takeaway order and a cancelled dine-in order must not count.
       db.prepare(`
         INSERT INTO orders (order_number, table_id, user_id, type, status, subtotal, total, created_at, updated_at, completed_at)
         VALUES (?, NULL, ?, 'takeaway', 'completed', 100, 100, ?, ?, ?)
-      `).run('ORD-TURN-TAKEAWAY', ownerId, dbTimestamp(new Date(todayBase.getTime() + 50 * 60 * 1000)), dbTimestamp(new Date(todayBase.getTime() + 55 * 60 * 1000)), dbTimestamp(new Date(todayBase.getTime() + 55 * 60 * 1000)));
+      `).run(
+        'ORD-TURN-TAKEAWAY',
+        ownerId,
+        dbTimestamp(new Date(todayBase.getTime() + 50 * 60 * 1000)),
+        dbTimestamp(new Date(todayBase.getTime() + 55 * 60 * 1000)),
+        dbTimestamp(new Date(todayBase.getTime() + 55 * 60 * 1000)),
+      );
       db.prepare(`
         INSERT INTO orders (order_number, table_id, user_id, type, status, subtotal, total, created_at, updated_at, completed_at)
         VALUES (?, ?, ?, 'dine_in', 'cancelled', 100, 100, ?, ?, ?)
-      `).run('ORD-TURN-CANCELLED', 'tbl-turn-1', ownerId, dbTimestamp(new Date(todayBase.getTime())), dbTimestamp(new Date(todayBase.getTime() + 55 * 60 * 1000)), dbTimestamp(new Date(todayBase.getTime() + 55 * 60 * 1000)));
+      `).run(
+        'ORD-TURN-CANCELLED',
+        'tbl-turn-1',
+        ownerId,
+        dbTimestamp(new Date(todayBase.getTime())),
+        dbTimestamp(new Date(todayBase.getTime() + 55 * 60 * 1000)),
+        dbTimestamp(new Date(todayBase.getTime() + 55 * 60 * 1000)),
+      );
 
-      const res = await request(app).get('/api/reports/daily-stats').set('Authorization', `Bearer ${ownerToken}`);
+      const res = await request(app)
+        .get('/api/reports/daily-stats')
+        .set('Authorization', `Bearer ${ownerToken}`);
       assertEqual(res.status, 200, `owner gets 200 (got ${res.status})`);
-      assertEqual(res.body.avgTableTurnMinutes, 15, 'avg table turn is (10+20)/2 = 15 minutes, excluding takeaway/cancelled orders');
+      assertEqual(
+        res.body.avgTableTurnMinutes,
+        15,
+        'avg table turn is (10+20)/2 = 15 minutes, excluding takeaway/cancelled orders',
+      );
     }
 
     console.log('\n4. Avg current occupancy: one occupied table, seated ~12 minutes ago');
     {
-      db.prepare(`INSERT INTO tables (id, number, capacity, status, created_at, updated_at) VALUES (?, ?, ?, 'occupied', ?, ?)`)
-        .run('tbl-occ-1', 'TT2', 4, now(), now());
+      db.prepare(
+        `INSERT INTO tables (id, number, capacity, status, created_at, updated_at) VALUES (?, ?, ?, 'occupied', ?, ?)`,
+      ).run('tbl-occ-1', 'TT2', 4, now(), now());
       db.prepare(`
         INSERT INTO orders (order_number, table_id, user_id, type, status, subtotal, total, created_at, updated_at)
         VALUES (?, ?, ?, 'dine_in', 'preparing', 100, 100, ?, ?)
       `).run('ORD-OCC-1', 'tbl-occ-1', ownerId, minutesAgo(12), minutesAgo(12));
 
-      const res = await request(app).get('/api/reports/daily-stats').set('Authorization', `Bearer ${ownerToken}`);
+      const res = await request(app)
+        .get('/api/reports/daily-stats')
+        .set('Authorization', `Bearer ${ownerToken}`);
       assertEqual(res.status, 200, `owner gets 200 (got ${res.status})`);
-      assert(res.body.avgCurrentOccupancyMinutes !== null, 'avgCurrentOccupancyMinutes is populated once a table is occupied');
+      assert(
+        res.body.avgCurrentOccupancyMinutes !== null,
+        'avgCurrentOccupancyMinutes is populated once a table is occupied',
+      );
       assert(
         Math.abs(res.body.avgCurrentOccupancyMinutes - 12) <= 1,
         `avgCurrentOccupancyMinutes is ~12 (got ${res.body.avgCurrentOccupancyMinutes})`,
       );
-      assertEqual(res.body.tablesOccupied, 1, 'tablesOccupied still counts the occupied table as before');
+      assertEqual(
+        res.body.tablesOccupied,
+        1,
+        'tablesOccupied still counts the occupied table as before',
+      );
     }
-
   } finally {
     closeDatabase();
   }

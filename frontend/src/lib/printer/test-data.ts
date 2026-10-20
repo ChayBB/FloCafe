@@ -4,7 +4,7 @@ import type { Bill, Order, Tenant, Customer, OrderItem, Table } from '@/lib/type
 /** Generate a test bill for printing tests. */
 export function createTestBill(overrides?: Partial<Bill>): Bill {
   const testOrder = createTestOrder();
-  
+
   return {
     id: 1,
     bill_number: 'BILL-001',
@@ -19,9 +19,7 @@ export function createTestBill(overrides?: Partial<Bill>): Bill {
     paid_amount: 504,
     balance: 0,
     payment_status: 'paid',
-    payment_details: [
-      { method: 'cash', amount: 504, timestamp: new Date().toISOString() },
-    ],
+    payment_details: [{ method: 'cash', amount: 504, timestamp: new Date().toISOString() }],
     tax_breakdown: [
       { title: 'Tax A', rate: 6, amount: 27 },
       { title: 'Tax B', rate: 6, amount: 27 },
@@ -70,9 +68,7 @@ export function createTestOrder(overrides?: Partial<Order>): Order {
       subtotal: 360,
       tax_amount: 18,
       total: 378,
-      addons: [
-        { id: 1, name: 'Extra Spice', price: 20 },
-      ],
+      addons: [{ id: 1, name: 'Extra Spice', price: 20 }],
       special_instructions: 'Less onion',
       status: 'pending',
     },

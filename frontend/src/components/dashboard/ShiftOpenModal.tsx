@@ -1,12 +1,30 @@
 'use client';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Loader2, LockOpen, AlertTriangle } from 'lucide-react';
 import type { CashSessionModel } from '@/hooks/useCashSession';
 
 /** Shift-open ("Abrir caja") modal. Pure view over useCashSession. */
 export function ShiftOpenModal({ model }: { model: CashSessionModel }) {
-  const { openModalOpen, setOpenModalOpen, floatInput, setFloatInput, submitting, submitError, setSubmitError, t, tCommon, openShift } = model;
+  const {
+    openModalOpen,
+    setOpenModalOpen,
+    floatInput,
+    setFloatInput,
+    submitting,
+    submitError,
+    setSubmitError,
+    t,
+    tCommon,
+    openShift,
+  } = model;
   // Centralized dismiss: blocks mid-submit closes and clears a stale amount
   // plus any submit error so a reopen always starts clean (mirrors ShiftCloseModal).
   const closeModal = (next: boolean) => {
@@ -19,7 +37,10 @@ export function ShiftOpenModal({ model }: { model: CashSessionModel }) {
   };
   return (
     <Dialog open={openModalOpen} onOpenChange={closeModal}>
-      <DialogContent className="sm:max-w-md max-h-[90vh] flex flex-col" onInteractOutside={(e) => e.preventDefault()}>
+      <DialogContent
+        className="sm:max-w-md max-h-[90vh] flex flex-col"
+        onInteractOutside={(e) => e.preventDefault()}
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <LockOpen size={18} className="text-foreground" />
@@ -35,7 +56,10 @@ export function ShiftOpenModal({ model }: { model: CashSessionModel }) {
             </div>
           )}
           <div>
-            <label htmlFor="shift-opening-float" className="block text-sm text-muted-foreground mb-1">
+            <label
+              htmlFor="shift-opening-float"
+              className="block text-sm text-muted-foreground mb-1"
+            >
               {t('openingFloat')}
             </label>
             <input

@@ -13,7 +13,11 @@ if (fs.existsSync(envPath)) {
     if (!match) continue;
     let value = match[2].trim();
     if (value.startsWith('"') && value.endsWith('"')) {
-      try { value = JSON.parse(value); } catch { value = value.slice(1, -1); }
+      try {
+        value = JSON.parse(value);
+      } catch {
+        value = value.slice(1, -1);
+      }
     } else if (value.startsWith("'") && value.endsWith("'")) {
       value = value.slice(1, -1);
     } else {
@@ -70,34 +74,97 @@ Module._load = function (request, parent, isMain) {
 };
 
 // ── Now load and start the compiled backend ───────────────────────────────────
-const { initDatabase, closeDatabase, beginDatabaseShutdown, waitForDatabaseRequests } = require('./dist/main/db');
-const { createExitCodeAwareShutdown, waitForHttpShutdownWork, isShutdownTimeout } = require('./dist/main/shutdown');
+const {
+  initDatabase,
+  closeDatabase,
+  beginDatabaseShutdown,
+  waitForDatabaseRequests,
+} = require('./dist/main/db');
+const {
+  createExitCodeAwareShutdown,
+  waitForHttpShutdownWork,
+  isShutdownTimeout,
+} = require('./dist/main/shutdown');
 const { startServer, stopServer, getServerPort } = require('./dist/main/server');
 const { startKdsServer, stopKdsServer, getKdsPort } = require('./dist/main/kds-server');
 const { startServerApp, stopServerApp, getServerAppPort } = require('./dist/main/server-app');
-const { shutdown: shutdownWhatsApp, requestShutdown: requestWhatsAppShutdown } = require('./dist/main/services/whatsapp');
+const {
+  shutdown: shutdownWhatsApp,
+  requestShutdown: requestWhatsAppShutdown,
+} = require('./dist/main/services/whatsapp');
 const { startStandaloneServers } = require('./dist/main/standalone-startup');
 
 let exitRequested = false;
 let shutdownRequested = false;
-const requestShutdown = createExitCodeAwareShutdown(async () => {
-  let cleanupFailed = false;
-  let databaseBlocked = false;
-  try { await stopServerApp(); } catch (err) { console.error('[DevServer] Server App shutdown failed:', err); cleanupFailed = true; databaseBlocked = true; if (isShutdownTimeout(err)) throw err; }
-  try { await stopServer(); } catch (err) { console.error('[DevServer] Main server shutdown failed:', err); cleanupFailed = true; databaseBlocked = true; if (isShutdownTimeout(err)) throw err; }
-  try { await stopKdsServer(); } catch (err) { console.error('[DevServer] KDS server shutdown failed:', err); cleanupFailed = true; databaseBlocked = true; if (isShutdownTimeout(err)) throw err; }
-  try { await shutdownWhatsApp(); } catch (err) { console.error('[DevServer] WhatsApp shutdown failed:', err); cleanupFailed = true; databaseBlocked = true; if (isShutdownTimeout(err)) throw err; }
-  try { await waitForHttpShutdownWork(); } catch (err) { console.error('[DevServer] HTTP handler cleanup failed:', err); cleanupFailed = true; databaseBlocked = true; if (isShutdownTimeout(err)) throw err; }
-  try { beginDatabaseShutdown(); await waitForDatabaseRequests(); } catch (err) { console.error('[DevServer] Database request drain failed:', err); cleanupFailed = true; databaseBlocked = true; if (isShutdownTimeout(err)) throw err; }
-  if (!databaseBlocked) {
-    try { closeDatabase(); } catch (err) { console.error('[DevServer] Database shutdown failed:', err); cleanupFailed = true; }
-  }
-  Module._load = originalLoad;
-  return cleanupFailed ? 1 : 0;
-}, {
-  onShutdownRequested: requestWhatsAppShutdown,
-  onFatalTimeout: () => process.exit(1),
-});
+const requestShutdown = createExitCodeAwareShutdown(
+  async () => {
+    let cleanupFailed = false;
+    let databaseBlocked = false;
+    try {
+      await stopServerApp();
+    } catch (err) {
+      console.error('[DevServer] Server App shutdown failed:', err);
+      cleanupFailed = true;
+      databaseBlocked = true;
+      if (isShutdownTimeout(err)) throw err;
+    }
+    try {
+      await stopServer();
+    } catch (err) {
+      console.error('[DevServer] Main server shutdown failed:', err);
+      cleanupFailed = true;
+      databaseBlocked = true;
+      if (isShutdownTimeout(err)) throw err;
+    }
+    try {
+      await stopKdsServer();
+    } catch (err) {
+      console.error('[DevServer] KDS server shutdown failed:', err);
+      cleanupFailed = true;
+      databaseBlocked = true;
+      if (isShutdownTimeout(err)) throw err;
+    }
+    try {
+      await shutdownWhatsApp();
+    } catch (err) {
+      console.error('[DevServer] WhatsApp shutdown failed:', err);
+      cleanupFailed = true;
+      databaseBlocked = true;
+      if (isShutdownTimeout(err)) throw err;
+    }
+    try {
+      await waitForHttpShutdownWork();
+    } catch (err) {
+      console.error('[DevServer] HTTP handler cleanup failed:', err);
+      cleanupFailed = true;
+      databaseBlocked = true;
+      if (isShutdownTimeout(err)) throw err;
+    }
+    try {
+      beginDatabaseShutdown();
+      await waitForDatabaseRequests();
+    } catch (err) {
+      console.error('[DevServer] Database request drain failed:', err);
+      cleanupFailed = true;
+      databaseBlocked = true;
+      if (isShutdownTimeout(err)) throw err;
+    }
+    if (!databaseBlocked) {
+      try {
+        closeDatabase();
+      } catch (err) {
+        console.error('[DevServer] Database shutdown failed:', err);
+        cleanupFailed = true;
+      }
+    }
+    Module._load = originalLoad;
+    return cleanupFailed ? 1 : 0;
+  },
+  {
+    onShutdownRequested: requestWhatsAppShutdown,
+    onFatalTimeout: () => process.exit(1),
+  },
+);
 
 async function shutdown(exitCode = 0) {
   shutdownRequested = true;
@@ -146,7 +213,11 @@ process.on('unhandledRejection', (err) => {
     console.log(`[DevServer]    API health: http://localhost:${getServerPort()}/api/health`);
   } catch (err) {
     console.error('[DevServer] Failed to start:', err);
-    const code = err && (err.code === 'ERR_SHUTDOWN_ABORTED' || err.code === 'ABORT_ERR' || err.name === 'AbortError') ? 0 : 1;
+    const code =
+      err &&
+      (err.code === 'ERR_SHUTDOWN_ABORTED' || err.code === 'ABORT_ERR' || err.name === 'AbortError')
+        ? 0
+        : 1;
     await shutdown(code);
   }
 })();

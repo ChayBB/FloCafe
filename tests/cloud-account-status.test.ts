@@ -74,28 +74,41 @@ async function run() {
       .get('/api/settings/google-drive')
       .set(manager.authHeader);
     assertEqual(managerDrive.status, 403, 'non-owner cannot read Google Drive status');
-    const ownerDrive = await request(app)
-      .get('/api/settings/google-drive')
-      .set(owner.authHeader);
+    const ownerDrive = await request(app).get('/api/settings/google-drive').set(owner.authHeader);
     assertEqual(ownerDrive.status, 200, 'owner can read Google Drive status');
-    const drivePublicSettings = await request(app)
-      .get('/api/settings')
-      .set(owner.authHeader);
-    assert(!Object.keys(drivePublicSettings.body.settings || {}).some((key) => key.startsWith('google_drive_')), 'generic settings omit Google Drive state');
+    const drivePublicSettings = await request(app).get('/api/settings').set(owner.authHeader);
+    assert(
+      !Object.keys(drivePublicSettings.body.settings || {}).some((key) =>
+        key.startsWith('google_drive_'),
+      ),
+      'generic settings omit Google Drive state',
+    );
     const directDriveSetting = await request(app)
       .get('/api/settings/google_drive_account_email')
       .set(owner.authHeader);
-    assertEqual(directDriveSetting.status, 403, 'Google Drive account settings cannot be read directly');
+    assertEqual(
+      directDriveSetting.status,
+      403,
+      'Google Drive account settings cannot be read directly',
+    );
     const managerDriveDisconnect = await request(app)
       .post('/api/settings/google-drive/disconnect')
       .set(manager.authHeader);
-    assertEqual(managerDriveDisconnect.status, 403, 'non-owner cannot retry Google Drive disconnect');
+    assertEqual(
+      managerDriveDisconnect.status,
+      403,
+      'non-owner cannot retry Google Drive disconnect',
+    );
     setSettings({ google_drive_revoke_status: 'unconfirmed' });
     const ownerDriveDisconnect = await request(app)
       .post('/api/settings/google-drive/disconnect')
       .set(owner.authHeader);
     assertEqual(ownerDriveDisconnect.status, 200, 'owner can retry Google Drive disconnect');
-    assertEqual(ownerDriveDisconnect.body.revoke_status, 'confirmed', 'successful disconnect retry reconciles revoke state');
+    assertEqual(
+      ownerDriveDisconnect.body.revoke_status,
+      'confirmed',
+      'successful disconnect retry reconciles revoke state',
+    );
 
     globalThis.fetch = (async () => {
       upstreamCalls++;
@@ -114,19 +127,26 @@ async function run() {
       cloud_deletion_status: '',
       cloud_last_error: 'legacy-upstream-token-reflection',
     });
-    const publicCloudStatus = await request(app)
-      .get('/api/settings/cloud')
-      .set(owner.authHeader);
-    assertEqual(publicCloudStatus.body.cloud_last_error, 'Cloud service request failed', 'legacy cloud errors are normalized in cloud status');
-    const publicSettings = await request(app)
-      .get('/api/settings')
-      .set(owner.authHeader);
-    assert(!JSON.stringify(publicSettings.body).includes('legacy-upstream-token-reflection'), 'legacy cloud errors are not exposed in generic settings');
+    const publicCloudStatus = await request(app).get('/api/settings/cloud').set(owner.authHeader);
+    assertEqual(
+      publicCloudStatus.body.cloud_last_error,
+      'Cloud service request failed',
+      'legacy cloud errors are normalized in cloud status',
+    );
+    const publicSettings = await request(app).get('/api/settings').set(owner.authHeader);
+    assert(
+      !JSON.stringify(publicSettings.body).includes('legacy-upstream-token-reflection'),
+      'legacy cloud errors are not exposed in generic settings',
+    );
     const unregistered = await request(app)
       .get('/api/settings/cloud/account')
       .set(owner.authHeader);
     assertEqual(unregistered.status, 200, 'unregistered cloud account status is not an error');
-    assertEqual(unregistered.body.cloud_account_available, false, 'unregistered response marks account unavailable');
+    assertEqual(
+      unregistered.body.cloud_account_available,
+      false,
+      'unregistered response marks account unavailable',
+    );
     assertEqual(unregistered.body.email, null, 'unregistered response has no cloud email');
     assertEqual(upstreamCalls, 0, 'unregistered account status does not call FloAdmin');
 
@@ -140,23 +160,37 @@ async function run() {
       cloud_deletion_status_token: 'deletion-status-token',
       cloud_deletion_status: 'pending',
     });
-    const stopped = await request(app)
-      .get('/api/settings/cloud/account')
-      .set(owner.authHeader);
+    const stopped = await request(app).get('/api/settings/cloud/account').set(owner.authHeader);
     assertEqual(stopped.status, 200, 'stopped cloud account status is not an error');
-    assertEqual(stopped.body.cloud_account_available, false, 'stopped response marks account unavailable');
-    assertEqual(stopped.body.deletion_request?.id, 'deletion-id', 'stopped response preserves local deletion request ID');
-    assert(!('status_token' in (stopped.body.deletion_request || {})), 'stopped response does not expose deletion status token');
+    assertEqual(
+      stopped.body.cloud_account_available,
+      false,
+      'stopped response marks account unavailable',
+    );
+    assertEqual(
+      stopped.body.deletion_request?.id,
+      'deletion-id',
+      'stopped response preserves local deletion request ID',
+    );
+    assert(
+      !('status_token' in (stopped.body.deletion_request || {})),
+      'stopped response does not expose deletion status token',
+    );
     assertEqual(upstreamCalls, 0, 'stopped account status does not call FloAdmin');
 
     const directToken = await request(app)
       .get('/api/settings/cloud_deletion_status_token')
       .set(owner.authHeader);
-    assertEqual(directToken.status, 403, 'deletion status token cannot be read through the settings API');
-    const allSettings = await request(app)
-      .get('/api/settings')
-      .set(owner.authHeader);
-    assert(!JSON.stringify(allSettings.body).includes('deletion-status-token'), 'settings list does not expose the deletion status token');
+    assertEqual(
+      directToken.status,
+      403,
+      'deletion status token cannot be read through the settings API',
+    );
+    const allSettings = await request(app).get('/api/settings').set(owner.authHeader);
+    assert(
+      !JSON.stringify(allSettings.body).includes('deletion-status-token'),
+      'settings list does not expose the deletion status token',
+    );
 
     const stoppedPreferences = await request(app)
       .put('/api/settings/cloud/account/preferences')
@@ -171,14 +205,26 @@ async function run() {
       .post('/api/settings/cloud/register')
       .set(owner.authHeader)
       .send({});
-    assertEqual(stoppedRegister.status, 409, 'stopped cloud registration preflight is rejected locally');
+    assertEqual(
+      stoppedRegister.status,
+      409,
+      'stopped cloud registration preflight is rejected locally',
+    );
     setSettings({ cloud_deletion_request_id: '', cloud_deletion_status_token: '' });
     const stoppedRegisterWithoutDeletion = await request(app)
       .post('/api/settings/cloud/register')
       .set(owner.authHeader)
       .send({});
-    assertEqual(stoppedRegisterWithoutDeletion.status, 409, 'stopped registration without a deletion request is rejected locally');
-    assertEqual(upstreamCalls, 0, 'stopped registration never calls FloAdmin without a deletion request');
+    assertEqual(
+      stoppedRegisterWithoutDeletion.status,
+      409,
+      'stopped registration without a deletion request is rejected locally',
+    );
+    assertEqual(
+      upstreamCalls,
+      0,
+      'stopped registration never calls FloAdmin without a deletion request',
+    );
 
     // Stop All disables every cloud feature. Re-enabling the single Cloud
     // Services control must restore the order relay as well as sync.
@@ -198,62 +244,156 @@ async function run() {
       .set(owner.authHeader)
       .send({ cloud_sync_enabled: true, cloud_orders_enabled: false });
     assertEqual(reenabledCloud.status, 200, 're-enabling Cloud Services succeeds');
-    for (const key of ['cloud_sync_enabled', 'cloud_orders_enabled', 'cloud_reports_enabled', 'cloud_command_polling_enabled']) {
-      assertEqual((db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string }).value, '1', `${key} is restored when Cloud Services resume`);
+    for (const key of [
+      'cloud_sync_enabled',
+      'cloud_orders_enabled',
+      'cloud_reports_enabled',
+      'cloud_command_polling_enabled',
+    ]) {
+      assertEqual(
+        (db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string })
+          .value,
+        '1',
+        `${key} is restored when Cloud Services resume`,
+      );
     }
-    const orderId = Number(db.prepare(`
+    const orderId = Number(
+      db
+        .prepare(`
       INSERT INTO orders (order_number, type, status, subtotal, total, created_at, updated_at)
       VALUES ('cloud-reenable-order', 'takeaway', 'pending', 10, 10, datetime('now'), datetime('now'))
-    `).run().lastInsertRowid);
+    `)
+        .run().lastInsertRowid,
+    );
     cloudSync.recordOrderChanged(orderId);
     await new Promise((resolve) => setImmediate(resolve));
-    assert((db.prepare("SELECT COUNT(*) AS count FROM cloud_sync_outbox WHERE entity_type = 'order' AND entity_id = ?").get(String(orderId)) as { count: number }).count > 0, 'order changes enter the cloud outbox after Cloud Services resume');
+    assert(
+      (
+        db
+          .prepare(
+            "SELECT COUNT(*) AS count FROM cloud_sync_outbox WHERE entity_type = 'order' AND entity_id = ?",
+          )
+          .get(String(orderId)) as { count: number }
+      ).count > 0,
+      'order changes enter the cloud outbox after Cloud Services resume',
+    );
     cloudSync.stop();
 
     upstreamCalls = 0;
-    setSettings({ cloud_deletion_request_id: 'deletion-id', cloud_deletion_status_token: 'deletion-status-token', cloud_deletion_status: 'pending', cloud_registration_status: 'deletion_pending', cloud_services_disabled_by_user: 'true' });
+    setSettings({
+      cloud_deletion_request_id: 'deletion-id',
+      cloud_deletion_status_token: 'deletion-status-token',
+      cloud_deletion_status: 'pending',
+      cloud_registration_status: 'deletion_pending',
+      cloud_services_disabled_by_user: 'true',
+    });
     let remoteDeletionStatus: 'cancelled' | 'rejected' | 'approved' = 'cancelled';
     globalThis.fetch = (async () => {
       upstreamCalls++;
-      return new Response(JSON.stringify({ status: remoteDeletionStatus, request_id: 'deletion-id', status_token: 'new-status-token' }), { status: 200 });
+      return new Response(
+        JSON.stringify({
+          status: remoteDeletionStatus,
+          request_id: 'deletion-id',
+          status_token: 'new-status-token',
+        }),
+        { status: 200 },
+      );
     }) as typeof fetch;
     const cancelledDeletion = await request(app)
       .get('/api/settings/cloud/delete-data/status')
       .set(owner.authHeader);
     assertEqual(cancelledDeletion.status, 200, 'remote cancelled deletion status refresh succeeds');
-    assertEqual((db.prepare("SELECT value FROM settings WHERE key = 'cloud_registration_status'").get() as { value: string }).value, 'registered', 'remote cancellation restores registered state');
-    assertEqual((db.prepare("SELECT value FROM settings WHERE key = 'cloud_services_disabled_by_user'").get() as { value: string }).value, 'true', 'remote cancellation keeps services stopped');
+    assertEqual(
+      (
+        db.prepare("SELECT value FROM settings WHERE key = 'cloud_registration_status'").get() as {
+          value: string;
+        }
+      ).value,
+      'registered',
+      'remote cancellation restores registered state',
+    );
+    assertEqual(
+      (
+        db
+          .prepare("SELECT value FROM settings WHERE key = 'cloud_services_disabled_by_user'")
+          .get() as { value: string }
+      ).value,
+      'true',
+      'remote cancellation keeps services stopped',
+    );
 
-    setSettings({ cloud_deletion_request_id: 'deletion-id', cloud_deletion_status_token: 'deletion-status-token', cloud_deletion_status: 'pending', cloud_registration_status: 'deletion_pending', cloud_services_disabled_by_user: 'true' });
+    setSettings({
+      cloud_deletion_request_id: 'deletion-id',
+      cloud_deletion_status_token: 'deletion-status-token',
+      cloud_deletion_status: 'pending',
+      cloud_registration_status: 'deletion_pending',
+      cloud_services_disabled_by_user: 'true',
+    });
     remoteDeletionStatus = 'rejected';
     const rejectedDeletion = await request(app)
       .get('/api/settings/cloud/delete-data/status')
       .set(owner.authHeader);
     assertEqual(rejectedDeletion.status, 200, 'remote rejected deletion status refresh succeeds');
-    assertEqual((db.prepare("SELECT value FROM settings WHERE key = 'cloud_registration_status'").get() as { value: string }).value, 'registered', 'remote rejection restores registered state');
-    assertEqual((db.prepare("SELECT value FROM settings WHERE key = 'cloud_services_disabled_by_user'").get() as { value: string }).value, 'true', 'remote rejection keeps services stopped');
+    assertEqual(
+      (
+        db.prepare("SELECT value FROM settings WHERE key = 'cloud_registration_status'").get() as {
+          value: string;
+        }
+      ).value,
+      'registered',
+      'remote rejection restores registered state',
+    );
+    assertEqual(
+      (
+        db
+          .prepare("SELECT value FROM settings WHERE key = 'cloud_services_disabled_by_user'")
+          .get() as { value: string }
+      ).value,
+      'true',
+      'remote rejection keeps services stopped',
+    );
 
-    setSettings({ cloud_deletion_request_id: 'deletion-id', cloud_deletion_status_token: 'deletion-status-token', cloud_deletion_status: 'pending', cloud_registration_status: 'deletion_pending', cloud_services_disabled_by_user: 'true' });
+    setSettings({
+      cloud_deletion_request_id: 'deletion-id',
+      cloud_deletion_status_token: 'deletion-status-token',
+      cloud_deletion_status: 'pending',
+      cloud_registration_status: 'deletion_pending',
+      cloud_services_disabled_by_user: 'true',
+    });
     remoteDeletionStatus = 'approved';
     upstreamCalls = 0;
     const refreshedDeletion = await request(app)
       .get('/api/settings/cloud/delete-data/status')
       .set(owner.authHeader);
     assertEqual(refreshedDeletion.status, 200, 'explicit deletion status refresh succeeds');
-    assertEqual(refreshedDeletion.body.deletion_request?.status, 'approved', 'explicit refresh returns the latest deletion status');
-    assert(!('status_token' in (refreshedDeletion.body.deletion_request || {})), 'explicit refresh does not expose deletion status token');
-    assertEqual(upstreamCalls, 1, 'explicit deletion status refresh is the only stopped-state outbound call');
+    assertEqual(
+      refreshedDeletion.body.deletion_request?.status,
+      'approved',
+      'explicit refresh returns the latest deletion status',
+    );
+    assert(
+      !('status_token' in (refreshedDeletion.body.deletion_request || {})),
+      'explicit refresh does not expose deletion status token',
+    );
+    assertEqual(
+      upstreamCalls,
+      1,
+      'explicit deletion status refresh is the only stopped-state outbound call',
+    );
 
     globalThis.fetch = (async () => {
       upstreamCalls++;
-      return new Response(JSON.stringify({
-        email: 'owner@example.com',
-        verified: true,
-        product_updates: true,
-        marketing: false,
-        status_token: 'must-not-leak',
-        unexpected: 'must-not-leak',
-      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      return new Response(
+        JSON.stringify({
+          email: 'owner@example.com',
+          verified: true,
+          product_updates: true,
+          marketing: false,
+          status_token: 'must-not-leak',
+          unexpected: 'must-not-leak',
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
     }) as typeof fetch;
     upstreamCalls = 0;
     setSettings({
@@ -267,13 +407,22 @@ async function run() {
       cloud_deletion_outcome: '',
     });
     cloudSync.reload();
-    const registered = await request(app)
-      .get('/api/settings/cloud/account')
-      .set(owner.authHeader);
+    const registered = await request(app).get('/api/settings/cloud/account').set(owner.authHeader);
     assertEqual(registered.status, 200, 'registered cloud account status succeeds');
-    assertEqual(registered.body.cloud_account_available, true, 'registered response marks account available');
-    assertEqual(registered.body.email, 'owner@example.com', 'registered response preserves account data');
-    assert(!('status_token' in registered.body), 'registered response does not expose deletion status token');
+    assertEqual(
+      registered.body.cloud_account_available,
+      true,
+      'registered response marks account available',
+    );
+    assertEqual(
+      registered.body.email,
+      'owner@example.com',
+      'registered response preserves account data',
+    );
+    assert(
+      !('status_token' in registered.body),
+      'registered response does not expose deletion status token',
+    );
     assert(!('unexpected' in registered.body), 'registered response allowlists account fields');
     assertEqual(upstreamCalls, 1, 'registered account status calls FloAdmin');
 
@@ -284,7 +433,11 @@ async function run() {
     const unavailableUpstream = await request(app)
       .get('/api/settings/cloud/account')
       .set(owner.authHeader);
-    assertEqual(unavailableUpstream.status, 502, 'registered cloud outage remains distinguishable as a gateway error');
+    assertEqual(
+      unavailableUpstream.status,
+      502,
+      'registered cloud outage remains distinguishable as a gateway error',
+    );
     assertEqual(upstreamCalls, 2, 'registered cloud outage attempts the upstream request');
 
     const service = cloudSync as any;
@@ -297,20 +450,30 @@ async function run() {
     };
     const originalPreferencesFetch = globalThis.fetch;
     let preferencesFetchStarted!: () => void;
-    const preferencesFetchStartedPromise = new Promise<void>((resolve) => { preferencesFetchStarted = resolve; });
-    globalThis.fetch = (async (_url: string | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
-      preferencesFetchStarted();
-      const signal = init?.signal as AbortSignal;
-      if (signal.aborted) reject(signal.reason);
-      else signal.addEventListener('abort', () => reject(signal.reason), { once: true });
-    })) as typeof fetch;
+    const preferencesFetchStartedPromise = new Promise<void>((resolve) => {
+      preferencesFetchStarted = resolve;
+    });
+    globalThis.fetch = (async (_url: string | URL, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        preferencesFetchStarted();
+        const signal = init?.signal as AbortSignal;
+        if (signal.aborted) reject(signal.reason);
+        else signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+      })) as typeof fetch;
     try {
       const requestSignal = new AbortController();
-      const preferencesRequest = cloudSync.updateEmailPreferences({ product_updates: true }, requestSignal.signal);
+      const preferencesRequest = cloudSync.updateEmailPreferences(
+        { product_updates: true },
+        requestSignal.signal,
+      );
       await preferencesFetchStartedPromise;
       requestSignal.abort();
       let preferencesCancelled = false;
-      try { await preferencesRequest; } catch { preferencesCancelled = true; }
+      try {
+        await preferencesRequest;
+      } catch {
+        preferencesCancelled = true;
+      }
       assert(preferencesCancelled, 'cloud preference updates honor request cancellation');
     } finally {
       globalThis.fetch = originalPreferencesFetch;
@@ -323,20 +486,30 @@ async function run() {
     });
     const originalDeletionStatusFetch = globalThis.fetch;
     let deletionStatusFetchStarted!: () => void;
-    const deletionStatusFetchStartedPromise = new Promise<void>((resolve) => { deletionStatusFetchStarted = resolve; });
-    globalThis.fetch = (async (_url: string | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
-      deletionStatusFetchStarted();
-      const signal = init?.signal as AbortSignal;
-      if (signal.aborted) reject(signal.reason);
-      else signal.addEventListener('abort', () => reject(signal.reason), { once: true });
-    })) as typeof fetch;
+    const deletionStatusFetchStartedPromise = new Promise<void>((resolve) => {
+      deletionStatusFetchStarted = resolve;
+    });
+    globalThis.fetch = (async (_url: string | URL, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        deletionStatusFetchStarted();
+        const signal = init?.signal as AbortSignal;
+        if (signal.aborted) reject(signal.reason);
+        else signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+      })) as typeof fetch;
     try {
       const requestSignal = new AbortController();
-      const deletionStatusRequest = cloudSync.getDeletionRequestStatus({ allowRemote: true, signal: requestSignal.signal });
+      const deletionStatusRequest = cloudSync.getDeletionRequestStatus({
+        allowRemote: true,
+        signal: requestSignal.signal,
+      });
       await deletionStatusFetchStartedPromise;
       requestSignal.abort();
       let deletionStatusCancelled = false;
-      try { await deletionStatusRequest; } catch { deletionStatusCancelled = true; }
+      try {
+        await deletionStatusRequest;
+      } catch {
+        deletionStatusCancelled = true;
+      }
       assert(deletionStatusCancelled, 'cloud account status honors request cancellation');
     } finally {
       globalThis.fetch = originalDeletionStatusFetch;
@@ -360,7 +533,9 @@ async function run() {
     };
     const originalPollingFetch = globalThis.fetch;
     let pollingStarted!: () => void;
-    const pollingStartedPromise = new Promise<void>((resolve) => { pollingStarted = resolve; });
+    const pollingStartedPromise = new Promise<void>((resolve) => {
+      pollingStarted = resolve;
+    });
     globalThis.fetch = (async (_url: string | URL, init?: RequestInit) => {
       pollingStarted();
       return new Promise<Response>((_resolve, reject) => {
@@ -387,9 +562,12 @@ async function run() {
     const queuedService = new CloudSyncService();
     setSettings({ diagnostics_consent: 'true' });
     let releaseMaintenance!: () => void;
-    const maintenance = withDatabaseMaintenanceLock(() => new Promise<void>((resolve) => {
-      releaseMaintenance = resolve;
-    }));
+    const maintenance = withDatabaseMaintenanceLock(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseMaintenance = resolve;
+        }),
+    );
     for (let attempt = 0; attempt < 20 && !isDatabaseMaintenanceActive(); attempt++) {
       await new Promise<void>((resolve) => setImmediate(resolve));
     }
@@ -409,23 +587,34 @@ async function run() {
     assertEqual(queuedSettled, true, 'CloudSync shutdown cancels database-maintenance queued work');
     releaseMaintenance();
     await maintenance;
-    const queuedDiagnostic = db.prepare('SELECT 1 FROM store_diagnostics_outbox WHERE event_id = ?').get('queued-cloud-sync-shutdown-test');
-    assertEqual(queuedDiagnostic, undefined, 'cancelled queued CloudSync work does not write after shutdown');
+    const queuedDiagnostic = db
+      .prepare('SELECT 1 FROM store_diagnostics_outbox WHERE event_id = ?')
+      .get('queued-cloud-sync-shutdown-test');
+    assertEqual(
+      queuedDiagnostic,
+      undefined,
+      'cancelled queued CloudSync work does not write after shutdown',
+    );
 
     const results = getResults();
-    if (results.failed > 0) throw new Error(`${results.failed} cloud account status assertions failed`);
+    if (results.failed > 0)
+      throw new Error(`${results.failed} cloud account status assertions failed`);
     console.log('✅ Cloud account status tests passed');
   } finally {
     globalThis.fetch = originalFetch;
     cloudSync.stop();
-    try { closeDatabase(); } catch { }
+    try {
+      closeDatabase();
+    } catch {}
     Module._load = originalLoad;
     fs.rmSync(testDir, { recursive: true, force: true });
   }
 }
 
 run().catch((error) => {
-  try { closeDatabase(); } catch { }
+  try {
+    closeDatabase();
+  } catch {}
   Module._load = originalLoad;
   fs.rmSync(testDir, { recursive: true, force: true });
   console.error(error);

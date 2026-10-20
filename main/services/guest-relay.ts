@@ -21,7 +21,13 @@ import { WebSocket } from 'ws';
 import log from 'electron-log';
 import { ensureCloudIdentity, getSettingValue, isGuestOrderingEnabled } from '../db';
 import { getDatabase } from '../db';
-import { isRoundTokenCurrent, isTokenForThisStore, newRoundToken, parseGuestToken, qualifyGuestToken } from './guest-tokens';
+import {
+  isRoundTokenCurrent,
+  isTokenForThisStore,
+  newRoundToken,
+  parseGuestToken,
+  qualifyGuestToken,
+} from './guest-tokens';
 import { ROLE_ACCESS } from '../../shared/role-permissions';
 import { placeGuestOrder, tableTicket, validateGuestItems } from './guest-orders';
 import { publicOrderingSnapshot, snapshotDigest } from './public-menu';
@@ -191,7 +197,13 @@ const PAIRING_MAX_ATTEMPTS = 5;
 const PAIRING_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 const PAIRING_LENGTH = 8;
 
-let pairing: { code: string; expiresAt: number; attempts: number; name: string; role: string } | null = null;
+let pairing: {
+  code: string;
+  expiresAt: number;
+  attempts: number;
+  name: string;
+  role: string;
+} | null = null;
 
 /**
  * Issues a pairing code for the merchant to read off this screen.
@@ -203,7 +215,10 @@ let pairing: { code: string; expiresAt: number; attempts: number; name: string; 
  *
  * Issuing replaces any outstanding code. One live code at a time.
  */
-export function issuePairingCode(user: { name: string; role: string }): { code: string; expires_at: string } {
+export function issuePairingCode(user: { name: string; role: string }): {
+  code: string;
+  expires_at: string;
+} {
   if (!ADMIN_ROLES.has(user.role)) {
     throw new Error('Only an owner or a manager can pair a hosted server');
   }
@@ -241,7 +256,9 @@ function normalizePairingCode(input: unknown): string {
     .replace(/[IL]/g, '1');
 }
 
-function verifyPairing(input: unknown): { ok: true; name: string; role: string } | { ok: false; reason: string } {
+function verifyPairing(
+  input: unknown,
+): { ok: true; name: string; role: string } | { ok: false; reason: string } {
   if (!pairing) return { ok: false, reason: 'no_pairing_code' };
   if (Date.now() > pairing.expiresAt) {
     pairing = null;
@@ -280,11 +297,13 @@ function verifyPairing(input: unknown): { ok: true; name: string; role: string }
  * privilege is short-lived and role-gated here.
  */
 function tableCodesPayload(): { tables: { id: string; number: string; code: string }[] } {
-  const rows = getDatabase().prepare(`
+  const rows = getDatabase()
+    .prepare(`
     SELECT id, number, guest_token FROM tables
     WHERE is_active = 1 AND guest_token IS NOT NULL AND guest_token <> ''
     ORDER BY number
-  `).all() as { id: string; number: string; guest_token: string }[];
+  `)
+    .all() as { id: string; number: string; guest_token: string }[];
   return {
     tables: rows.map((row) => ({
       id: row.id,
@@ -446,9 +465,15 @@ function connect(): void {
     } catch {
       return;
     }
-    if (message.type === 'order') { void handleOrder(message); return; }
+    if (message.type === 'order') {
+      void handleOrder(message);
+      return;
+    }
     // A server that lost its cache asks rather than waiting for a change.
-    if (message.type === 'need_snapshot') { pushSnapshot(true); return; }
+    if (message.type === 'need_snapshot') {
+      pushSnapshot(true);
+      return;
+    }
 
     // A phone has scanned. Needs no pairing: a customer at a table is not an
     // administrator, and the code they present is the only credential required.
@@ -491,8 +516,14 @@ function connect(): void {
         return;
       }
       adminSessionUntil = Date.now() + ADMIN_SESSION_MS;
-      reply({ type: 'admin_pair_result', id, ok: true, name: result.name, role: result.role,
-              expires_in_ms: ADMIN_SESSION_MS });
+      reply({
+        type: 'admin_pair_result',
+        id,
+        ok: true,
+        name: result.name,
+        role: result.role,
+        expires_in_ms: ADMIN_SESSION_MS,
+      });
       log.info('[GuestRelay] hosted server paired by', result.role);
       // Pairing is what the merchant does to publish; send everything at once
       // rather than waiting for the next digest check.
@@ -512,8 +543,14 @@ function connect(): void {
   });
 
   opening.on('close', () => {
-    if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
-    if (snapshotTimer) { clearInterval(snapshotTimer); snapshotTimer = null; }
+    if (pingTimer) {
+      clearInterval(pingTimer);
+      pingTimer = null;
+    }
+    if (snapshotTimer) {
+      clearInterval(snapshotTimer);
+      snapshotTimer = null;
+    }
     socket = null;
     if (!stopped) scheduleReconnect();
   });
@@ -532,9 +569,18 @@ export function startGuestRelay(): void {
 
 export function stopGuestRelay(): Promise<void> {
   stopped = true;
-  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
-  if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
-  if (snapshotTimer) { clearInterval(snapshotTimer); snapshotTimer = null; }
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  if (pingTimer) {
+    clearInterval(pingTimer);
+    pingTimer = null;
+  }
+  if (snapshotTimer) {
+    clearInterval(snapshotTimer);
+    snapshotTimer = null;
+  }
   const open = socket;
   socket = null;
   attempts = 0;
@@ -542,14 +588,23 @@ export function stopGuestRelay(): Promise<void> {
   return new Promise((resolve) => {
     const done = setTimeout(resolve, 2_000);
     done.unref?.();
-    open.once('close', () => { clearTimeout(done); resolve(); });
-    try { open.close(); } catch { resolve(); }
+    open.once('close', () => {
+      clearTimeout(done);
+      resolve();
+    });
+    try {
+      open.close();
+    } catch {
+      resolve();
+    }
   });
 }
 
 /** Re-reads settings and reconnects — called when the merchant changes them. */
 export function reloadGuestRelay(): void {
-  void stopGuestRelay().then(() => { if (readConfig()) startGuestRelay(); });
+  void stopGuestRelay().then(() => {
+    if (readConfig()) startGuestRelay();
+  });
 }
 
 export function isGuestRelayConnected(): boolean {
@@ -557,7 +612,12 @@ export function isGuestRelayConnected(): boolean {
 }
 
 /** Exported for the protocol test: the signature a server has to verify. */
-export function signHello(secret: string, posHash: string, timestamp: string, nonce: string): string {
+export function signHello(
+  secret: string,
+  posHash: string,
+  timestamp: string,
+  nonce: string,
+): string {
   return createHmac('sha256', secret).update(`${posHash}.${timestamp}.${nonce}`).digest('hex');
 }
 

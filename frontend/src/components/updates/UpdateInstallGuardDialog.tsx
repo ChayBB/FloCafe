@@ -29,7 +29,11 @@ interface UpdateInstallGuardDialogProps {
   onRequestRestart: (pin: string) => Promise<unknown>;
 }
 
-export function UpdateInstallGuardDialog({ open, onCancel, onRequestRestart }: UpdateInstallGuardDialogProps) {
+export function UpdateInstallGuardDialog({
+  open,
+  onCancel,
+  onRequestRestart,
+}: UpdateInstallGuardDialogProps) {
   const t = useTranslations('update');
   const [pin, setPin] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -77,7 +81,11 @@ export function UpdateInstallGuardDialog({ open, onCancel, onRequestRestart }: U
         </DialogHeader>
 
         {/* Prominent red warning: restarting to install takes the whole POS down. */}
-        <div className="rounded-lg border-2 border-red-600 bg-red-50 p-4" role="alert" data-testid="update-install-warning">
+        <div
+          className="rounded-lg border-2 border-red-600 bg-red-50 p-4"
+          role="alert"
+          data-testid="update-install-warning"
+        >
           <div className="flex items-start gap-2">
             <AlertTriangle size={20} className="mt-0.5 shrink-0 text-red-600" aria-hidden />
             <div className="space-y-1.5 text-sm text-red-700">

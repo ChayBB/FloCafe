@@ -67,8 +67,16 @@ async function run(): Promise<void> {
 
   // Fail-safe covers the reject path: nothing valid reported -> window shown.
   await sleep(60);
-  assert.deepEqual(shows, [firstEpoch], 'fail-safe must fire exactly once for the unconfirmed epoch');
-  assert.equal(isRendererReadinessFailSafeShown(), true, 'fail-safe visibility remains recoverable');
+  assert.deepEqual(
+    shows,
+    [firstEpoch],
+    'fail-safe must fire exactly once for the unconfirmed epoch',
+  );
+  assert.equal(
+    isRendererReadinessFailSafeShown(),
+    true,
+    'fail-safe visibility remains recoverable',
+  );
   assert.equal(
     isCurrentRendererFrame({ frameToken: 'current' }, { frameToken: 'current' }),
     true,
@@ -94,22 +102,38 @@ async function run(): Promise<void> {
   const secondEpoch = beginRendererDocument();
   assert.equal(secondEpoch, firstEpoch + 1, 'every document load begins a new epoch');
   assert.equal(isWindowRendererReady(), false, 'new document starts unready');
-  assert.equal(isRendererReadinessFailSafeShown(), false, 'new document clears fail-safe show state');
+  assert.equal(
+    isRendererReadinessFailSafeShown(),
+    false,
+    'new document clears fail-safe show state',
+  );
   assert.equal(getRendererDocumentNonce(), null, 'new document starts without a registered nonce');
 
   // The previous document's report is now stale and must be ignored.
-  assert.equal(markWindowRendererReady(firstEpoch, firstNonce), false, 'stale-epoch report must be ignored');
+  assert.equal(
+    markWindowRendererReady(firstEpoch, firstNonce),
+    false,
+    'stale-epoch report must be ignored',
+  );
   assert.equal(isWindowRendererReady(), false);
 
   // The stale epoch's fail-safe must not fire for the superseded epoch, but
   // the new unconfirmed epoch's own fail-safe still covers it.
   await sleep(60);
-  assert.equal(shows.filter((e) => e === firstEpoch).length, 1, 'superseded epoch timer stays inert');
+  assert.equal(
+    shows.filter((e) => e === firstEpoch).length,
+    1,
+    'superseded epoch timer stays inert',
+  );
   assert.ok(shows.includes(secondEpoch), 'new epoch fail-safe covers its unconfirmed document');
 
   const secondNonce = '123e4567-e89b-42d3-a456-426614174001';
   assert.equal(registerRendererDocument(secondNonce), true);
-  assert.equal(markWindowRendererReady(secondEpoch, firstNonce), false, 'stale nonce must be ignored');
+  assert.equal(
+    markWindowRendererReady(secondEpoch, firstNonce),
+    false,
+    'stale nonce must be ignored',
+  );
   assert.equal(markWindowRendererReady(secondEpoch, secondNonce), true);
   assert.equal(isWindowRendererReady(), true, 'current-epoch confirmation marks ready');
 

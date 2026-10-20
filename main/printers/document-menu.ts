@@ -3,9 +3,19 @@
 import { printLabel } from '../print/print-labels.generated';
 import { directionalText, type DirectionalText, type TextDirection } from '../../shared/print';
 import { displayCellWidth } from '../../shared/print/width';
-import { GENERIC_THERMAL_CAPABILITIES, type ThermalPrinterCapabilities } from '../../shared/print/thermal-capabilities';
+import {
+  GENERIC_THERMAL_CAPABILITIES,
+  type ThermalPrinterCapabilities,
+} from '../../shared/print/thermal-capabilities';
 import type { PrinterCutMode } from './profiles';
-import { buildEscPos, normalizeThermalText, safePrinterText, truncateShapedLine, wrapText, type PrintWarning } from './formatting-helpers';
+import {
+  buildEscPos,
+  normalizeThermalText,
+  safePrinterText,
+  truncateShapedLine,
+  wrapText,
+  type PrintWarning,
+} from './formatting-helpers';
 
 export interface MenuCategoryInput {
   id: string;
@@ -57,7 +67,10 @@ export function buildMenuDocument(
   const categoryById = new Map(categories.map((category) => [category.id, category]));
   const visibleProducts = products
     .filter((product) => options.includeInactive === true || product.isActive)
-    .filter((product) => options.includeOutOfStock === true || !product.trackInventory || product.stockQuantity > 0)
+    .filter(
+      (product) =>
+        options.includeOutOfStock === true || !product.trackInventory || product.stockQuantity > 0,
+    )
     .filter((product) => {
       const category = product.categoryId ? categoryById.get(product.categoryId) : undefined;
       return options.includeHidden === true || !product.categoryId || category?.isActive === true;
@@ -67,16 +80,23 @@ export function buildMenuDocument(
 
   const toDirectionalText = (text: string): DirectionalText =>
     directionalText(safePrinterText(text), options.baseDirection);
-  const toRows = (rows: readonly MenuProductInput[]) => rows.map((product) => ({
-    name: toDirectionalText(product.name),
-    price: options.formatPrice(Number.isFinite(product.price) ? product.price : 0),
-    details: [
-      ...(options.includeDescriptions && product.description ? [toDirectionalText(product.description)] : []),
-      ...(options.includeModifiers ? (product.modifiers || []).map((group) => toDirectionalText(
-        `${group.name}: ${group.options.map((option) => `${option.name} (${options.formatPrice(option.price)})`).join(', ')}`,
-      )) : []),
-    ],
-  }));
+  const toRows = (rows: readonly MenuProductInput[]) =>
+    rows.map((product) => ({
+      name: toDirectionalText(product.name),
+      price: options.formatPrice(Number.isFinite(product.price) ? product.price : 0),
+      details: [
+        ...(options.includeDescriptions && product.description
+          ? [toDirectionalText(product.description)]
+          : []),
+        ...(options.includeModifiers
+          ? (product.modifiers || []).map((group) =>
+              toDirectionalText(
+                `${group.name}: ${group.options.map((option) => `${option.name} (${options.formatPrice(option.price)})`).join(', ')}`,
+              ),
+            )
+          : []),
+      ],
+    }));
 
   const sections: MenuDocument['sections'] = categories
     .slice()
@@ -86,7 +106,9 @@ export function buildMenuDocument(
       products: toRows(visibleProducts.filter((product) => product.categoryId === category.id)),
     }))
     .filter((section) => section.products.length > 0);
-  const uncategorized = visibleProducts.filter((product) => !product.categoryId || !categoryById.has(product.categoryId));
+  const uncategorized = visibleProducts.filter(
+    (product) => !product.categoryId || !categoryById.has(product.categoryId),
+  );
   if (uncategorized.length > 0) sections.push({ name: null, products: toRows(uncategorized) });
 
   return {
@@ -113,39 +135,78 @@ export function renderMenuViaDocument(
   const capabilities = options.capabilities ?? GENERIC_THERMAL_CAPABILITIES;
   const warnings: PrintWarning[] = [];
   const lines = ['{INIT}'];
-  const header = wrapText(normalizeThermalText(document.businessName.text, capabilities), options.columns);
+  const header = wrapText(
+    normalizeThermalText(document.businessName.text, capabilities),
+    options.columns,
+  );
   for (const line of header) lines.push(`{CENTER}${line}{/CENTER}`);
-  lines.push(`{CENTER}{DOUBLE_HEIGHT}{BOLD}${safePrinterText(printLabel(options.language, 'print.menu.title'))}{/BOLD}{/DOUBLE_HEIGHT}{/CENTER}`);
-  lines.push(`{CENTER}${truncateShapedLine(document.printedAt, options.columns, options.arabicShaping === true, options.language, capabilities)}{/CENTER}`, '');
+  lines.push(
+    `{CENTER}{DOUBLE_HEIGHT}{BOLD}${safePrinterText(printLabel(options.language, 'print.menu.title'))}{/BOLD}{/DOUBLE_HEIGHT}{/CENTER}`,
+  );
+  lines.push(
+    `{CENTER}${truncateShapedLine(document.printedAt, options.columns, options.arabicShaping === true, options.language, capabilities)}{/CENTER}`,
+    '',
+  );
 
   for (const section of document.sections) {
     if (section.name) {
-      const title = truncateShapedLine(`--- ${section.name.text} ---`, options.columns, options.arabicShaping === true, options.language, capabilities);
+      const title = truncateShapedLine(
+        `--- ${section.name.text} ---`,
+        options.columns,
+        options.arabicShaping === true,
+        options.language,
+        capabilities,
+      );
       lines.push(`{BOLD}${title}{/BOLD}`);
     }
     for (const product of section.products) {
-      const price = truncateShapedLine(product.price, Math.max(1, options.columns - 2), options.arabicShaping === true, options.language, capabilities);
+      const price = truncateShapedLine(
+        product.price,
+        Math.max(1, options.columns - 2),
+        options.arabicShaping === true,
+        options.language,
+        capabilities,
+      );
       const priceWidth = displayCellWidth(price);
       const nameWidth = Math.max(1, options.columns - priceWidth - 1);
       const nameLines = wrapText(normalizeThermalText(product.name.text, capabilities), nameWidth);
       const firstName = nameLines.shift() ?? '';
       const leaderCount = Math.max(0, options.columns - displayCellWidth(firstName) - priceWidth);
       lines.push(`${firstName}${'.'.repeat(leaderCount)}${price}`);
-      for (const continuation of [...nameLines, ...product.details.flatMap((detail) => wrapText(normalizeThermalText(detail.text, capabilities), Math.max(1, options.columns - 2)))]) {
-        lines.push(`  ${truncateShapedLine(continuation, Math.max(1, options.columns - 2), options.arabicShaping === true, options.language, capabilities)}`);
+      for (const continuation of [
+        ...nameLines,
+        ...product.details.flatMap((detail) =>
+          wrapText(
+            normalizeThermalText(detail.text, capabilities),
+            Math.max(1, options.columns - 2),
+          ),
+        ),
+      ]) {
+        lines.push(
+          `  ${truncateShapedLine(continuation, Math.max(1, options.columns - 2), options.arabicShaping === true, options.language, capabilities)}`,
+        );
       }
     }
     lines.push('');
   }
 
-  for (const line of wrapText(`${safePrinterText(printLabel(options.language, 'print.menu.totalItems'))}: ${document.itemCount}`, options.columns)) lines.push(`{CENTER}${line}{/CENTER}`);
+  for (const line of wrapText(
+    `${safePrinterText(printLabel(options.language, 'print.menu.totalItems'))}: ${document.itemCount}`,
+    options.columns,
+  ))
+    lines.push(`{CENTER}${line}{/CENTER}`);
   lines.push('{CENTER}Powered by FloCafe{/CENTER}', '{FEED}', '{CUT}');
-  const data = buildEscPos(lines, options.useUnicode === true, {
-    cutMode: options.cutMode,
-    arabicShaping: options.arabicShaping,
-    columns: options.columns,
-    language: options.language,
-    capabilities,
-  }, warnings);
+  const data = buildEscPos(
+    lines,
+    options.useUnicode === true,
+    {
+      cutMode: options.cutMode,
+      arabicShaping: options.arabicShaping,
+      columns: options.columns,
+      language: options.language,
+      capabilities,
+    },
+    warnings,
+  );
   return { data, warnings, lines };
 }

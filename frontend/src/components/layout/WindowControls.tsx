@@ -8,7 +8,8 @@ type TitleBarMode = 'native-overlay' | 'html-fallback';
 type WindowControlAction = 'minimize' | 'toggle-maximize' | 'close';
 
 const subscribeToElectronCapability = () => () => {};
-const getElectronCapability = () => typeof window !== 'undefined' && Boolean(window.electronAPI?.getStatus);
+const getElectronCapability = () =>
+  typeof window !== 'undefined' && Boolean(window.electronAPI?.getStatus);
 const getServerElectronCapability = () => false;
 
 export default function WindowControls() {
@@ -37,9 +38,8 @@ export default function WindowControls() {
         setResolved({
           mode: status?.titleBarMode === 'html-fallback' ? 'html-fallback' : 'native-overlay',
           epoch: typeof status?.titleBarEpoch === 'number' ? status.titleBarEpoch : Number.NaN,
-          documentNonce: typeof status?.titleBarDocumentNonce === 'string'
-            ? status.titleBarDocumentNonce
-            : null,
+          documentNonce:
+            typeof status?.titleBarDocumentNonce === 'string' ? status.titleBarDocumentNonce : null,
         });
       })
       .catch((error) => {
@@ -56,11 +56,9 @@ export default function WindowControls() {
   useEffect(() => {
     if (!isElectron || !resolved) return;
     if (!Number.isInteger(resolved.epoch) || resolved.epoch < 1 || !resolved.documentNonce) return;
-    window.electronAPI
-      ?.windowReady({ epoch: resolved.epoch })
-      ?.catch((error) => {
-        console.error('[WindowControls] Unable to report renderer readiness:', error);
-      });
+    window.electronAPI?.windowReady({ epoch: resolved.epoch })?.catch((error) => {
+      console.error('[WindowControls] Unable to report renderer readiness:', error);
+    });
   }, [isElectron, resolved]);
 
   const runWindowAction = useCallback((action: WindowControlAction) => {
@@ -69,10 +67,19 @@ export default function WindowControls() {
     windowAction(action).catch(() => {});
   }, []);
 
-  if (!isElectron || resolved?.mode !== 'html-fallback' || window.electronAPI?.platform === 'darwin') return null;
+  if (
+    !isElectron ||
+    resolved?.mode !== 'html-fallback' ||
+    window.electronAPI?.platform === 'darwin'
+  )
+    return null;
 
   return (
-    <div className="flo-title-bar__fallback-controls" role="group" aria-label={tCommon('windowControls')}>
+    <div
+      className="flo-title-bar__fallback-controls"
+      role="group"
+      aria-label={tCommon('windowControls')}
+    >
       <button
         type="button"
         className="flo-title-bar__fallback-button"

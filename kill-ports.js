@@ -10,7 +10,8 @@ const { execSync, exec } = require('child_process');
 const os = require('os');
 
 // ── Validate args ───────────────────────────────────────────────────────────
-const ports = process.argv.slice(2)
+const ports = process.argv
+  .slice(2)
   .map((p) => parseInt(p, 10))
   .filter((p) => Number.isInteger(p) && p >= 1 && p <= 65535);
 
@@ -57,10 +58,10 @@ function getProcessesOnPort(port) {
   if (isWindows) {
     try {
       // netstat gives PIDs listening on the port
-      const out = execSync(
-        `netstat -aon | findstr "LISTENING" | findstr ":${port} "`,
-        { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }
-      );
+      const out = execSync(`netstat -aon | findstr "LISTENING" | findstr ":${port} "`, {
+        encoding: 'utf8',
+        stdio: ['pipe', 'pipe', 'ignore'],
+      });
       const pids = new Set();
       for (const line of out.split('\n')) {
         const m = line.trim().match(/(\d+)\s*$/);
@@ -72,22 +73,28 @@ function getProcessesOnPort(port) {
         try {
           const cmdOut = execSync(
             `wmic process where "ProcessId=${pid}" get CommandLine / value 2>nul`,
-            { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }
+            { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] },
           );
           const m = cmdOut.match(/CommandLine=(.*)/i);
           cmdline = m?.[1]?.trim() || '';
-        } catch { /* WMIC is absent on newer Windows installations. */ }
+        } catch {
+          /* WMIC is absent on newer Windows installations. */
+        }
         if (!cmdline) {
           try {
             cmdline = execSync(
               `powershell.exe -NoProfile -NonInteractive -Command "(Get-CimInstance Win32_Process -Filter 'ProcessId = ${pid}').CommandLine"`,
-              { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'], timeout: 5000 }
+              { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'], timeout: 5000 },
             ).trim();
-          } catch { /* process metadata is unavailable; fail closed below */ }
+          } catch {
+            /* process metadata is unavailable; fail closed below */
+          }
         }
         results.push({ pid, cmdline });
       }
-    } catch { /* port is free */ }
+    } catch {
+      /* port is free */
+    }
     return results;
   }
 
@@ -95,10 +102,10 @@ function getProcessesOnPort(port) {
   if (hasLsof) {
     try {
       // -F pC: output pid and command name fields
-      const out = execSync(
-        `lsof -i :${port} -P -n -F pC 2>/dev/null`,
-        { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }
-      );
+      const out = execSync(`lsof -i :${port} -P -n -F pC 2>/dev/null`, {
+        encoding: 'utf8',
+        stdio: ['pipe', 'pipe', 'ignore'],
+      });
       const pids = new Set();
       for (const line of out.split('\n')) {
         if (line.startsWith('p')) pids.add(line.slice(1));
@@ -109,15 +116,17 @@ function getProcessesOnPort(port) {
         results.push({ pid, cmdline });
       }
       if (results.length > 0) return results;
-    } catch { /* fall through */ }
+    } catch {
+      /* fall through */
+    }
   }
 
   if (hasSs) {
     try {
-      const out = execSync(
-        `ss -tlnp 'sport = :${port}' 2>/dev/null`,
-        { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }
-      );
+      const out = execSync(`ss -tlnp 'sport = :${port}' 2>/dev/null`, {
+        encoding: 'utf8',
+        stdio: ['pipe', 'pipe', 'ignore'],
+      });
       const pidMatches = [...out.matchAll(/pid=(\d+)/g)];
       for (const m of pidMatches) {
         const pid = m[1];
@@ -126,21 +135,25 @@ function getProcessesOnPort(port) {
         results.push({ pid, cmdline });
       }
       if (results.length > 0) return results;
-    } catch { /* fall through */ }
+    } catch {
+      /* fall through */
+    }
   }
 
   if (hasFuser) {
     try {
-      const out = execSync(
-        `fuser ${port}/tcp 2>/dev/null`,
-        { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }
-      );
+      const out = execSync(`fuser ${port}/tcp 2>/dev/null`, {
+        encoding: 'utf8',
+        stdio: ['pipe', 'pipe', 'ignore'],
+      });
       for (const pid of out.trim().split(/\s+/)) {
         if (!isValidPid(pid)) continue;
         const cmdline = getCmdline(pid);
         results.push({ pid, cmdline });
       }
-    } catch { /* fall through */ }
+    } catch {
+      /* fall through */
+    }
   }
 
   return results;
@@ -150,19 +163,23 @@ function getProcessesOnPort(port) {
 function getCmdline(pid) {
   if (isLinux) {
     try {
-      return execSync(
-        `cat /proc/${pid}/cmdline 2>/dev/null | tr '\\0' ' '`,
-        { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }
-      ).trim();
-    } catch { return ''; }
+      return execSync(`cat /proc/${pid}/cmdline 2>/dev/null | tr '\\0' ' '`, {
+        encoding: 'utf8',
+        stdio: ['pipe', 'pipe', 'ignore'],
+      }).trim();
+    } catch {
+      return '';
+    }
   }
   if (isMac) {
     try {
-      return execSync(
-        `ps -p ${pid} -o command= 2>/dev/null`,
-        { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }
-      ).trim();
-    } catch { return ''; }
+      return execSync(`ps -p ${pid} -o command= 2>/dev/null`, {
+        encoding: 'utf8',
+        stdio: ['pipe', 'pipe', 'ignore'],
+      }).trim();
+    } catch {
+      return '';
+    }
   }
   return '';
 }
@@ -172,7 +189,9 @@ function hasCommand(cmd) {
   try {
     execSync(`command -v ${cmd}`, { stdio: 'ignore' });
     return true;
-  } catch { return false; }
+  } catch {
+    return false;
+  }
 }
 
 const hasLsof = !isWindows && hasCommand('lsof');
@@ -193,7 +212,9 @@ function gracefulKill(pid) {
             // Still alive — escalate to SIGKILL
             exec(`kill -9 ${pid} 2>/dev/null`, { shell: '/bin/sh' }, (killError) => {
               if (killError) return resolve(false);
-              exec(`kill -0 ${pid} 2>/dev/null`, { shell: '/bin/sh' }, (stillAlive) => resolve(Boolean(stillAlive)));
+              exec(`kill -0 ${pid} 2>/dev/null`, { shell: '/bin/sh' }, (stillAlive) =>
+                resolve(Boolean(stillAlive)),
+              );
             });
           } else {
             resolve(true);
@@ -214,9 +235,13 @@ function gracefulKillWindows(pid) {
           if (checkError || !new RegExp(`\\b${pid}\\b`).test(stdout)) return resolve(true);
           exec(`taskkill /F /PID ${pid} 2>nul`, { shell: 'cmd.exe' }, (killError) => {
             if (killError) return resolve(false);
-            exec(`tasklist /FI "PID eq ${pid}" /NH`, { shell: 'cmd.exe' }, (afterError, afterStdout) => {
-              resolve(Boolean(afterError) || !new RegExp(`\\b${pid}\\b`).test(afterStdout));
-            });
+            exec(
+              `tasklist /FI "PID eq ${pid}" /NH`,
+              { shell: 'cmd.exe' },
+              (afterError, afterStdout) => {
+                resolve(Boolean(afterError) || !new RegExp(`\\b${pid}\\b`).test(afterStdout));
+              },
+            );
           });
         });
       }, 2000);
@@ -239,17 +264,15 @@ async function killPort(port) {
   // Report what we found but won't touch
   for (const p of otherProcs) {
     const cmd = p.cmdline || 'unknown process';
-    console.log(
-      `[kill-ports] Port ${port}: SKIP — PID ${p.pid} (${cmd}) is not a Flo process.`
-    );
+    console.log(`[kill-ports] Port ${port}: SKIP — PID ${p.pid} (${cmd}) is not a Flo process.`);
   }
 
   if (floProcs.length === 0) {
     console.log(
-      `[kill-ports] Port ${port}: no Flo processes found. ${procs.length} other process(es) using this port.`
+      `[kill-ports] Port ${port}: no Flo processes found. ${procs.length} other process(es) using this port.`,
     );
     console.log(
-      `[kill-ports] Note: Non-Flo process is holding port ${port}. FloCafe will attempt fallback ports automatically on startup, or you can configure custom ports (PORT, KDS_PORT, SERVER_APP_PORT) in .env.`
+      `[kill-ports] Note: Non-Flo process is holding port ${port}. FloCafe will attempt fallback ports automatically on startup, or you can configure custom ports (PORT, KDS_PORT, SERVER_APP_PORT) in .env.`,
     );
     return;
   }
@@ -258,9 +281,7 @@ async function killPort(port) {
   for (const p of floProcs) {
     const cmd = p.cmdline || 'electron';
     console.log(`[kill-ports] Port ${port}: killing Flo process PID ${p.pid} (${cmd})...`);
-    const stopped = isWindows
-      ? await gracefulKillWindows(p.pid)
-      : await gracefulKill(p.pid);
+    const stopped = isWindows ? await gracefulKillWindows(p.pid) : await gracefulKill(p.pid);
     if (stopped) {
       console.log(`[kill-ports] Port ${port}: PID ${p.pid} stopped.`);
     } else {

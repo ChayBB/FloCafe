@@ -9,7 +9,9 @@ export type StandaloneStartupOptions = {
 
 function throwIfShutdownRequested(isShutdownRequested: () => boolean): void {
   if (isShutdownRequested()) {
-    const error = new Error('Standalone server startup cancelled during shutdown') as Error & { code: string };
+    const error = new Error('Standalone server startup cancelled during shutdown') as Error & {
+      code: string;
+    };
     error.code = 'ERR_SHUTDOWN_ABORTED';
     throw error;
   }

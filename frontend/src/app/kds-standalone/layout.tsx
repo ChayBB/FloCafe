@@ -7,11 +7,7 @@ export const metadata: Metadata = {
   description: 'Kitchen Display System',
 };
 
-export default function KdsStandaloneLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function KdsStandaloneLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen h-full flex flex-col p-4 bg-muted">
       <KdsHtmlLang />

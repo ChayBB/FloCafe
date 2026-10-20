@@ -19,7 +19,9 @@ test('KDS tabs view advances an item one stage per switch tap', async ({ page })
   const orderNumStr = `#${order.order_number}`;
 
   await page.goto(`${E2E_KDS_BASE_URL}/kds-standalone`);
-  await expect(page.getByTestId('kds-login-form').or(page.getByTestId('kds-workspace'))).toBeVisible();
+  await expect(
+    page.getByTestId('kds-login-form').or(page.getByTestId('kds-workspace')),
+  ).toBeVisible();
   if (await page.getByTestId('kds-login-form').isVisible()) {
     await page.getByTestId('kds-login-email').fill('manager@flo.local');
     await page.getByTestId('kds-login-password').fill('E2ePass123!');
@@ -55,5 +57,7 @@ test('KDS tabs view advances an item one stage per switch tap', async ({ page })
   await expect(card.getByTestId('kds-status-switch')).toHaveCount(0);
 
   await tab('Waiting').click();
-  await expect(page.locator('div.bg-card.rounded-xl').filter({ hasText: orderNumStr })).toHaveCount(0);
+  await expect(page.locator('div.bg-card.rounded-xl').filter({ hasText: orderNumStr })).toHaveCount(
+    0,
+  );
 });

@@ -4,8 +4,7 @@ import type { KotLanguagePolicy, ReceiptLanguagePolicy } from '@print/types';
 
 const PRINT_LANGUAGE_REGISTRY_FACTS = {
   isSelectableLanguage: (code: string) =>
-    Object.prototype.hasOwnProperty.call(LANGUAGES, code)
-    && LANGUAGES[code as Language].selectable,
+    Object.prototype.hasOwnProperty.call(LANGUAGES, code) && LANGUAGES[code as Language].selectable,
 };
 
 export function parseStoredReceiptLanguagePolicy(value: unknown): ReceiptLanguagePolicy | null {

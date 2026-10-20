@@ -26,13 +26,14 @@ export const CURRENCY_ASCII_MAP: Readonly<Record<string, string>> = Object.freez
   '₲': 'PYG',
   'د.إ': 'AED',
   '﷼': 'SAR',
-  'ریال': 'IRR',
+  ریال: 'IRR',
   '৳': 'BDT',
   'E£': 'EGP',
 });
 
-const CURRENCY_ASCII_ENTRIES = Object.entries(CURRENCY_ASCII_MAP)
-  .sort(([left], [right]) => right.length - left.length);
+const CURRENCY_ASCII_ENTRIES = Object.entries(CURRENCY_ASCII_MAP).sort(
+  ([left], [right]) => right.length - left.length,
+);
 
 /** Replace known non-ASCII currency tokens without changing numeric values. */
 export function normalizeCurrencyToAscii(text: string): string {
@@ -43,9 +44,9 @@ export function normalizeCurrencyToAscii(text: string): string {
 }
 
 /** Regex source for matching known currency tokens in thermal safety checks. */
-export const CURRENCY_TOKEN_PATTERN = CURRENCY_ASCII_ENTRIES
-  .map(([symbol]) => symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-  .join('|');
+export const CURRENCY_TOKEN_PATTERN = CURRENCY_ASCII_ENTRIES.map(([symbol]) =>
+  symbol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+).join('|');
 
 /** Canonical tenant currency storage contract. */
 export const CURRENCY_CODE_PATTERN = /^[A-Z]{3}$/;

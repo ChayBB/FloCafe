@@ -22,15 +22,28 @@ const os = require('os');
 const path = require('path');
 const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-loyalty-redemption-'));
 Module._load = function (request: string, parent: unknown, isMain: boolean) {
-  if (request === 'electron') return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
+  if (request === 'electron')
+    return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
   return originalLoad.apply(this, arguments as any);
 };
 
 const {
-  initTestDb, createApp, startServer,
-  seedOwnerUser, seedCategory, seedProduct, seedCustomer, seedWalletCredit,
-  api, assert, assertEqual, assertGreaterThan,
-  getResults, closeDatabase, getDatabase, now,
+  initTestDb,
+  createApp,
+  startServer,
+  seedOwnerUser,
+  seedCategory,
+  seedProduct,
+  seedCustomer,
+  seedWalletCredit,
+  api,
+  assert,
+  assertEqual,
+  assertGreaterThan,
+  getResults,
+  closeDatabase,
+  getDatabase,
+  now,
 } = require('./helpers/test-setup');
 
 const { orderRoutes } = require('../main/routes/orders');
@@ -46,7 +59,9 @@ async function main() {
 
   // Enable loyalty. Earning comes solely from each product's cb_percent;
   // redemption uses the fixed in-code rate (1 point = 1 currency unit).
-  db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('loyalty_enabled', 'true', ?)").run(now());
+  db.prepare(
+    "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('loyalty_enabled', 'true', ?)",
+  ).run(now());
 
   const { authHeader } = seedOwnerUser(db);
   seedCategory(db, 'cat-redeem', 'Redemption Test Menu');
@@ -74,7 +89,9 @@ async function main() {
     seedWalletCredit(db, 'cust-redeem', 500);
 
     // Verify wallet balance
-    const wallet1 = await api(baseUrl, '/api/customers/cust-redeem/wallet', { headers: authHeader });
+    const wallet1 = await api(baseUrl, '/api/customers/cust-redeem/wallet', {
+      headers: authHeader,
+    });
     assertEqual(wallet1.status, 200, 'wallet endpoint returns 200');
     assertEqual(wallet1.data.balance, 500, 'wallet balance = 500 points');
 
@@ -108,13 +125,17 @@ async function main() {
     assertEqual(pay1.data.bill.payment_status, 'partial', 'bill is partially paid');
 
     // Verify wallet balance is now 495 (500 - 5 = 495)
-    const wallet1After = await api(baseUrl, '/api/customers/cust-redeem/wallet', { headers: authHeader });
+    const wallet1After = await api(baseUrl, '/api/customers/cust-redeem/wallet', {
+      headers: authHeader,
+    });
     assertEqual(wallet1After.data.balance, 495, 'wallet balance = 495 after ₹5 redemption');
 
     // Verify debit entry in ledger
-    const debitEntry1 = db.prepare(
-      "SELECT * FROM loyalty_ledger WHERE customer_id = 'cust-redeem' AND type = 'debit' AND bill_id = ?"
-    ).get(bill1.data.bill.id) as any;
+    const debitEntry1 = db
+      .prepare(
+        "SELECT * FROM loyalty_ledger WHERE customer_id = 'cust-redeem' AND type = 'debit' AND bill_id = ?",
+      )
+      .get(bill1.data.bill.id) as any;
     assert(debitEntry1 !== undefined, 'debit entry exists');
     assertEqual(debitEntry1.amount, 5, 'debit = 5 points (₹5 × 1:1 rate)');
 
@@ -203,11 +224,17 @@ async function main() {
     // Full cashback: 5% of ₹200 (subtotal) = 10 points (1 point = 1 currency unit)
     // Cash-paid proportion: cashPay3 / bill3Total
     const expectedCashback3 = Math.floor(10 * (cashPay3 / bill3Total));
-    const creditEntry3 = db.prepare(
-      "SELECT amount FROM loyalty_ledger WHERE customer_id = 'cust-redeem' AND type = 'credit' AND bill_id = ?"
-    ).get(bill3.data.bill.id) as any;
+    const creditEntry3 = db
+      .prepare(
+        "SELECT amount FROM loyalty_ledger WHERE customer_id = 'cust-redeem' AND type = 'credit' AND bill_id = ?",
+      )
+      .get(bill3.data.bill.id) as any;
     assert(creditEntry3 !== undefined, 'credit entry exists');
-    assertEqual(creditEntry3.amount, expectedCashback3, `cashback = ${expectedCashback3} points (${Math.round(cashPay3/bill3Total*100)}% paid with cash)`);
+    assertEqual(
+      creditEntry3.amount,
+      expectedCashback3,
+      `cashback = ${expectedCashback3} points (${Math.round((cashPay3 / bill3Total) * 100)}% paid with cash)`,
+    );
 
     // ═══════════════════════════════════════════════════════════════════
     // Scenario 4: Full wallet payment — no cashback
@@ -245,9 +272,11 @@ async function main() {
     assertEqual(pay4.data.bill.payment_status, 'paid', 'bill is fully paid');
 
     // No cashback should be credited (100% paid with wallet)
-    const creditEntry4 = db.prepare(
-      "SELECT * FROM loyalty_ledger WHERE customer_id = 'cust-redeem' AND type = 'credit' AND bill_id = ?"
-    ).get(bill4.data.bill.id) as any;
+    const creditEntry4 = db
+      .prepare(
+        "SELECT * FROM loyalty_ledger WHERE customer_id = 'cust-redeem' AND type = 'credit' AND bill_id = ?",
+      )
+      .get(bill4.data.bill.id) as any;
     assert(creditEntry4 === undefined, 'no credit entry for full wallet payment');
 
     // ═══════════════════════════════════════════════════════════════════
@@ -298,16 +327,28 @@ async function main() {
     // Full cashback: 5% of ₹200 (subtotal) = 10 points (1 point = 1 currency unit)
     // Cash-paid proportion: cashPay5 / bill5Total
     const expectedCashback5 = Math.floor(10 * (cashPay5 / bill5Total));
-    const creditEntry5 = db.prepare(
-      "SELECT amount FROM loyalty_ledger WHERE customer_id = 'cust-redeem-3' AND type = 'credit' AND bill_id = ?"
-    ).get(bill5.data.bill.id) as any;
+    const creditEntry5 = db
+      .prepare(
+        "SELECT amount FROM loyalty_ledger WHERE customer_id = 'cust-redeem-3' AND type = 'credit' AND bill_id = ?",
+      )
+      .get(bill5.data.bill.id) as any;
     assert(creditEntry5 !== undefined, 'credit entry exists');
-    assertEqual(creditEntry5.amount, expectedCashback5, `cashback = ${expectedCashback5} points (${Math.round(cashPay5/bill5Total*100)}% paid with cash)`);
+    assertEqual(
+      creditEntry5.amount,
+      expectedCashback5,
+      `cashback = ${expectedCashback5} points (${Math.round((cashPay5 / bill5Total) * 100)}% paid with cash)`,
+    );
 
     // Final wallet balance: 50000 (seeded) - walletPay5 (debit, 1:1 rate) + expectedCashback5 (cashback)
     const expectedBalance5 = 50000 - walletPay5 + expectedCashback5;
-    const wallet5After = await api(baseUrl, '/api/customers/cust-redeem-3/wallet', { headers: authHeader });
-    assertEqual(wallet5After.data.balance, expectedBalance5, `final wallet balance = ${expectedBalance5} points`);
+    const wallet5After = await api(baseUrl, '/api/customers/cust-redeem-3/wallet', {
+      headers: authHeader,
+    });
+    assertEqual(
+      wallet5After.data.balance,
+      expectedBalance5,
+      `final wallet balance = ${expectedBalance5} points`,
+    );
 
     // ═══════════════════════════════════════════════════════════════════
     // Scenario 6: Legacy expires_at no longer affects wallet balance (#78)
@@ -327,14 +368,19 @@ async function main() {
     // Manually insert a credit with a past expires_at, simulating a pre-migration row.
     db.prepare(
       `INSERT INTO loyalty_ledger (customer_id, bill_id, type, amount, description, expires_at, created_at, updated_at)
-       VALUES (?, NULL, 'credit', ?, 'Legacy credit with stale expiry', datetime('now', '-1 month'), datetime('now', '-2 month'), datetime('now', '-2 month'))`
+       VALUES (?, NULL, 'credit', ?, 'Legacy credit with stale expiry', datetime('now', '-1 month'), datetime('now', '-2 month'), datetime('now', '-2 month'))`,
     ).run('cust-redeem-4', 500);
 
     // Wallet balance must include all credits regardless of expires_at.
-    const wallet6 = await api(baseUrl, '/api/customers/cust-redeem-4/wallet', { headers: authHeader });
+    const wallet6 = await api(baseUrl, '/api/customers/cust-redeem-4/wallet', {
+      headers: authHeader,
+    });
     assertEqual(wallet6.status, 200, 'wallet endpoint returns 200');
     assertEqual(wallet6.data.balance, 1500, 'wallet balance = 1500 (legacy expires_at ignored)');
-    assert(wallet6.data.next_expiry === undefined, 'next_expiry field no longer exists on the wallet payload');
+    assert(
+      wallet6.data.next_expiry === undefined,
+      'next_expiry field no longer exists on the wallet payload',
+    );
 
     // ═══════════════════════════════════════════════════════════════════
     // Scenario 7: Wallet payment when loyalty is disabled
@@ -342,7 +388,9 @@ async function main() {
     console.log('\n─── Scenario 7: Wallet payment when loyalty disabled ───');
 
     // Disable loyalty earning (but wallet should still work for existing points)
-    db.prepare("INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('loyalty_enabled', 'false', ?)").run(now());
+    db.prepare(
+      "INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES ('loyalty_enabled', 'false', ?)",
+    ).run(now());
 
     seedCustomer(db, 'cust-redeem-5', 'Disabled Loyalty Customer', '5555555555');
     seedWalletCredit(db, 'cust-redeem-5', 50000); // 50000 points = ₹50000 (enough for bill with tax)
@@ -441,19 +489,36 @@ async function main() {
       headers: authHeader,
     });
     assertEqual(pay9.status, 400, 'wallet overpayment is rejected');
-    assertEqual(pay9.data.error.includes('exceeds the bill balance'), true, 'error explains the non-cash overpayment');
-    const unchangedBill9 = db.prepare('SELECT paid_amount, balance, payment_details FROM bills WHERE id = ?').get(bill9.data.bill.id) as any;
-    assertEqual(unchangedBill9.paid_amount, 0, 'rejected wallet overpayment leaves paid_amount unchanged');
-    assertEqual(unchangedBill9.balance, bill9Total, 'rejected wallet overpayment leaves balance unchanged');
-    const debitEntry9 = db.prepare(
-      "SELECT amount FROM loyalty_ledger WHERE customer_id = 'cust-redeem-7' AND type = 'debit' AND bill_id = ?"
-    ).get(bill9.data.bill.id) as any;
+    assertEqual(
+      pay9.data.error.includes('exceeds the bill balance'),
+      true,
+      'error explains the non-cash overpayment',
+    );
+    const unchangedBill9 = db
+      .prepare('SELECT paid_amount, balance, payment_details FROM bills WHERE id = ?')
+      .get(bill9.data.bill.id) as any;
+    assertEqual(
+      unchangedBill9.paid_amount,
+      0,
+      'rejected wallet overpayment leaves paid_amount unchanged',
+    );
+    assertEqual(
+      unchangedBill9.balance,
+      bill9Total,
+      'rejected wallet overpayment leaves balance unchanged',
+    );
+    const debitEntry9 = db
+      .prepare(
+        "SELECT amount FROM loyalty_ledger WHERE customer_id = 'cust-redeem-7' AND type = 'debit' AND bill_id = ?",
+      )
+      .get(bill9.data.bill.id) as any;
     assertEqual(debitEntry9, undefined, 'rejected wallet overpayment creates no debit');
-
   } finally {
     server.close();
     closeDatabase();
-    try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
+    try {
+      fs.rmSync(testDir, { recursive: true, force: true });
+    } catch {}
   }
 
   const { passed, failed, total } = getResults();

@@ -70,7 +70,10 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       .catch((err: unknown) => {
         if (cancelled) return;
         if (usePosSettingsStore.getState().language !== language) return; // superseded
-        console.warn(`[i18n] Failed to load messages for "${language}" — staying on "${activeRef.current}".`, err);
+        console.warn(
+          `[i18n] Failed to load messages for "${language}" — staying on "${activeRef.current}".`,
+          err,
+        );
         usePosSettingsStore.setState({ language: activeRef.current });
       });
     return () => {

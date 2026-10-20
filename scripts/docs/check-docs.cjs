@@ -200,7 +200,11 @@ function checkIndex() {
   const errors = [];
   const files = docFiles().filter((f) => f !== INDEX);
   if (!fs.existsSync(INDEX)) {
-    return { name: 'index completeness', errors: ['docs/README.md is missing'], detail: `${files.length} pages` };
+    return {
+      name: 'index completeness',
+      errors: ['docs/README.md is missing'],
+      detail: `${files.length} pages`,
+    };
   }
   const linked = indexTargets(fs.readFileSync(INDEX, 'utf8'));
   for (const file of files) {
@@ -212,7 +216,11 @@ function checkIndex() {
       errors.push(`docs/README.md links to ${target}, which does not exist`);
     }
   }
-  return { name: 'index completeness', errors, detail: `${files.length} pages, ${linked.size} index links` };
+  return {
+    name: 'index completeness',
+    errors,
+    detail: `${files.length} pages, ${linked.size} index links`,
+  };
 }
 
 // Front-matter escape hatch: a page that legitimately needs a pattern (an ADR
@@ -227,7 +235,11 @@ function policyAllowList(file, prose) {
   const relPath = toPosix(path.relative(ROOT, file));
   for (const rule of POLICY_RULES) {
     for (const prefix of rule.allow) {
-      if (relPath === prefix || relPath.startsWith(prefix) || (prefix.includes('/') === false && relPath === prefix)) {
+      if (
+        relPath === prefix ||
+        relPath.startsWith(prefix) ||
+        (prefix.includes('/') === false && relPath === prefix)
+      ) {
         allow.add(rule.id);
       }
     }
@@ -243,7 +255,7 @@ function checkPolicy() {
     const entries = proseLines(file);
     const allow = policyAllowList(
       file,
-      entries.map((e) => ({ raw: e.text }))
+      entries.map((e) => ({ raw: e.text })),
     );
     for (const rule of POLICY_RULES) {
       if (allow.has(rule.id)) continue;
@@ -257,7 +269,9 @@ function checkPolicy() {
       for (const entry of entries) {
         if (!entry.text || !PRESENT_TENSE_RULE.pattern.test(entry.text)) continue;
         if (entry.text.includes('`') && /`[^`]*`/.test(entry.text)) continue;
-        errors.push(`${relPath}:${entry.line} ${PRESENT_TENSE_RULE.id}: ${entry.text.trim().slice(0, 120)}`);
+        errors.push(
+          `${relPath}:${entry.line} ${PRESENT_TENSE_RULE.id}: ${entry.text.trim().slice(0, 120)}`,
+        );
       }
     }
   }

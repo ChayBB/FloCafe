@@ -13,11 +13,9 @@ export function isRuntimeHealthy(
   services: RuntimeServices,
   shutdownRequested: boolean,
 ): boolean {
-  return state === 'ready'
-    && !shutdownRequested
-    && services.main
-    && services.kds
-    && services.serverApp;
+  return (
+    state === 'ready' && !shutdownRequested && services.main && services.kds && services.serverApp
+  );
 }
 
 export function decideRuntimeActivationAction(input: {
@@ -33,7 +31,9 @@ export function decideRuntimeActivationAction(input: {
   return input.hasWindow ? 'show' : 'create';
 }
 
-export function createRelaunchGate(onRelaunch: (reason: string) => void): (reason: string) => boolean {
+export function createRelaunchGate(
+  onRelaunch: (reason: string) => void,
+): (reason: string) => boolean {
   let relaunchRequested = false;
   return (reason: string): boolean => {
     if (relaunchRequested) return false;
@@ -56,6 +56,8 @@ export function createRelaunchAttemptGuard(processCarriesAttemptFlag: boolean): 
   let recovered = false;
   return {
     hasExhaustedAttempt: () => processCarriesAttemptFlag && !recovered,
-    markRuntimeRecovered: () => { recovered = true; },
+    markRuntimeRecovered: () => {
+      recovered = true;
+    },
   };
 }

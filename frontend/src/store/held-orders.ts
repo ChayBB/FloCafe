@@ -47,126 +47,145 @@ interface HeldOrderPostResponse {
 
 type HeldOrdersApiClient = Pick<typeof api, 'get' | 'post' | 'delete'>;
 
-export const createHeldOrdersStore = (apiClient: HeldOrdersApiClient = api) => create<HeldOrdersState>()((set, get) => {
-  const tableMutationVersions = new Map<string, number>();
-  let fetchSequence = 0;
+export const createHeldOrdersStore = (apiClient: HeldOrdersApiClient = api) =>
+  create<HeldOrdersState>()((set, get) => {
+    const tableMutationVersions = new Map<string, number>();
+    let fetchSequence = 0;
 
-  const getTableMutationVersion = (tableId: string) => tableMutationVersions.get(tableId) ?? 0;
-  const markTableMutation = (tableId: string) => {
-    tableMutationVersions.set(tableId, getTableMutationVersion(tableId) + 1);
-  };
+    const getTableMutationVersion = (tableId: string) => tableMutationVersions.get(tableId) ?? 0;
+    const markTableMutation = (tableId: string) => {
+      tableMutationVersions.set(tableId, getTableMutationVersion(tableId) + 1);
+    };
 
-  const deleteHeldOrderState = async (tableId: string, expectedHeldOrderId?: string) => {
-    const query = expectedHeldOrderId ? `?heldOrderId=${encodeURIComponent(expectedHeldOrderId)}` : '';
-    const { data } = await apiClient.delete<HeldOrderDeleteResponse>(`${HELD_ORDERS_ENDPOINT}/${tableId}${query}`);
-    if (expectedHeldOrderId) {
-      markTableMutation(tableId);
-      set((state) => {
-        const current = state.orders[tableId];
-        if (!current || current.id !== expectedHeldOrderId) return state;
-        const rest = { ...state.orders };
-        delete rest[tableId];
-        return { orders: rest };
-      });
-    }
-    return data?.success === true && data.deleted === true;
-  };
-
-  return {
-    orders: {},
-
-    fetchHeldOrders: async () => {
-      const requestSequence = ++fetchSequence;
-      const requestMutationVersions = new Map(tableMutationVersions);
-      try {
-        const { data } = await apiClient.get(HELD_ORDERS_ENDPOINT);
-        if (data && data.orders && requestSequence === fetchSequence) {
-          const fetchedOrders: Record<string, HeldOrder> = {};
-          for (const order of data.orders) {
-            fetchedOrders[order.tableId] = {
-              ...order,
-              waivedChargeIds: Array.isArray(order.waivedChargeIds) ? order.waivedChargeIds : [],
-              optedInChargeIds: Array.isArray(order.optedInChargeIds) ? order.optedInChargeIds : [],
-            };
-          }
-          set((state) => {
-            const newOrders = { ...state.orders };
-            const tableIds = new Set([...Object.keys(state.orders), ...Object.keys(fetchedOrders)]);
-            for (const tableId of tableIds) {
-              if (getTableMutationVersion(tableId) !== (requestMutationVersions.get(tableId) ?? 0)) continue;
-              if (fetchedOrders[tableId]) newOrders[tableId] = fetchedOrders[tableId];
-              else delete newOrders[tableId];
-            }
-            return { orders: newOrders };
-          });
-        }
-      } catch (err) {
-        console.error('Failed to fetch held orders', err);
-        throw err;
-      }
-    },
-
-    holdOrder: async (
-      tableId,
-      items,
-      customerId,
-      guestCount,
-      orderNotes = '',
-      waivedChargeIds: string[] = [],
-      optedInChargeIds: string[] = [],
-    ) => {
-      try {
-        const { data } = await apiClient.post<HeldOrderPostResponse>(HELD_ORDERS_ENDPOINT, {
-          tableId, items, customerId, guestCount, orderNotes, waivedChargeIds, optedInChargeIds,
-        });
+    const deleteHeldOrderState = async (tableId: string, expectedHeldOrderId?: string) => {
+      const query = expectedHeldOrderId
+        ? `?heldOrderId=${encodeURIComponent(expectedHeldOrderId)}`
+        : '';
+      const { data } = await apiClient.delete<HeldOrderDeleteResponse>(
+        `${HELD_ORDERS_ENDPOINT}/${tableId}${query}`,
+      );
+      if (expectedHeldOrderId) {
         markTableMutation(tableId);
-        set((state) => ({
-          orders: {
-            ...state.orders,
-            [tableId]: {
-              id: data?.id,
-              tableId,
-              items,
-              customerId,
-              guestCount,
-              orderNotes,
-              waivedChargeIds: [...waivedChargeIds],
-              optedInChargeIds: [...optedInChargeIds],
-              heldAt: new Date().toISOString(),
+        set((state) => {
+          const current = state.orders[tableId];
+          if (!current || current.id !== expectedHeldOrderId) return state;
+          const rest = { ...state.orders };
+          delete rest[tableId];
+          return { orders: rest };
+        });
+      }
+      return data?.success === true && data.deleted === true;
+    };
+
+    return {
+      orders: {},
+
+      fetchHeldOrders: async () => {
+        const requestSequence = ++fetchSequence;
+        const requestMutationVersions = new Map(tableMutationVersions);
+        try {
+          const { data } = await apiClient.get(HELD_ORDERS_ENDPOINT);
+          if (data && data.orders && requestSequence === fetchSequence) {
+            const fetchedOrders: Record<string, HeldOrder> = {};
+            for (const order of data.orders) {
+              fetchedOrders[order.tableId] = {
+                ...order,
+                waivedChargeIds: Array.isArray(order.waivedChargeIds) ? order.waivedChargeIds : [],
+                optedInChargeIds: Array.isArray(order.optedInChargeIds)
+                  ? order.optedInChargeIds
+                  : [],
+              };
+            }
+            set((state) => {
+              const newOrders = { ...state.orders };
+              const tableIds = new Set([
+                ...Object.keys(state.orders),
+                ...Object.keys(fetchedOrders),
+              ]);
+              for (const tableId of tableIds) {
+                if (
+                  getTableMutationVersion(tableId) !== (requestMutationVersions.get(tableId) ?? 0)
+                )
+                  continue;
+                if (fetchedOrders[tableId]) newOrders[tableId] = fetchedOrders[tableId];
+                else delete newOrders[tableId];
+              }
+              return { orders: newOrders };
+            });
+          }
+        } catch (err) {
+          console.error('Failed to fetch held orders', err);
+          throw err;
+        }
+      },
+
+      holdOrder: async (
+        tableId,
+        items,
+        customerId,
+        guestCount,
+        orderNotes = '',
+        waivedChargeIds: string[] = [],
+        optedInChargeIds: string[] = [],
+      ) => {
+        try {
+          const { data } = await apiClient.post<HeldOrderPostResponse>(HELD_ORDERS_ENDPOINT, {
+            tableId,
+            items,
+            customerId,
+            guestCount,
+            orderNotes,
+            waivedChargeIds,
+            optedInChargeIds,
+          });
+          markTableMutation(tableId);
+          set((state) => ({
+            orders: {
+              ...state.orders,
+              [tableId]: {
+                id: data?.id,
+                tableId,
+                items,
+                customerId,
+                guestCount,
+                orderNotes,
+                waivedChargeIds: [...waivedChargeIds],
+                optedInChargeIds: [...optedInChargeIds],
+                heldAt: new Date().toISOString(),
+              },
             },
-          },
-        }));
-      } catch (err) {
-        console.error('Failed to hold order', err);
-        throw err;
-      }
-    },
+          }));
+        } catch (err) {
+          console.error('Failed to hold order', err);
+          throw err;
+        }
+      },
 
-    restoreOrder: async (tableId) => {
-      const order = get().orders[tableId];
-      if (!order) return null;
-      try {
-        const deleted = await deleteHeldOrderState(tableId, order.id);
-        return deleted ? order : null;
-      } catch (err) {
-        console.error('Failed to restore order', err);
-        throw err;
-      }
-    },
+      restoreOrder: async (tableId) => {
+        const order = get().orders[tableId];
+        if (!order) return null;
+        try {
+          const deleted = await deleteHeldOrderState(tableId, order.id);
+          return deleted ? order : null;
+        } catch (err) {
+          console.error('Failed to restore order', err);
+          throw err;
+        }
+      },
 
-    removeHeldOrder: async (tableId, expectedHeldOrderId) => {
-      try {
-        return await deleteHeldOrderState(tableId, expectedHeldOrderId);
-      } catch (err) {
-        console.error('Failed to remove held order', err);
-        throw err;
-      }
-    },
+      removeHeldOrder: async (tableId, expectedHeldOrderId) => {
+        try {
+          return await deleteHeldOrderState(tableId, expectedHeldOrderId);
+        } catch (err) {
+          console.error('Failed to remove held order', err);
+          throw err;
+        }
+      },
 
-    hasHeldOrder: (tableId) => !!get().orders[tableId],
+      hasHeldOrder: (tableId) => !!get().orders[tableId],
 
-    getHeldOrder: (tableId) => get().orders[tableId],
-  };
-});
+      getHeldOrder: (tableId) => get().orders[tableId],
+    };
+  });
 
 export const useHeldOrdersStore = createHeldOrdersStore(api);

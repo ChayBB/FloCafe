@@ -1,14 +1,23 @@
 #!/usr/bin/env node
 
-const { assertCandidateReadiness, assertPublishedRelease, assertStableLatestUnchanged } = require('./release-state.cjs');
+const {
+  assertCandidateReadiness,
+  assertPublishedRelease,
+  assertStableLatestUnchanged,
+} = require('./release-state.cjs');
 const { assertReleaseSummary } = require('./evidence.cjs');
-const { manifestSha256, resolveTagCommit, verifyCandidateManifest } = require('./candidate-manifest.cjs');
+const {
+  manifestSha256,
+  resolveTagCommit,
+  verifyCandidateManifest,
+} = require('./candidate-manifest.cjs');
 
 const SEMVER = /^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
 function arg(argv, name, { allowEmpty = false } = {}) {
   const index = argv.indexOf(name);
-  if (index === -1 || (!allowEmpty && !argv[index + 1])) throw new Error(`missing required argument ${name}`);
+  if (index === -1 || (!allowEmpty && !argv[index + 1]))
+    throw new Error(`missing required argument ${name}`);
   return argv[index + 1] || '';
 }
 
@@ -31,7 +40,9 @@ async function request(url, accept) {
   return response;
 }
 
-async function json(url) { return (await request(url)).json(); }
+async function json(url) {
+  return (await request(url)).json();
+}
 
 async function bytes(url) {
   const response = await request(url, 'application/octet-stream');
@@ -54,12 +65,20 @@ async function main() {
 
   const apiBase = `https://api.github.com/repos/${repo}`;
   const resolvedCommit = await resolveTagCommit(apiBase, tag);
-  if (resolvedCommit !== commit) throw new Error(`release tag ${tag} resolves to ${resolvedCommit}, not the supplied commit ${commit}`);
+  if (resolvedCommit !== commit)
+    throw new Error(
+      `release tag ${tag} resolves to ${resolvedCommit}, not the supplied commit ${commit}`,
+    );
   const release = await json(`${apiBase}/releases/tags/${encodeURIComponent(tag)}`);
   assertPublishedRelease(release, { tag, channel });
-  const candidateAsset = (release.assets || []).find((asset) => asset.name === 'candidate-manifest.json');
-  const summaryAsset = (release.assets || []).find((asset) => asset.name === 'release-summary.json');
-  if (!candidateAsset) throw new Error(`published release ${tag} is missing candidate-manifest.json`);
+  const candidateAsset = (release.assets || []).find(
+    (asset) => asset.name === 'candidate-manifest.json',
+  );
+  const summaryAsset = (release.assets || []).find(
+    (asset) => asset.name === 'release-summary.json',
+  );
+  if (!candidateAsset)
+    throw new Error(`published release ${tag} is missing candidate-manifest.json`);
   if (!summaryAsset) throw new Error(`published release ${tag} is missing release-summary.json`);
   const candidateBytes = await bytes(candidateAsset.url);
   const summaryBytes = await bytes(summaryAsset.url);
@@ -87,12 +106,16 @@ async function main() {
     channel,
     expectedAssetIds: manifest.assets.map((asset) => asset.id),
     availableAssetIds: manifest.assets.map((asset) => asset.id),
-    ...(hasExpectedLatest ? {
-      stableLatestBefore: expectedLatest,
-      stableLatestAfter: latestTag,
-    } : {}),
+    ...(hasExpectedLatest
+      ? {
+          stableLatestBefore: expectedLatest,
+          stableLatestAfter: latestTag,
+        }
+      : {}),
   });
-  console.log(`published ${channel} release ${tag} is ready; candidate manifest SHA-256 ${manifestSha256(candidateBytes)}`);
+  console.log(
+    `published ${channel} release ${tag} is ready; candidate manifest SHA-256 ${manifestSha256(candidateBytes)}`,
+  );
 }
 
 if (require.main === module) {

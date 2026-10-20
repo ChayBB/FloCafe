@@ -41,12 +41,13 @@ const { settingsRoutes } = require('../main/routes/settings');
 
 function countrySearch(query: string) {
   const q = query.trim().toLowerCase();
-  return COUNTRIES.filter((country: any) => (
-    countryName(country.code).toLowerCase().includes(q)
-    || country.code.toLowerCase().includes(q)
-    || country.currency.toLowerCase().includes(q)
-    || country.locale.toLowerCase().includes(q)
-  ));
+  return COUNTRIES.filter(
+    (country: any) =>
+      countryName(country.code).toLowerCase().includes(q) ||
+      country.code.toLowerCase().includes(q) ||
+      country.currency.toLowerCase().includes(q) ||
+      country.locale.toLowerCase().includes(q),
+  );
 }
 
 async function main() {
@@ -72,13 +73,29 @@ async function main() {
     assertEqual(morocco.locale, 'fr-MA', 'MA locale is fr-MA');
     assertEqual(morocco.dialCode, '+212', 'MA dial code is +212');
     assertEqual(getCurrencySymbol('MAD', morocco.locale), 'MAD', 'MAD symbol policy uses ISO code');
-    assertIncludes(formatCurrency(12.5, 'MAD', morocco.locale), 'MAD', 'fr-MA currency format includes MAD');
+    assertIncludes(
+      formatCurrency(12.5, 'MAD', morocco.locale),
+      'MAD',
+      'fr-MA currency format includes MAD',
+    );
 
     console.log('\n2. Setup and Settings search inputs can find Morocco');
-    assert(countrySearch('Morocco').some((country: any) => country.code === 'MA'), 'search by country name finds MA');
-    assert(countrySearch('MA').some((country: any) => country.code === 'MA'), 'search by country code finds MA');
-    assert(countrySearch('MAD').some((country: any) => country.code === 'MA'), 'search by currency finds MA');
-    assert(countrySearch('fr-MA').some((country: any) => country.code === 'MA'), 'search by locale finds MA');
+    assert(
+      countrySearch('Morocco').some((country: any) => country.code === 'MA'),
+      'search by country name finds MA',
+    );
+    assert(
+      countrySearch('MA').some((country: any) => country.code === 'MA'),
+      'search by country code finds MA',
+    );
+    assert(
+      countrySearch('MAD').some((country: any) => country.code === 'MA'),
+      'search by currency finds MA',
+    );
+    assert(
+      countrySearch('fr-MA').some((country: any) => country.code === 'MA'),
+      'search by locale finds MA',
+    );
 
     console.log('\n3. First-run setup persists the Morocco profile');
     const setupRes = await api(baseUrl, '/api/auth/setup/initialize', {
@@ -104,17 +121,30 @@ async function main() {
     assertEqual(setupRes.data.tenant.country, 'MA', 'setup tenant country is MA');
     assertEqual(setupRes.data.tenant.currency, 'MAD', 'setup tenant currency is MAD');
     assertEqual(setupRes.data.tenant.currency_symbol, 'MAD', 'setup tenant symbol is MAD');
-    assertEqual(setupRes.data.tenant.timezone, 'Africa/Casablanca', 'setup tenant timezone is Africa/Casablanca');
+    assertEqual(
+      setupRes.data.tenant.timezone,
+      'Africa/Casablanca',
+      'setup tenant timezone is Africa/Casablanca',
+    );
 
     const authHeader = { Authorization: `Bearer ${setupRes.data.access_token}` };
     const stored = Object.fromEntries(
-      (db.prepare("SELECT key, value FROM settings WHERE key IN ('country', 'currency', 'currency_symbol', 'timezone')").all() as any[])
-        .map((row: any) => [row.key, row.value]),
+      (
+        db
+          .prepare(
+            "SELECT key, value FROM settings WHERE key IN ('country', 'currency', 'currency_symbol', 'timezone')",
+          )
+          .all() as any[]
+      ).map((row: any) => [row.key, row.value]),
     );
     assertEqual(stored.country, 'MA', 'settings.country persisted as MA');
     assertEqual(stored.currency, 'MAD', 'settings.currency persisted as MAD');
     assertEqual(stored.currency_symbol, 'MAD', 'settings.currency_symbol persisted as MAD');
-    assertEqual(stored.timezone, 'Africa/Casablanca', 'settings.timezone persisted as Africa/Casablanca');
+    assertEqual(
+      stored.timezone,
+      'Africa/Casablanca',
+      'settings.timezone persisted as Africa/Casablanca',
+    );
 
     console.log('\n4. Settings round-trip and auth tenant refresh keep the profile');
     const settingsRes = await api(baseUrl, '/api/settings/business', {
@@ -137,12 +167,20 @@ async function main() {
     assertEqual(refreshedTenant?.country, 'MA', 'auth/me tenant country is MA');
     assertEqual(refreshedTenant?.currency, 'MAD', 'auth/me tenant currency is MAD');
     assertEqual(refreshedTenant?.currency_symbol, 'MAD', 'auth/me tenant symbol is MAD');
-    assertEqual(refreshedTenant?.timezone, 'Africa/Casablanca', 'auth/me tenant timezone is Africa/Casablanca');
+    assertEqual(
+      refreshedTenant?.timezone,
+      'Africa/Casablanca',
+      'auth/me tenant timezone is Africa/Casablanca',
+    );
   } finally {
     if (server) server.close();
     closeDatabase();
     Module._load = originalLoad;
-    try { fs.rmSync(testDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    try {
+      fs.rmSync(testDir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
   }
 
   const { passed, failed, total } = getResults();
@@ -153,8 +191,16 @@ async function main() {
 
 main().catch((error: unknown) => {
   console.error(error);
-  try { closeDatabase(); } catch { /* ignore */ }
-  try { fs.rmSync(testDir, { recursive: true, force: true }); } catch { /* ignore */ }
+  try {
+    closeDatabase();
+  } catch {
+    /* ignore */
+  }
+  try {
+    fs.rmSync(testDir, { recursive: true, force: true });
+  } catch {
+    /* ignore */
+  }
   Module._load = originalLoad;
   process.exit(1);
 });

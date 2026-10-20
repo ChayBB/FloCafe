@@ -6,7 +6,8 @@ const path = require('path');
 const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-printer-width-refresh-'));
 
 Module._load = function (request: string, parent: unknown, isMain: boolean) {
-  if (request === 'electron') return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
+  if (request === 'electron')
+    return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
   return originalLoad.apply(this, arguments as any);
 };
 
@@ -35,7 +36,9 @@ async function main() {
   `).run(now(), now());
 
   await initPrinter();
-  db.prepare("UPDATE printers SET paper_width = 'cols-48', updated_at = ? WHERE id = 'receipt-printer'").run(now());
+  db.prepare(
+    "UPDATE printers SET paper_width = 'cols-48', updated_at = ? WHERE id = 'receipt-printer'",
+  ).run(now());
 
   const prepared = prepareReceipt(
     {
@@ -48,10 +51,19 @@ async function main() {
     'classic',
   );
 
-  assert(prepared.columns === 48, 'invoice preparation reads the updated printer width after startup');
+  assert(
+    prepared.columns === 48,
+    'invoice preparation reads the updated printer width after startup',
+  );
   const preview = escPosToText(prepared.data);
-  assert(preview.split('\n').some((line: string) => line === '-'.repeat(48)), 'invoice separators use the updated 48-column width');
-  assert(!preview.split('\n').some((line: string) => line === '-'.repeat(32)), 'invoice does not retain the stale 32-column width');
+  assert(
+    preview.split('\n').some((line: string) => line === '-'.repeat(48)),
+    'invoice separators use the updated 48-column width',
+  );
+  assert(
+    !preview.split('\n').some((line: string) => line === '-'.repeat(32)),
+    'invoice does not retain the stale 32-column width',
+  );
 
   closeDatabase();
   fs.rmSync(testDir, { recursive: true, force: true });
@@ -61,7 +73,9 @@ async function main() {
 
 main().catch((error: Error) => {
   console.error(error);
-  try { closeDatabase(); } catch {}
+  try {
+    closeDatabase();
+  } catch {}
   fs.rmSync(testDir, { recursive: true, force: true });
   process.exit(1);
 });

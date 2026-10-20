@@ -64,7 +64,15 @@ function buildProtectedApp(): express.Express {
   const app = express();
   app.use(express.json());
   app.use('/api', databaseMaintenanceMiddleware);
-  app.use('/api', expressRateLimit({ windowMs: 60 * 1000, limit: 100, standardHeaders: true, legacyHeaders: false }));
+  app.use(
+    '/api',
+    expressRateLimit({
+      windowMs: 60 * 1000,
+      limit: 100,
+      standardHeaders: true,
+      legacyHeaders: false,
+    }),
+  );
   app.use(requireAuth);
   app.get('/api/health', (_req: any, res: any) => res.json({ status: 'ok' }));
   app.use('/api/pos-info', posInfoRoutes);
@@ -79,12 +87,20 @@ async function testRequireAuth() {
 
   console.log('\n─── requireAuth gates case variants of a protected path ───');
   const canonical = await request(app).get('/api/pos-info');
-  assertEqualOrThrow(canonical.status, 401, 'lowercase /api/pos-info without a token is 401 (control)');
+  assertEqualOrThrow(
+    canonical.status,
+    401,
+    'lowercase /api/pos-info without a token is 401 (control)',
+  );
 
   for (const variant of PROTECTED_VARIANTS) {
     const res = await request(app).get(variant);
     assertEqualOrThrow(res.status, 401, `${variant} without a token is 401`);
-    assertEqualOrThrow(res.body?.error, 'Authentication required', `${variant} is rejected by requireAuth`);
+    assertEqualOrThrow(
+      res.body?.error,
+      'Authentication required',
+      `${variant} is rejected by requireAuth`,
+    );
     assertOrThrow(
       res.body?.mdns_url === undefined && res.body?.ip_url === undefined,
       `${variant} discloses no network topology`,
@@ -117,17 +133,29 @@ async function testDatabaseMaintenanceGuard() {
 
   console.log('\n─── Maintenance window is honoured for case-variant paths ───');
   const before = await request(app).post('/api/db/import');
-  assertEqualOrThrow(before.status, 200, 'lowercase /api/db/import runs outside a maintenance window');
+  assertEqualOrThrow(
+    before.status,
+    200,
+    'lowercase /api/db/import runs outside a maintenance window',
+  );
 
   let releaseWindow: () => void = () => {};
-  const windowOpen = new Promise<void>((resolve) => { releaseWindow = resolve; });
-  const holding = withDatabaseMaintenanceLock(async () => { await windowOpen; });
+  const windowOpen = new Promise<void>((resolve) => {
+    releaseWindow = resolve;
+  });
+  const holding = withDatabaseMaintenanceLock(async () => {
+    await windowOpen;
+  });
 
   try {
     // Let the lock reach the "active" state before probing.
     await new Promise((resolve) => setTimeout(resolve, 50));
     const canonical = await request(app).post('/api/db/import');
-    assertEqualOrThrow(canonical.status, 503, 'lowercase /api/db/import is 503 during a maintenance window');
+    assertEqualOrThrow(
+      canonical.status,
+      503,
+      'lowercase /api/db/import is 503 during a maintenance window',
+    );
 
     for (const variant of ['/API/db/import', '/Api/db/import', '/API/DB/IMPORT']) {
       const res = await request(app).post(variant);
@@ -135,11 +163,17 @@ async function testDatabaseMaintenanceGuard() {
     }
   } finally {
     releaseWindow();
-    await holding.catch(() => { /* released normally */ });
+    await holding.catch(() => {
+      /* released normally */
+    });
   }
 
   const after = await request(app).post('/api/db/import');
-  assertEqualOrThrow(after.status, 200, 'lowercase /api/db/import runs again once the maintenance window closes');
+  assertEqualOrThrow(
+    after.status,
+    200,
+    'lowercase /api/db/import runs again once the maintenance window closes',
+  );
 }
 
 async function run() {
@@ -151,7 +185,9 @@ async function run() {
     await testDatabaseMaintenanceGuard();
     console.log('\n✅ Case-variant API paths are gated identically to canonical ones.');
   } finally {
-    try { fs.rmSync(testDir, { recursive: true, force: true }); } catch { }
+    try {
+      fs.rmSync(testDir, { recursive: true, force: true });
+    } catch {}
   }
 }
 

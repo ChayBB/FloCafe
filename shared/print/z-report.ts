@@ -161,30 +161,40 @@ function numberOrZero(value: unknown): number {
 }
 
 /** Build a typed, localized Z-report document from stored closure truth. */
-export function buildZReportDocument(data: ZReportPrintData, context: ZReportContext): ZReportDocument {
+export function buildZReportDocument(
+  data: ZReportPrintData,
+  context: ZReportContext,
+): ZReportDocument {
   const direction = context.baseDirection;
-  const periodLabel = (conceptId: LabelConceptId, value: string): ZReportPeriodRow => Object.freeze({
-    label: label(context, conceptId),
-    value: directionalText(value, direction),
-  });
-  const paymentRows = data.paymentMethods.map((row) => Object.freeze({
-    method: row.method,
-    label: paymentLabel(context, row.method),
-    countLabel: label(context, 'print.zReport.paymentCount'),
-    count: numberOrZero(row.count),
-    totalCents: numberOrZero(row.totalCents ?? row.total),
-  }));
-  const taxRows = data.taxComponents.map((row) => Object.freeze({
-    label: literalLabel(String(row.title ?? row.label ?? '')),
-    amount: numberOrZero(row.amount),
-  }));
-  const staffRows = data.staffSales.map((row) => Object.freeze({
-    method: String(row.name ?? row.userId ?? ''),
-    label: literalLabel(String(row.name ?? row.userId ?? '')),
-    countLabel: label(context, 'print.zReport.paymentCount'),
-    count: numberOrZero(row.orderCount ?? row.orders),
-    totalCents: numberOrZero(row.revenueCents ?? row.revenue),
-  }));
+  const periodLabel = (conceptId: LabelConceptId, value: string): ZReportPeriodRow =>
+    Object.freeze({
+      label: label(context, conceptId),
+      value: directionalText(value, direction),
+    });
+  const paymentRows = data.paymentMethods.map((row) =>
+    Object.freeze({
+      method: row.method,
+      label: paymentLabel(context, row.method),
+      countLabel: label(context, 'print.zReport.paymentCount'),
+      count: numberOrZero(row.count),
+      totalCents: numberOrZero(row.totalCents ?? row.total),
+    }),
+  );
+  const taxRows = data.taxComponents.map((row) =>
+    Object.freeze({
+      label: literalLabel(String(row.title ?? row.label ?? '')),
+      amount: numberOrZero(row.amount),
+    }),
+  );
+  const staffRows = data.staffSales.map((row) =>
+    Object.freeze({
+      method: String(row.name ?? row.userId ?? ''),
+      label: literalLabel(String(row.name ?? row.userId ?? '')),
+      countLabel: label(context, 'print.zReport.paymentCount'),
+      count: numberOrZero(row.orderCount ?? row.orders),
+      totalCents: numberOrZero(row.revenueCents ?? row.revenue),
+    }),
+  );
 
   return Object.freeze({
     version: 1 as const,
@@ -203,12 +213,24 @@ export function buildZReportDocument(data: ZReportPrintData, context: ZReportCon
       periodLabel('print.zReport.periodStart', data.periodStart),
       periodLabel('print.zReport.periodEnd', data.periodEnd),
     ]),
-    openingFloat: Object.freeze({ label: label(context, 'print.zReport.openingFloat'), cents: numberOrZero(data.openingFloatCents) }),
+    openingFloat: Object.freeze({
+      label: label(context, 'print.zReport.openingFloat'),
+      cents: numberOrZero(data.openingFloatCents),
+    }),
     cashMovements: Object.freeze({
       heading: label(context, 'print.zReport.cashMovements'),
-      payIn: Object.freeze({ label: label(context, 'print.zReport.payIn'), cents: numberOrZero(data.payInCents) }),
-      payOut: Object.freeze({ label: label(context, 'print.zReport.payOut'), cents: numberOrZero(data.payOutCents) }),
-      safeDrop: Object.freeze({ label: label(context, 'print.zReport.safeDrop'), cents: numberOrZero(data.safeDropCents) }),
+      payIn: Object.freeze({
+        label: label(context, 'print.zReport.payIn'),
+        cents: numberOrZero(data.payInCents),
+      }),
+      payOut: Object.freeze({
+        label: label(context, 'print.zReport.payOut'),
+        cents: numberOrZero(data.payOutCents),
+      }),
+      safeDrop: Object.freeze({
+        label: label(context, 'print.zReport.safeDrop'),
+        cents: numberOrZero(data.safeDropCents),
+      }),
     }),
     payments: Object.freeze({
       heading: label(context, 'print.zReport.payments'),
@@ -233,9 +255,18 @@ export function buildZReportDocument(data: ZReportPrintData, context: ZReportCon
       rows: Object.freeze(staffRows),
     }),
     cash: Object.freeze({
-      expected: Object.freeze({ label: label(context, 'print.zReport.expectedCash'), cents: numberOrZero(data.expectedCashCents) }),
-      counted: Object.freeze({ label: label(context, 'print.zReport.countedCash'), cents: numberOrZero(data.countedCashCents) }),
-      variance: Object.freeze({ label: label(context, 'print.zReport.variance'), cents: numberOrZero(data.varianceCents) }),
+      expected: Object.freeze({
+        label: label(context, 'print.zReport.expectedCash'),
+        cents: numberOrZero(data.expectedCashCents),
+      }),
+      counted: Object.freeze({
+        label: label(context, 'print.zReport.countedCash'),
+        cents: numberOrZero(data.countedCashCents),
+      }),
+      variance: Object.freeze({
+        label: label(context, 'print.zReport.variance'),
+        cents: numberOrZero(data.varianceCents),
+      }),
     }),
     operator: Object.freeze({
       label: label(context, 'print.zReport.closedBy'),

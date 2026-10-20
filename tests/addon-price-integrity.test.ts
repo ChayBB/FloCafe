@@ -64,7 +64,9 @@ function assertEqual(actual: any, expected: any, message: string) {
     console.log(`  ✓ ${message}`);
   } else {
     failed++;
-    console.error(`  ✗ ${message} — expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+    console.error(
+      `  ✗ ${message} — expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`,
+    );
   }
 }
 
@@ -79,7 +81,7 @@ async function listen(app: any): Promise<http.Server> {
 async function request(
   baseUrl: string,
   urlPath: string,
-  options: Record<string, any> = {}
+  options: Record<string, any> = {},
 ): Promise<{ status: number; data: any }> {
   const fetchOptions: any = {
     headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
@@ -116,50 +118,79 @@ async function main() {
   const db = getDatabase();
   // Regional settings come from signup, never a fallback; seed one
   // explicitly so resolveRegionalSnapshot() resolves.
-  db.prepare(`INSERT INTO settings (key, value, updated_at) VALUES ('country', 'IN', ?) ON CONFLICT(key) DO UPDATE SET value='IN', updated_at=excluded.updated_at`).run(now());
-  db.prepare(`INSERT INTO settings (key, value, updated_at) VALUES ('timezone', 'Asia/Kolkata', ?) ON CONFLICT(key) DO UPDATE SET value='Asia/Kolkata', updated_at=excluded.updated_at`).run(now());
+  db.prepare(
+    `INSERT INTO settings (key, value, updated_at) VALUES ('country', 'IN', ?) ON CONFLICT(key) DO UPDATE SET value='IN', updated_at=excluded.updated_at`,
+  ).run(now());
+  db.prepare(
+    `INSERT INTO settings (key, value, updated_at) VALUES ('timezone', 'Asia/Kolkata', ?) ON CONFLICT(key) DO UPDATE SET value='Asia/Kolkata', updated_at=excluded.updated_at`,
+  ).run(now());
 
   // ── Seed ────────────────────────────────────────────────────────────────
   const ownerId = 'owner-addon-price-integrity';
   db.prepare(
     `INSERT INTO users (id, name, email, password, role, is_active, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(ownerId, 'Test Owner', 'owner-ai@test.local', bcrypt.hashSync('password', 10), 'owner', 1, now(), now());
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    ownerId,
+    'Test Owner',
+    'owner-ai@test.local',
+    bcrypt.hashSync('password', 10),
+    'owner',
+    1,
+    now(),
+    now(),
+  );
 
-  db.prepare(`INSERT INTO categories (id, name, sort_order) VALUES (?, ?, ?)`).run('cat-ai', 'Test', 1);
+  db.prepare(`INSERT INTO categories (id, name, sort_order) VALUES (?, ?, ?)`).run(
+    'cat-ai',
+    'Test',
+    1,
+  );
   db.prepare(
-    `INSERT INTO products (id, category_id, name, price, is_active, sort_order) VALUES (?, ?, ?, ?, ?, ?)`
+    `INSERT INTO products (id, category_id, name, price, is_active, sort_order) VALUES (?, ?, ?, ?, ?, ?)`,
   ).run('prod-ai', 'cat-ai', 'Burger', 100, 1, 1);
 
   db.prepare(`INSERT INTO addon_groups (id, name) VALUES (?, ?)`).run('ag-ai', 'Extras');
   db.prepare(`INSERT INTO addon_groups (id, name) VALUES (?, ?)`).run('ag-other', 'Other');
   // Linked to prod-ai
-  db.prepare(`INSERT INTO addon_group_product (product_id, addon_group_id) VALUES (?, ?)`).run('prod-ai', 'ag-ai');
+  db.prepare(`INSERT INTO addon_group_product (product_id, addon_group_id) VALUES (?, ?)`).run(
+    'prod-ai',
+    'ag-ai',
+  );
   // ag-other is deliberately NOT linked to prod-ai
 
   db.prepare(
-    `INSERT INTO addons (id, addon_group_id, name, price, is_active) VALUES (?, ?, ?, ?, ?)`
+    `INSERT INTO addons (id, addon_group_id, name, price, is_active) VALUES (?, ?, ?, ?, ?)`,
   ).run('addon-ai-cheese', 'ag-ai', 'Extra Cheese', 50, 1);
   db.prepare(
-    `INSERT INTO addons (id, addon_group_id, name, price, is_active) VALUES (?, ?, ?, ?, ?)`
+    `INSERT INTO addons (id, addon_group_id, name, price, is_active) VALUES (?, ?, ?, ?, ?)`,
   ).run('addon-ai-inactive', 'ag-ai', 'Inactive Topping', 10, 0);
   db.prepare(
-    `INSERT INTO addons (id, addon_group_id, name, price, is_active) VALUES (?, ?, ?, ?, ?)`
+    `INSERT INTO addons (id, addon_group_id, name, price, is_active) VALUES (?, ?, ?, ?, ?)`,
   ).run('addon-ai-wrong-group', 'ag-other', 'Wrong Group', 20, 1);
 
   // Verify that omitting a required add-on selection is rejected rather than priced at the base price.
-  db.prepare(`INSERT INTO products (id, category_id, name, price, is_active, sort_order) VALUES (?, ?, ?, ?, ?, ?)`)
-    .run('prod-ai-required', 'cat-ai', 'Coffee', 80, 1, 2);
-  db.prepare(`INSERT INTO addon_groups (id, name, is_required, min_selection, max_selection) VALUES (?, ?, ?, ?, ?)`)
-    .run('ag-required', 'Size', 1, 1, 1);
-  db.prepare(`INSERT INTO addon_group_product (product_id, addon_group_id) VALUES (?, ?)`).run('prod-ai-required', 'ag-required');
-  db.prepare(`INSERT INTO addons (id, addon_group_id, name, price, is_active) VALUES (?, ?, ?, ?, ?)`)
-    .run('addon-ai-size-large', 'ag-required', 'Large', 30, 1);
+  db.prepare(
+    `INSERT INTO products (id, category_id, name, price, is_active, sort_order) VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run('prod-ai-required', 'cat-ai', 'Coffee', 80, 1, 2);
+  db.prepare(
+    `INSERT INTO addon_groups (id, name, is_required, min_selection, max_selection) VALUES (?, ?, ?, ?, ?)`,
+  ).run('ag-required', 'Size', 1, 1, 1);
+  db.prepare(`INSERT INTO addon_group_product (product_id, addon_group_id) VALUES (?, ?)`).run(
+    'prod-ai-required',
+    'ag-required',
+  );
+  db.prepare(
+    `INSERT INTO addons (id, addon_group_id, name, price, is_active) VALUES (?, ?, ?, ?, ?)`,
+  ).run('addon-ai-size-large', 'ag-required', 'Large', 30, 1);
 
   const app = express();
   app.use(express.json());
   app.use((req: any, res: any, next: any) => {
-    if (!req.path.startsWith('/api')) { next(); return; }
+    if (!req.path.startsWith('/api')) {
+      next();
+      return;
+    }
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith('Bearer ')) {
       res.status(401).json({ error: 'Authentication required' });
@@ -177,7 +208,11 @@ async function main() {
   const server = await listen(app);
   const addr = server.address() as any;
   const baseUrl = `http://127.0.0.1:${addr.port}`;
-  const token = jwt.sign({ userId: ownerId, email: 'owner-ai@test.local', role: 'owner' }, getJWTSecret(), { expiresIn: '1h' });
+  const token = jwt.sign(
+    { userId: ownerId, email: 'owner-ai@test.local', role: 'owner' },
+    getJWTSecret(),
+    { expiresIn: '1h' },
+  );
   const authHeader = `Bearer ${token}`;
 
   function orderBody(addons: any[]): string {
@@ -196,15 +231,27 @@ async function main() {
         headers: { Authorization: authHeader },
         body: orderBody([{ id: 'addon-ai-cheese', name: 'FREEBIE', price: 0 }]),
       });
-      assertEqual(res.status, 201, `order accepted (got ${res.status}, ${JSON.stringify(res.data)})`);
+      assertEqual(
+        res.status,
+        201,
+        `order accepted (got ${res.status}, ${JSON.stringify(res.data)})`,
+      );
 
       const orderId = res.data.order.id;
-      const itemId = (db.prepare('SELECT id FROM order_items WHERE order_id = ?').get(orderId) as any).id;
-      const rows = db.prepare('SELECT * FROM order_item_addons WHERE order_item_id = ?').all(itemId) as any[];
+      const itemId = (
+        db.prepare('SELECT id FROM order_items WHERE order_id = ?').get(orderId) as any
+      ).id;
+      const rows = db
+        .prepare('SELECT * FROM order_item_addons WHERE order_item_id = ?')
+        .all(itemId) as any[];
 
       assertEqual(res.data.order.subtotal, 150, 'subtotal uses catalog add-on price (100 + 50)');
       assertEqual(rows.length, 1, 'one add-on snapshot row');
-      assertEqual(rows[0]?.addon_name, 'Extra Cheese', 'snapshot uses catalog name, not client-supplied name');
+      assertEqual(
+        rows[0]?.addon_name,
+        'Extra Cheese',
+        'snapshot uses catalog name, not client-supplied name',
+      );
       assertEqual(rows[0]?.price, 50, 'snapshot uses catalog price, not client-supplied price');
     }
 
@@ -216,7 +263,11 @@ async function main() {
         headers: { Authorization: authHeader },
         body: orderBody([{ id: 'addon-ai-inactive' }]),
       });
-      assertEqual(res.status, 400, `inactive add-on rejected (got ${res.status}, ${JSON.stringify(res.data)})`);
+      assertEqual(
+        res.status,
+        400,
+        `inactive add-on rejected (got ${res.status}, ${JSON.stringify(res.data)})`,
+      );
     }
 
     // ── Case 3: add-on from a group not linked to the product is rejected ─
@@ -227,7 +278,11 @@ async function main() {
         headers: { Authorization: authHeader },
         body: orderBody([{ id: 'addon-ai-wrong-group' }]),
       });
-      assertEqual(res.status, 400, `wrong-group add-on rejected (got ${res.status}, ${JSON.stringify(res.data)})`);
+      assertEqual(
+        res.status,
+        400,
+        `wrong-group add-on rejected (got ${res.status}, ${JSON.stringify(res.data)})`,
+      );
     }
 
     // ── Case 4: unknown add-on id is rejected ─────────────────────────────
@@ -238,7 +293,11 @@ async function main() {
         headers: { Authorization: authHeader },
         body: orderBody([{ id: 'addon-ai-does-not-exist', name: 'Ghost', price: 5 }]),
       });
-      assertEqual(res.status, 400, `unknown add-on rejected (got ${res.status}, ${JSON.stringify(res.data)})`);
+      assertEqual(
+        res.status,
+        400,
+        `unknown add-on rejected (got ${res.status}, ${JSON.stringify(res.data)})`,
+      );
     }
 
     // ── Case 5: add-on without a catalog id is rejected ───────────────────
@@ -249,7 +308,11 @@ async function main() {
         headers: { Authorization: authHeader },
         body: orderBody([{ name: 'Ghost Topping', price: 5 }]),
       });
-      assertEqual(res.status, 400, `id-less add-on rejected (got ${res.status}, ${JSON.stringify(res.data)})`);
+      assertEqual(
+        res.status,
+        400,
+        `id-less add-on rejected (got ${res.status}, ${JSON.stringify(res.data)})`,
+      );
     }
 
     // ── Case 6: a required add-on group cannot be silently skipped ────────
@@ -264,31 +327,54 @@ async function main() {
       const resOmitted = await request(baseUrl, '/api/orders', {
         method: 'POST',
         headers: { Authorization: authHeader },
-        body: JSON.stringify({ type: 'takeaway', items: [{ product_id: 'prod-ai-required', quantity: 1 }] }),
+        body: JSON.stringify({
+          type: 'takeaway',
+          items: [{ product_id: 'prod-ai-required', quantity: 1 }],
+        }),
       });
-      assertEqual(resOmitted.status, 400, `item with addons field omitted entirely is rejected (got ${resOmitted.status}, ${JSON.stringify(resOmitted.data)})`);
+      assertEqual(
+        resOmitted.status,
+        400,
+        `item with addons field omitted entirely is rejected (got ${resOmitted.status}, ${JSON.stringify(resOmitted.data)})`,
+      );
 
       const resEmpty = await request(baseUrl, '/api/orders', {
         method: 'POST',
         headers: { Authorization: authHeader },
         body: requiredProductBody([]),
       });
-      assertEqual(resEmpty.status, 400, `item with an empty addons array is rejected (got ${resEmpty.status}, ${JSON.stringify(resEmpty.data)})`);
+      assertEqual(
+        resEmpty.status,
+        400,
+        `item with an empty addons array is rejected (got ${resEmpty.status}, ${JSON.stringify(resEmpty.data)})`,
+      );
 
       const resNull = await request(baseUrl, '/api/orders', {
         method: 'POST',
         headers: { Authorization: authHeader },
         body: requiredProductBody(null),
       });
-      assertEqual(resNull.status, 400, `item with addons: null is rejected (got ${resNull.status}, ${JSON.stringify(resNull.data)})`);
+      assertEqual(
+        resNull.status,
+        400,
+        `item with addons: null is rejected (got ${resNull.status}, ${JSON.stringify(resNull.data)})`,
+      );
 
       const resSatisfied = await request(baseUrl, '/api/orders', {
         method: 'POST',
         headers: { Authorization: authHeader },
         body: requiredProductBody([{ id: 'addon-ai-size-large' }]),
       });
-      assertEqual(resSatisfied.status, 201, `item with the required selection made succeeds (got ${resSatisfied.status}, ${JSON.stringify(resSatisfied.data)})`);
-      assertEqual(resSatisfied.data.order?.subtotal, 110, 'subtotal includes the required add-on price (80 + 30)');
+      assertEqual(
+        resSatisfied.status,
+        201,
+        `item with the required selection made succeeds (got ${resSatisfied.status}, ${JSON.stringify(resSatisfied.data)})`,
+      );
+      assertEqual(
+        resSatisfied.data.order?.subtotal,
+        110,
+        'subtotal includes the required add-on price (80 + 30)',
+      );
     }
   } finally {
     server.close();

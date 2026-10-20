@@ -26,7 +26,8 @@ type AuditRow = {
 };
 
 function errorMessage(error: unknown, fallback: string): string {
-  if (axios.isAxiosError(error) && typeof error.response?.data?.error === 'string') return error.response.data.error;
+  if (axios.isAxiosError(error) && typeof error.response?.data?.error === 'string')
+    return error.response.data.error;
   return fallback;
 }
 
@@ -88,21 +89,32 @@ export function PermissionAuditLog({ staff }: { staff: Staff[] }) {
   };
 
   if (loading) {
-    return <section className="mt-8 rounded-xl border border-border bg-card p-6">{tCommon('loading')}</section>;
+    return (
+      <section className="mt-8 rounded-xl border border-border bg-card p-6">
+        {tCommon('loading')}
+      </section>
+    );
   }
 
   return (
-    <section className="mt-8 rounded-xl border border-border bg-card p-6" aria-labelledby="permission-audit-title">
+    <section
+      className="mt-8 rounded-xl border border-border bg-card p-6"
+      aria-labelledby="permission-audit-title"
+    >
       <div className="mb-5 flex items-center gap-2">
         <History size={18} className="text-muted-foreground" />
         <div>
-          <h2 id="permission-audit-title" className="font-semibold text-foreground">{t('title')}</h2>
+          <h2 id="permission-audit-title" className="font-semibold text-foreground">
+            {t('title')}
+          </h2>
           <p className="mt-1 text-sm text-muted-foreground">{t('subtitle')}</p>
         </div>
       </div>
 
       {rows.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">{t('empty')}</p>
+        <p className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+          {t('empty')}
+        </p>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border">
           <table className="min-w-[48rem] w-full border-collapse text-sm">
@@ -118,14 +130,23 @@ export function PermissionAuditLog({ staff }: { staff: Staff[] }) {
             <tbody>
               {rows.map((row) => (
                 <tr key={row.id} className="border-b border-border last:border-b-0">
-                  <td className="px-4 py-3 whitespace-nowrap text-muted-foreground">{formatDateTime(row.created_at)}</td>
+                  <td className="px-4 py-3 whitespace-nowrap text-muted-foreground">
+                    {formatDateTime(row.created_at)}
+                  </td>
                   <td className="px-4 py-3">{row.actor_name || tCommon('unknown')}</td>
                   <td className="px-4 py-3">{targetLabel(row)}</td>
-                  <td className="px-4 py-3"><span className="block">{permissionLabel(row.permission_id, tMatrix)}</span><code className="text-xs text-muted-foreground">{row.permission_id}</code></td>
+                  <td className="px-4 py-3">
+                    <span className="block">{permissionLabel(row.permission_id, tMatrix)}</span>
+                    <code className="text-xs text-muted-foreground">{row.permission_id}</code>
+                  </td>
                   <td className="px-4 py-3 whitespace-nowrap">
-                    <span className="text-muted-foreground">{effectLabel(row.previous_effect)}</span>
+                    <span className="text-muted-foreground">
+                      {effectLabel(row.previous_effect)}
+                    </span>
                     {' → '}
-                    <span className="font-medium text-foreground">{effectLabel(row.next_effect)}</span>
+                    <span className="font-medium text-foreground">
+                      {effectLabel(row.next_effect)}
+                    </span>
                   </td>
                 </tr>
               ))}

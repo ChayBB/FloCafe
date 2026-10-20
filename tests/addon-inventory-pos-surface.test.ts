@@ -11,7 +11,11 @@
 
 import assert from 'node:assert/strict';
 
-import { addonStockCeiling, isAddonLowStock, isAddonSoldOut } from '../frontend/src/lib/addon-inventory';
+import {
+  addonStockCeiling,
+  isAddonLowStock,
+  isAddonSoldOut,
+} from '../frontend/src/lib/addon-inventory';
 import type { Addon } from '../frontend/src/lib/types';
 
 function addon(overrides: Partial<Addon> = {}): Addon {
@@ -36,10 +40,26 @@ const soldOutCases: Array<[string, Addon, boolean]> = [
   ['a tracked add-on at zero is sold out', addon({ stock_quantity: 0 }), true],
   ['a tracked add-on below zero is sold out', addon({ stock_quantity: -2 }), true],
   ['a tracked add-on with stock left still sells', addon({ stock_quantity: 1 }), false],
-  ['an untracked add-on at zero still sells', addon({ track_inventory: false, stock_quantity: 0 }), false],
-  ['an untracked add-on ignores its threshold', addon({ track_inventory: false, stock_quantity: 0, low_stock_threshold: 99 }), false],
-  ['stock arriving as a numeric string still gates', addon({ stock_quantity: '0' as unknown as number }), true],
-  ['an absent track flag does not gate on a zero default', addon({ track_inventory: undefined as unknown as boolean, stock_quantity: 0 }), false],
+  [
+    'an untracked add-on at zero still sells',
+    addon({ track_inventory: false, stock_quantity: 0 }),
+    false,
+  ],
+  [
+    'an untracked add-on ignores its threshold',
+    addon({ track_inventory: false, stock_quantity: 0, low_stock_threshold: 99 }),
+    false,
+  ],
+  [
+    'stock arriving as a numeric string still gates',
+    addon({ stock_quantity: '0' as unknown as number }),
+    true,
+  ],
+  [
+    'an absent track flag does not gate on a zero default',
+    addon({ track_inventory: undefined as unknown as boolean, stock_quantity: 0 }),
+    false,
+  ],
 ];
 
 for (const [label, subject, expected] of soldOutCases) {
@@ -50,12 +70,36 @@ for (const [label, subject, expected] of soldOutCases) {
 // Low-stock signalling: running low, never a second badge on a sold-out row
 // ---------------------------------------------------------------------------
 const lowStockCases: Array<[string, Addon, boolean]> = [
-  ['stock exactly at the threshold is running low', addon({ stock_quantity: 3, low_stock_threshold: 3 }), true],
-  ['stock below the threshold is running low', addon({ stock_quantity: 2, low_stock_threshold: 3 }), true],
-  ['stock above the threshold is not low', addon({ stock_quantity: 4, low_stock_threshold: 3 }), false],
-  ['a zero threshold means nothing is running low', addon({ stock_quantity: 1, low_stock_threshold: 0 }), false],
-  ['a sold-out add-on is not also running low', addon({ stock_quantity: 0, low_stock_threshold: 3 }), false],
-  ['an untracked add-on is never running low', addon({ track_inventory: false, stock_quantity: 1, low_stock_threshold: 99 }), false],
+  [
+    'stock exactly at the threshold is running low',
+    addon({ stock_quantity: 3, low_stock_threshold: 3 }),
+    true,
+  ],
+  [
+    'stock below the threshold is running low',
+    addon({ stock_quantity: 2, low_stock_threshold: 3 }),
+    true,
+  ],
+  [
+    'stock above the threshold is not low',
+    addon({ stock_quantity: 4, low_stock_threshold: 3 }),
+    false,
+  ],
+  [
+    'a zero threshold means nothing is running low',
+    addon({ stock_quantity: 1, low_stock_threshold: 0 }),
+    false,
+  ],
+  [
+    'a sold-out add-on is not also running low',
+    addon({ stock_quantity: 0, low_stock_threshold: 3 }),
+    false,
+  ],
+  [
+    'an untracked add-on is never running low',
+    addon({ track_inventory: false, stock_quantity: 1, low_stock_threshold: 99 }),
+    false,
+  ],
 ];
 
 for (const [label, subject, expected] of lowStockCases) {
@@ -71,9 +115,21 @@ assert.ok(
 // ---------------------------------------------------------------------------
 // The quantity ceiling a cashier may dial up to
 // ---------------------------------------------------------------------------
-assert.equal(addonStockCeiling(addon({ stock_quantity: 10 })), 10, 'a tracked add-on is capped at its stock');
-assert.equal(addonStockCeiling(addon({ stock_quantity: 0 })), 0, 'a sold-out add-on has no headroom');
-assert.equal(addonStockCeiling(addon({ stock_quantity: -5 })), 0, 'negative stock floors the ceiling at zero');
+assert.equal(
+  addonStockCeiling(addon({ stock_quantity: 10 })),
+  10,
+  'a tracked add-on is capped at its stock',
+);
+assert.equal(
+  addonStockCeiling(addon({ stock_quantity: 0 })),
+  0,
+  'a sold-out add-on has no headroom',
+);
+assert.equal(
+  addonStockCeiling(addon({ stock_quantity: -5 })),
+  0,
+  'negative stock floors the ceiling at zero',
+);
 assert.equal(
   addonStockCeiling(addon({ track_inventory: false, stock_quantity: 0 })),
   null,

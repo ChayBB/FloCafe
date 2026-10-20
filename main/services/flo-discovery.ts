@@ -33,7 +33,10 @@ export const FLO_LEGACY_SERVICE_TYPE = 'http';
  * at exactly the moment you need to tell them apart.
  */
 export function floServiceName(): string {
-  const machine = os.hostname().replace(/\.local$/i, '').trim();
+  const machine = os
+    .hostname()
+    .replace(/\.local$/i, '')
+    .trim();
   return machine ? `Flo POS (${machine})` : 'Flo POS';
 }
 
@@ -83,7 +86,9 @@ export type FloInstance = {
  * networks do not have. The hostname is the fallback rather than the default.
  */
 function dialableAddress(service: Service): string | null {
-  const ipv4 = service.addresses?.find((address) => address.includes('.') && !address.includes(':'));
+  const ipv4 = service.addresses?.find(
+    (address) => address.includes('.') && !address.includes(':'),
+  );
   if (ipv4) return ipv4;
   const ipv6 = service.addresses?.find((address) => address.includes(':'));
   if (ipv6) return `[${ipv6}]`;
@@ -214,10 +219,9 @@ export function watchForFlo(handlers: DiscoveryHandlers, options: WatchOptions =
     return browser;
   });
 
-  const refresh = setInterval(
-    () => { for (const browser of browsers) browser.update(); },
-    options.refreshMs ?? DEFAULT_REFRESH_MS,
-  );
+  const refresh = setInterval(() => {
+    for (const browser of browsers) browser.update();
+  }, options.refreshMs ?? DEFAULT_REFRESH_MS);
 
   let stopped = false;
   return () => {
@@ -225,9 +229,17 @@ export function watchForFlo(handlers: DiscoveryHandlers, options: WatchOptions =
     stopped = true;
     clearInterval(refresh);
     for (const browser of browsers) {
-      try { browser.stop(); } catch { /* already torn down */ }
+      try {
+        browser.stop();
+      } catch {
+        /* already torn down */
+      }
     }
-    try { bonjour.destroy(); } catch { /* already torn down */ }
+    try {
+      bonjour.destroy();
+    } catch {
+      /* already torn down */
+    }
   };
 }
 
@@ -238,7 +250,10 @@ export function watchForFlo(handlers: DiscoveryHandlers, options: WatchOptions =
  * with multicast disabled that is the normal outcome, not an error, and the
  * caller's next step is the same either way — offer the QR or a manual address.
  */
-export function findFloOnce(timeoutMs = 5_000, options: WatchOptions = {}): Promise<FloInstance | null> {
+export function findFloOnce(
+  timeoutMs = 5_000,
+  options: WatchOptions = {},
+): Promise<FloInstance | null> {
   return new Promise((resolve) => {
     let settled = false;
     const finish = (instance: FloInstance | null) => {

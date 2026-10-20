@@ -36,19 +36,30 @@ const Module = require('module');
 const originalLoad = Module._load;
 const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-migration-v56-v57-'));
 
-const FIXTURE = path.join(__dirname, 'fixtures/upgrade-snapshots/schema-v56-pre-tax-registration-rename.db');
+const FIXTURE = path.join(
+  __dirname,
+  'fixtures/upgrade-snapshots/schema-v56-pre-tax-registration-rename.db',
+);
 const dbPath = path.join(testDir, 'flo.db');
 fs.copyFileSync(FIXTURE, dbPath);
 
 const FixtureDatabase = require('better-sqlite3');
 const fixtureDb = new FixtureDatabase(dbPath);
-assert.equal(fixtureDb.pragma('user_version', { simple: true }), 56, 'fixture is frozen at schema v56');
-fixtureDb.prepare(`DELETE FROM settings WHERE key IN ('tax_registration_number', 'bill_show_tax_id')`).run();
-fixtureDb.prepare(`
+assert.equal(
+  fixtureDb.pragma('user_version', { simple: true }),
+  56,
+  'fixture is frozen at schema v56',
+);
+fixtureDb
+  .prepare(`DELETE FROM settings WHERE key IN ('tax_registration_number', 'bill_show_tax_id')`)
+  .run();
+fixtureDb
+  .prepare(`
   INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES
     ('gstin', '29ABCDE1234F1Z5', CURRENT_TIMESTAMP),
     ('bill_show_gstn', '1', CURRENT_TIMESTAMP)
-`).run();
+`)
+  .run();
 fixtureDb.close();
 
 const mockApp = {
@@ -62,15 +73,23 @@ Module._load = function (request: string, parent: unknown, isMain: boolean) {
 };
 
 function isNativeAbiMismatch(error: any): boolean {
-  return error?.code === 'ERR_DLOPEN_FAILED'
-    && String(error?.message || '').includes('NODE_MODULE_VERSION');
+  return (
+    error?.code === 'ERR_DLOPEN_FAILED' &&
+    String(error?.message || '').includes('NODE_MODULE_VERSION')
+  );
 }
 
 function main() {
   console.log('🧪 Migration v56 → v57 Parent-Version Fixture Test');
   console.log('='.repeat(60));
 
-  const { initDatabase, getDatabase, closeDatabase, getCurrentSchemaVersion, buildIdealSchemaDb } = require('../main/db');
+  const {
+    initDatabase,
+    getDatabase,
+    closeDatabase,
+    getCurrentSchemaVersion,
+    buildIdealSchemaDb,
+  } = require('../main/db');
 
   try {
     initDatabase();
@@ -86,26 +105,43 @@ function main() {
   const ideal = buildIdealSchemaDb();
   const latestSchemaVersion = ideal.pragma('user_version', { simple: true }) as number;
   ideal.close();
-  assert.equal(getCurrentSchemaVersion(), latestSchemaVersion,
-    'a real v56 install reaches the same schema version as a fresh install');
+  assert.equal(
+    getCurrentSchemaVersion(),
+    latestSchemaVersion,
+    'a real v56 install reaches the same schema version as a fresh install',
+  );
   console.log(`   ✓ v56 fixture migrates cleanly to v${latestSchemaVersion}`);
 
-  const registrationNumber = db.prepare(
-    `SELECT value FROM settings WHERE key = 'tax_registration_number'`
-  ).get() as { value: string } | undefined;
-  assert.equal(registrationNumber?.value, '29ABCDE1234F1Z5',
-    'v57 copies a real v56 install\'s gstin value forward to tax_registration_number');
+  const registrationNumber = db
+    .prepare(`SELECT value FROM settings WHERE key = 'tax_registration_number'`)
+    .get() as { value: string } | undefined;
+  assert.equal(
+    registrationNumber?.value,
+    '29ABCDE1234F1Z5',
+    "v57 copies a real v56 install's gstin value forward to tax_registration_number",
+  );
 
-  const showTaxId = db.prepare(
-    `SELECT value FROM settings WHERE key = 'bill_show_tax_id'`
-  ).get() as { value: string } | undefined;
-  assert.equal(showTaxId?.value, '1',
-    'v57 copies a real v56 install\'s bill_show_gstn value forward to bill_show_tax_id');
+  const showTaxId = db
+    .prepare(`SELECT value FROM settings WHERE key = 'bill_show_tax_id'`)
+    .get() as { value: string } | undefined;
+  assert.equal(
+    showTaxId?.value,
+    '1',
+    "v57 copies a real v56 install's bill_show_gstn value forward to bill_show_tax_id",
+  );
 
-  const oldGstin = db.prepare(`SELECT value FROM settings WHERE key = 'gstin'`).get() as { value: string } | undefined;
-  assert.equal(oldGstin?.value, '29ABCDE1234F1Z5', 'the old gstin row is left in place, not deleted');
+  const oldGstin = db.prepare(`SELECT value FROM settings WHERE key = 'gstin'`).get() as
+    | { value: string }
+    | undefined;
+  assert.equal(
+    oldGstin?.value,
+    '29ABCDE1234F1Z5',
+    'the old gstin row is left in place, not deleted',
+  );
 
-  console.log('   ✓ v57 preserves and forwards the old gstin/bill_show_gstn keys on a real pre-rename install');
+  console.log(
+    '   ✓ v57 preserves and forwards the old gstin/bill_show_gstn keys on a real pre-rename install',
+  );
 
   closeDatabase();
   console.log('='.repeat(60));

@@ -28,7 +28,11 @@ async function run() {
   });
   assert.equal(await first, 'first');
   assert.equal(await second, 'second');
-  assert.deepEqual(events, ['first-start', 'first-end', 'second-start', 'second-end'], 'maintenance operations are serialized');
+  assert.deepEqual(
+    events,
+    ['first-start', 'first-end', 'second-start', 'second-end'],
+    'maintenance operations are serialized',
+  );
 
   await assert.rejects(
     withDatabaseMaintenanceLock(async () => {
@@ -42,11 +46,16 @@ async function run() {
     'a failed maintenance operation releases the lock',
   );
 
-  const activeResponse = new EventEmitter() as EventEmitter & { status: (code: number) => typeof activeResponse; json: (body: unknown) => void };
+  const activeResponse = new EventEmitter() as EventEmitter & {
+    status: (code: number) => typeof activeResponse;
+    json: (body: unknown) => void;
+  };
   activeResponse.status = () => activeResponse;
   activeResponse.json = () => undefined;
   let activeNextCalled = false;
-  databaseMaintenanceMiddleware({ path: '/api/test' } as any, activeResponse as any, () => { activeNextCalled = true; });
+  databaseMaintenanceMiddleware({ path: '/api/test' } as any, activeResponse as any, () => {
+    activeNextCalled = true;
+  });
   assert.equal(activeNextCalled, true, 'normal requests enter while maintenance is idle');
 
   let maintenanceStarted = false;
@@ -59,25 +68,52 @@ async function run() {
   activeResponse.emit('finish');
   await maintenance;
 
-  const blockedResponse = new EventEmitter() as EventEmitter & { status: (code: number) => typeof blockedResponse; json: (body: unknown) => void };
+  const blockedResponse = new EventEmitter() as EventEmitter & {
+    status: (code: number) => typeof blockedResponse;
+    json: (body: unknown) => void;
+  };
   let blockedStatus = 0;
-  blockedResponse.status = (code: number) => { blockedStatus = code; return blockedResponse; };
+  blockedResponse.status = (code: number) => {
+    blockedStatus = code;
+    return blockedResponse;
+  };
   blockedResponse.json = () => undefined;
   let blockedNextCalled = false;
-  const activeMaintenance = withDatabaseMaintenanceLock(async () => { await delay(10); });
+  const activeMaintenance = withDatabaseMaintenanceLock(async () => {
+    await delay(10);
+  });
   await delay(1);
-  databaseMaintenanceMiddleware({ path: '/api/test' } as any, blockedResponse as any, () => { blockedNextCalled = true; });
+  databaseMaintenanceMiddleware({ path: '/api/test' } as any, blockedResponse as any, () => {
+    blockedNextCalled = true;
+  });
   assert.equal(blockedNextCalled, false, 'new requests are rejected during maintenance');
   assert.equal(blockedStatus, 503, 'maintenance requests receive retryable status');
 
-  for (const path of ['/api/db/import', '/api/db/backup', '/api/db/download', '/api/db-tools/initialize']) {
-    const ownerResponse = new EventEmitter() as EventEmitter & { status: (code: number) => typeof ownerResponse; json: (body: unknown) => void };
+  for (const path of [
+    '/api/db/import',
+    '/api/db/backup',
+    '/api/db/download',
+    '/api/db-tools/initialize',
+  ]) {
+    const ownerResponse = new EventEmitter() as EventEmitter & {
+      status: (code: number) => typeof ownerResponse;
+      json: (body: unknown) => void;
+    };
     let ownerStatus = 0;
-    ownerResponse.status = (code: number) => { ownerStatus = code; return ownerResponse; };
+    ownerResponse.status = (code: number) => {
+      ownerStatus = code;
+      return ownerResponse;
+    };
     ownerResponse.json = () => undefined;
     let ownerNextCalled = false;
-    databaseMaintenanceMiddleware({ path } as any, ownerResponse as any, () => { ownerNextCalled = true; });
-    assert.equal(ownerNextCalled, false, `${path} is rejected before route/auth middleware during maintenance`);
+    databaseMaintenanceMiddleware({ path } as any, ownerResponse as any, () => {
+      ownerNextCalled = true;
+    });
+    assert.equal(
+      ownerNextCalled,
+      false,
+      `${path} is rejected before route/auth middleware during maintenance`,
+    );
     assert.equal(ownerStatus, 503, `${path} receives a retryable maintenance response`);
   }
   await activeMaintenance;
@@ -88,7 +124,10 @@ async function run() {
   const app = express();
   app.use(databaseMaintenanceMiddleware);
   let authTouched = false;
-  app.use((_req, _res, next) => { authTouched = true; next(); });
+  app.use((_req, _res, next) => {
+    authTouched = true;
+    next();
+  });
   app.post('/api/db/backup', (_req, res) => res.json({ reached: true }));
   let routeMaintenanceStarted!: () => void;
   const routeMaintenanceStartedSignal = new Promise<void>((resolve) => {
@@ -107,8 +146,16 @@ async function run() {
   await routeMaintenanceStartedSignal;
   try {
     const concurrentRoute = await request(app).post('/api/db/backup');
-    assert.equal(concurrentRoute.status, 503, 'concurrent maintenance route receives 503 before auth/route middleware');
-    assert.equal(authTouched, false, 'concurrent maintenance route does not reach later middleware');
+    assert.equal(
+      concurrentRoute.status,
+      503,
+      'concurrent maintenance route receives 503 before auth/route middleware',
+    );
+    assert.equal(
+      authTouched,
+      false,
+      'concurrent maintenance route does not reach later middleware',
+    );
   } finally {
     releaseMaintenance();
     await activeRouteMaintenance;
@@ -121,16 +168,24 @@ async function run() {
   const routeApp = express();
   routeApp.use(databaseMaintenanceMiddleware);
   routeApp.post('/api/db/backup', async (_req, res) => {
-    await withDatabaseMaintenanceLock(async () => { await delay(5); });
+    await withDatabaseMaintenanceLock(async () => {
+      await delay(5);
+    });
     res.json({ reached: true });
   });
   const routeResponse = await request(routeApp).post('/api/db/backup').timeout({ response: 500 });
-  assert.equal(routeResponse.status, 200, 'maintenance route completes through the production middleware');
+  assert.equal(
+    routeResponse.status,
+    200,
+    'maintenance route completes through the production middleware',
+  );
   assert.deepEqual(routeResponse.body, { reached: true });
 
   // ── Maintenance drain is bounded: a stuck active request fails fast ────
   let releaseActive!: () => void;
-  const hold = new Promise<void>((resolve) => { releaseActive = resolve; });
+  const hold = new Promise<void>((resolve) => {
+    releaseActive = resolve;
+  });
   const activeRequest = withDatabaseRequest(() => hold);
   await delay(1); // let the active-request counter observe the held request
   await assert.rejects(
@@ -144,7 +199,9 @@ async function run() {
 }
 
 const keepAlive = setInterval(() => undefined, 50);
-run().catch((error) => {
-  console.error(error);
-  process.exit(1);
-}).finally(() => clearInterval(keepAlive));
+run()
+  .catch((error) => {
+    console.error(error);
+    process.exit(1);
+  })
+  .finally(() => clearInterval(keepAlive));

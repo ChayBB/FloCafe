@@ -36,10 +36,22 @@ type ServerAppKey = keyof AppConfig['Messages']['serverApp'];
 
 /** Item kitchen status to its serverApp label key and badge colours. */
 const ITEM_STATUS: Record<string, { labelKey: ServerAppKey; classes: string }> = {
-  pending: { labelKey: 'statusWaiting', classes: 'bg-gray-100 text-gray-600 dark:bg-muted dark:text-muted-foreground' },
-  preparing: { labelKey: 'statusPreparing', classes: 'bg-orange-100 text-orange-700 dark:bg-orange-950/60 dark:text-orange-300' },
-  ready: { labelKey: 'statusReady', classes: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300' },
-  served: { labelKey: 'statusServed', classes: 'bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300' },
+  pending: {
+    labelKey: 'statusWaiting',
+    classes: 'bg-gray-100 text-gray-600 dark:bg-muted dark:text-muted-foreground',
+  },
+  preparing: {
+    labelKey: 'statusPreparing',
+    classes: 'bg-orange-100 text-orange-700 dark:bg-orange-950/60 dark:text-orange-300',
+  },
+  ready: {
+    labelKey: 'statusReady',
+    classes: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300',
+  },
+  served: {
+    labelKey: 'statusServed',
+    classes: 'bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300',
+  },
 };
 
 export interface ServerTablePickerProps {
@@ -53,20 +65,31 @@ export interface ServerTablePickerProps {
 }
 
 /** Table grid with live status, then a per-table action sheet (add items / take payment). */
-export function ServerTablePicker({ api, tables, selectedTableId, onAddOrder, onPay, onOrderChanged, onClose }: ServerTablePickerProps) {
+export function ServerTablePicker({
+  api,
+  tables,
+  selectedTableId,
+  onAddOrder,
+  onPay,
+  onOrderChanged,
+  onClose,
+}: ServerTablePickerProps) {
   const t = useTranslations('serverApp');
   const tPos = useTranslations('pos');
   const tTables = useTranslations('tables');
   const tCommon = useTranslations('common');
   const tOrders = useTranslations('orders');
   const [actionTable, setActionTable] = useState<ServerTable | null>(null);
-  const [loadedItems, setLoadedItems] = useState<{ tableId: string; items: ServerOrderItem[] } | null>(null);
+  const [loadedItems, setLoadedItems] = useState<{
+    tableId: string;
+    items: ServerOrderItem[];
+  } | null>(null);
   const [editItemId, setEditItemId] = useState<number | null>(null);
   const [busyItemId, setBusyItemId] = useState<number | null>(null);
   const [itemAction, setItemAction] = useState<'takeaway' | 'cancel' | null>(null);
 
   const order = actionTable ? activeOrderOf(actionTable) : null;
-  const openTableId = order ? actionTable?.id ?? null : null;
+  const openTableId = order ? (actionTable?.id ?? null) : null;
 
   // Results are keyed by table so a stale list never shows under the next table opened.
   const items = loadedItems && loadedItems.tableId === openTableId ? loadedItems.items : null;
@@ -75,16 +98,25 @@ export function ServerTablePicker({ api, tables, selectedTableId, onAddOrder, on
   useEffect(() => {
     if (!openTableId) return;
     let cancelled = false;
-    api.get('/api/orders', {
-      params: { table_id: openTableId, type: 'dine_in', status: 'pending,preparing,ready', per_page: 1 },
-    })
+    api
+      .get('/api/orders', {
+        params: {
+          table_id: openTableId,
+          type: 'dine_in',
+          status: 'pending,preparing,ready',
+          per_page: 1,
+        },
+      })
       .then(({ data }) => {
-        if (!cancelled) setLoadedItems({ tableId: openTableId, items: data.orders?.[0]?.items || [] });
+        if (!cancelled)
+          setLoadedItems({ tableId: openTableId, items: data.orders?.[0]?.items || [] });
       })
       .catch(() => {
         if (!cancelled) setLoadedItems({ tableId: openTableId, items: [] });
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [api, openTableId]);
 
   function closeActionSheet() {
@@ -97,7 +129,9 @@ export function ServerTablePicker({ api, tables, selectedTableId, onAddOrder, on
   }
 
   /** Keeps the visible lines in sync after a per-item write. */
-  function applyOrderResponse(data: { order?: { items?: ServerOrderItem[]; status?: string } }): ServerOrderItem[] {
+  function applyOrderResponse(data: {
+    order?: { items?: ServerOrderItem[]; status?: string };
+  }): ServerOrderItem[] {
     const remaining = (data.order?.items || []).filter(
       (line: ServerOrderItem) => !['cancelled', 'voided', 'void_adjustment'].includes(line.status),
     );
@@ -114,7 +148,9 @@ export function ServerTablePicker({ api, tables, selectedTableId, onAddOrder, on
       const note = [tPos('takeawayItemNote'), item.special_instructions?.trim() || null]
         .filter(Boolean)
         .join(' · ');
-      const { data } = await api.patch(`/api/orders/${order.id}/items/${item.id}/notes`, { special_instructions: note });
+      const { data } = await api.patch(`/api/orders/${order.id}/items/${item.id}/notes`, {
+        special_instructions: note,
+      });
       toast.success(tOrders('orderConvertedTakeaway'));
       applyOrderResponse(data);
       setEditItemId(null);
@@ -182,19 +218,27 @@ export function ServerTablePicker({ api, tables, selectedTableId, onAddOrder, on
                           : 'border-border hover:border-brand/40'
                     }`}
                   >
-                    <span className={`absolute -top-2 end-1 rounded-full px-1.5 py-0.5 text-[10px] font-bold text-white ${occupied ? 'bg-orange-500' : 'bg-emerald-600'}`}>
+                    <span
+                      className={`absolute -top-2 end-1 rounded-full px-1.5 py-0.5 text-[10px] font-bold text-white ${occupied ? 'bg-orange-500' : 'bg-emerald-600'}`}
+                    >
                       {occupied ? tPos('tableOccupied') : tTables('statusAvailable')}
                     </span>
                     <p className="font-bold text-foreground">{table.name || table.number}</p>
                     {typeof table.capacity === 'number' && (
-                      <p className="text-xs text-muted-foreground">{tPos('tableSeats', { count: table.capacity })}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {tPos('tableSeats', { count: table.capacity })}
+                      </p>
                     )}
                     {tableOrder && (
                       <p className="mt-1 truncate text-xs font-medium text-orange-600 dark:text-orange-400">
                         <Ltr>#{tableOrder.order_number}</Ltr>
                       </p>
                     )}
-                    {table.seated_at && <span className="mt-1 block"><TableTurnoverBadge seatedAt={table.seated_at} /></span>}
+                    {table.seated_at && (
+                      <span className="mt-1 block">
+                        <TableTurnoverBadge seatedAt={table.seated_at} />
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -231,11 +275,17 @@ export function ServerTablePicker({ api, tables, selectedTableId, onAddOrder, on
 
             {order && (
               <div className="-mx-1 mb-4 flex-1 overflow-y-auto px-1">
-                <p className="mb-2 text-xs font-semibold uppercase text-muted-foreground">{t('kitchen')}</p>
+                <p className="mb-2 text-xs font-semibold uppercase text-muted-foreground">
+                  {t('kitchen')}
+                </p>
                 {items === null ? (
-                  <p className="py-4 text-center text-sm text-muted-foreground">{tCommon('loading')}</p>
+                  <p className="py-4 text-center text-sm text-muted-foreground">
+                    {tCommon('loading')}
+                  </p>
                 ) : items.length === 0 ? (
-                  <p className="py-4 text-center text-sm text-muted-foreground">{t('emptyDraft')}</p>
+                  <p className="py-4 text-center text-sm text-muted-foreground">
+                    {t('emptyDraft')}
+                  </p>
                 ) : (
                   <ul className="space-y-1.5">
                     {items.map((item) => {
@@ -243,9 +293,15 @@ export function ServerTablePicker({ api, tables, selectedTableId, onAddOrder, on
                       return (
                         <li key={item.id} className="rounded-lg border border-border px-2 py-1.5">
                           <div className="flex items-center gap-2">
-                            <span className="w-8 shrink-0 text-sm font-bold"><Ltr>{item.quantity}×</Ltr></span>
-                            <span className="min-w-0 flex-1 truncate text-sm">{item.product_name}</span>
-                            <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${status.classes}`}>
+                            <span className="w-8 shrink-0 text-sm font-bold">
+                              <Ltr>{item.quantity}×</Ltr>
+                            </span>
+                            <span className="min-w-0 flex-1 truncate text-sm">
+                              {item.product_name}
+                            </span>
+                            <span
+                              className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${status.classes}`}
+                            >
                               {t(status.labelKey)}
                             </span>
                             {/* Only a line the kitchen has not started is still editable here;
@@ -254,7 +310,9 @@ export function ServerTablePicker({ api, tables, selectedTableId, onAddOrder, on
                               <button
                                 type="button"
                                 aria-label={tCommon('edit')}
-                                onClick={() => setEditItemId((current) => current === item.id ? null : item.id)}
+                                onClick={() =>
+                                  setEditItemId((current) => (current === item.id ? null : item.id))
+                                }
                                 className="shrink-0 rounded-md p-1 text-muted-foreground hover:text-foreground"
                               >
                                 {editItemId === item.id ? <X size={15} /> : <SquarePen size={15} />}
@@ -271,7 +329,9 @@ export function ServerTablePicker({ api, tables, selectedTableId, onAddOrder, on
                                 className="flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-lg border border-border text-xs font-semibold disabled:opacity-50"
                               >
                                 <ShoppingBag size={14} />
-                                {busyItemId === item.id && itemAction === 'takeaway' ? tOrders('converting') : tPos('orderTypeTakeaway')}
+                                {busyItemId === item.id && itemAction === 'takeaway'
+                                  ? tOrders('converting')
+                                  : tPos('orderTypeTakeaway')}
                               </button>
                               <button
                                 type="button"
@@ -280,7 +340,9 @@ export function ServerTablePicker({ api, tables, selectedTableId, onAddOrder, on
                                 className="flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-lg border border-red-300 text-xs font-semibold text-red-600 disabled:opacity-50 dark:border-red-900"
                               >
                                 <XCircle size={14} />
-                                {busyItemId === item.id && itemAction === 'cancel' ? tOrders('cancelling') : tCommon('cancel')}
+                                {busyItemId === item.id && itemAction === 'cancel'
+                                  ? tOrders('cancelling')
+                                  : tCommon('cancel')}
                               </button>
                             </div>
                           )}
@@ -295,7 +357,10 @@ export function ServerTablePicker({ api, tables, selectedTableId, onAddOrder, on
             <div className="flex flex-col gap-3">
               <button
                 type="button"
-                onClick={() => { onAddOrder(actionTable); closeActionSheet(); }}
+                onClick={() => {
+                  onAddOrder(actionTable);
+                  closeActionSheet();
+                }}
                 className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-brand font-semibold text-white"
               >
                 <Plus size={18} />
@@ -304,7 +369,10 @@ export function ServerTablePicker({ api, tables, selectedTableId, onAddOrder, on
               <button
                 type="button"
                 disabled={!order}
-                onClick={() => { onPay(actionTable); closeActionSheet(); }}
+                onClick={() => {
+                  onPay(actionTable);
+                  closeActionSheet();
+                }}
                 className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border-2 border-border font-semibold text-foreground disabled:opacity-50"
               >
                 <CreditCard size={18} />

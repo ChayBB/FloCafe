@@ -32,10 +32,9 @@ export function resolveUpdateChannel(inputs: UpdateChannelInputs): ResolvedUpdat
 /** Parses stored setting value for beta opt-in, defaulting by build type. */
 export function parseStoredBetaChannelEnabled(
   value: string | null | undefined,
-  defaultForBetaBuild: boolean = false
+  defaultForBetaBuild: boolean = false,
 ): boolean {
   if (value === 'true') return true;
   if (value === 'false') return false;
   return defaultForBetaBuild;
 }
-

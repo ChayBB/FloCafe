@@ -25,15 +25,27 @@ function escapeHtml(value: string): string {
 
 export function buildMenuWebPrintHtml(input: MenuWebPrintInput): string {
   const selectedPageSize = input.pageSize === 'Letter' ? 'Letter' : 'A4';
-  const width = input.paperWidth ? `${input.paperWidth}mm` : input.pageSize === 'Letter' ? '216mm' : '210mm';
+  const width = input.paperWidth
+    ? `${input.paperWidth}mm`
+    : input.pageSize === 'Letter'
+      ? '216mm'
+      : '210mm';
   const pageSize = input.paperWidth ? `${width} auto` : `${selectedPageSize} portrait`;
-  const sections = input.sections.map((section) => `
+  const sections = input.sections
+    .map(
+      (section) => `
     ${section.name ? `<h2>${escapeHtml(section.name)}</h2>` : ''}
-    <div class="items">${section.products.map((product) => `
+    <div class="items">${section.products
+      .map(
+        (product) => `
       <div class="row"><span>${escapeHtml(product.name)}</span><span>${escapeHtml(product.price)}</span></div>
       ${(product.details || []).map((detail) => `<div class="detail">${escapeHtml(detail)}</div>`).join('')}
-    `).join('')}</div>
-  `).join('');
+    `,
+      )
+      .join('')}</div>
+  `,
+    )
+    .join('');
 
   return `<!doctype html>
 <html lang="en">
@@ -83,7 +95,8 @@ export function reservePrintGesture(host: Window = window): Window | null {
 
 export function printMenuInBrowser(html: string, targetWindow?: Window | null): void {
   const printWindow = targetWindow !== undefined ? targetWindow : window.open('', '_blank');
-  if (!printWindow || printWindow.closed) throw new MenuPopupBlockedError('Allow pop-ups to use browser printing');
+  if (!printWindow || printWindow.closed)
+    throw new MenuPopupBlockedError('Allow pop-ups to use browser printing');
   printWindow.document.open();
   printWindow.document.write(html);
   printWindow.document.close();

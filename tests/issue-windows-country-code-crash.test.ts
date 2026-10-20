@@ -38,23 +38,44 @@ const os = require('os');
 const path = require('path');
 const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-country-code-crash-'));
 Module._load = function (request: string, parent: unknown, isMain: boolean) {
-  if (request === 'electron') return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
+  if (request === 'electron')
+    return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
   return originalLoad.apply(this, arguments as any);
 };
 process.env.JWT_SECRET = 'test-secret-country-code-crash';
 
-const { initDatabase, getDatabase, getCurrentSchemaVersion, MIGRATIONS, now } = require('../main/db');
+const {
+  initDatabase,
+  getDatabase,
+  getCurrentSchemaVersion,
+  MIGRATIONS,
+  now,
+} = require('../main/db');
 
-let passed = 0, failed = 0, total = 0;
+let passed = 0,
+  failed = 0,
+  total = 0;
 function assert(condition: boolean, message: string) {
   total++;
-  if (condition) { passed++; console.log(`  ✓ ${message}`); }
-  else { failed++; console.error(`  ✗ ${message}`); }
+  if (condition) {
+    passed++;
+    console.log(`  ✓ ${message}`);
+  } else {
+    failed++;
+    console.error(`  ✗ ${message}`);
+  }
 }
 function assertEqual(actual: any, expected: any, message: string) {
   total++;
-  if (actual === expected) { passed++; console.log(`  ✓ ${message}`); }
-  else { failed++; console.error(`  ✗ ${message} — expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`); }
+  if (actual === expected) {
+    passed++;
+    console.log(`  ✓ ${message}`);
+  } else {
+    failed++;
+    console.error(
+      `  ✗ ${message} — expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`,
+    );
+  }
 }
 
 function main() {
@@ -72,12 +93,22 @@ function main() {
   // Simulate an old install: a customers table from before both columns existed.
   db.exec('ALTER TABLE customers DROP COLUMN country_code');
   db.exec('ALTER TABLE customers DROP COLUMN tag_counts');
-  const preColumns = db.prepare('PRAGMA table_info(customers)').all().map((c: any) => c.name);
-  assert(!preColumns.includes('country_code'), 'setup: country_code removed to simulate an old install');
-  assert(!preColumns.includes('tag_counts'), 'setup: tag_counts removed to simulate an old install');
+  const preColumns = db
+    .prepare('PRAGMA table_info(customers)')
+    .all()
+    .map((c: any) => c.name);
+  assert(
+    !preColumns.includes('country_code'),
+    'setup: country_code removed to simulate an old install',
+  );
+  assert(
+    !preColumns.includes('tag_counts'),
+    'setup: tag_counts removed to simulate an old install',
+  );
 
-  db.prepare(`INSERT INTO customers (id, name, phone, is_active, created_at, updated_at) VALUES (?,?,?,?,?,?)`)
-    .run('cust-old', 'Old Customer', '9876543210', 1, now(), now());
+  db.prepare(
+    `INSERT INTO customers (id, name, phone, is_active, created_at, updated_at) VALUES (?,?,?,?,?,?)`,
+  ).run('cust-old', 'Old Customer', '9876543210', 1, now(), now());
 
   MIGRATIONS.length = 0;
   MIGRATIONS.push(...originalMigrations);
@@ -95,15 +126,29 @@ function main() {
     crashError = err;
   }
 
-  assert(crashError === null, `the rest of the migration chain runs without crashing${crashError ? ` (threw: ${crashError.message})` : ''}`);
+  assert(
+    crashError === null,
+    `the rest of the migration chain runs without crashing${crashError ? ` (threw: ${crashError.message})` : ''}`,
+  );
 
-  const postColumns = db.prepare('PRAGMA table_info(customers)').all().map((c: any) => c.name);
+  const postColumns = db
+    .prepare('PRAGMA table_info(customers)')
+    .all()
+    .map((c: any) => c.name);
   assert(postColumns.includes('country_code'), 'country_code exists after the full chain runs');
   assert(postColumns.includes('tag_counts'), 'tag_counts exists after the full chain runs');
 
   const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get('cust-old') as any;
-  assertEqual(customer.country_code, '+91', 'country_code was backfilled to the default and the phone normalized correctly');
-  assertEqual(customer.phone, '+919876543210', 'phone was normalized to E.164 by v23, proving it ran to completion (not just avoided crashing)');
+  assertEqual(
+    customer.country_code,
+    '+91',
+    'country_code was backfilled to the default and the phone normalized correctly',
+  );
+  assertEqual(
+    customer.phone,
+    '+919876543210',
+    'phone was normalized to E.164 by v23, proving it ran to completion (not just avoided crashing)',
+  );
 
   // The exact hot path that was the worse of the two bugs: reading
   // tag_counts for a returning customer, as routes/orders.ts does on every
@@ -114,7 +159,10 @@ function main() {
   } catch (err: any) {
     tagCountsReadError = err;
   }
-  assert(tagCountsReadError === null, 'reading tag_counts (the routes/orders.ts hot path) does not throw');
+  assert(
+    tagCountsReadError === null,
+    'reading tag_counts (the routes/orders.ts hot path) does not throw',
+  );
 
   db.close();
   fs.rmSync(testDir, { recursive: true, force: true });

@@ -17,15 +17,28 @@ const os = require('os');
 const path = require('path');
 const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-lifecycle-'));
 Module._load = function (request: string, parent: unknown, isMain: boolean) {
-  if (request === 'electron') return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
+  if (request === 'electron')
+    return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
   return originalLoad.apply(this, arguments as any);
 };
 
 const {
-  initTestDb, createApp, startServer,
-  seedOwnerUser, seedManagerUser, seedCategory, seedProduct, seedTable,
-  api, assert, assertEqual, assertIncludes,
-  getResults, closeDatabase, getDatabase, now,
+  initTestDb,
+  createApp,
+  startServer,
+  seedOwnerUser,
+  seedManagerUser,
+  seedCategory,
+  seedProduct,
+  seedTable,
+  api,
+  assert,
+  assertEqual,
+  assertIncludes,
+  getResults,
+  closeDatabase,
+  getDatabase,
+  now,
 } = require('./helpers/test-setup');
 
 const { orderRoutes } = require('../main/routes/orders');
@@ -113,7 +126,11 @@ async function main() {
 
     // Verify order completed and table freed
     const finalOrder = await api(baseUrl, `/api/orders/${orderId}`, { headers: authHeader });
-    assertEqual(finalOrder.data.order.status, 'completed', 'order status = completed after payment');
+    assertEqual(
+      finalOrder.data.order.status,
+      'completed',
+      'order status = completed after payment',
+    );
 
     // ═══════════════════════════════════════════════════════════════════
     // Scenario B: Cancel Requires Manager PIN After Pending
@@ -186,11 +203,12 @@ async function main() {
     });
     assertEqual(cancelPending.status, 200, 'pending cancel without PIN returns 200');
     assertEqual(cancelPending.data.order.status, 'cancelled', 'order cancelled');
-
   } finally {
     server.close();
     closeDatabase();
-    try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
+    try {
+      fs.rmSync(testDir, { recursive: true, force: true });
+    } catch {}
   }
 
   const { passed, failed, total } = getResults();

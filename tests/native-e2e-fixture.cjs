@@ -10,7 +10,7 @@ Module._load = function (request, parent, isMain) {
     return {
       app: {
         isPackaged: true,
-        getPath: (name) => name === 'userData' ? userDataDir : userDataDir,
+        getPath: (name) => (name === 'userData' ? userDataDir : userDataDir),
         getVersion: () => 'e2e',
       },
     };
@@ -22,7 +22,9 @@ const { initDatabase, getDatabase, closeDatabase, now } = require('../dist/main/
 
 try {
   if (!userDataDir || !process.env.FLO_E2E_DB_PATH || !ownerEmail || !ownerPassword) {
-    throw new Error('Native E2E fixture requires isolated profile, database, and owner credentials');
+    throw new Error(
+      'Native E2E fixture requires isolated profile, database, and owner credentials',
+    );
   }
 
   initDatabase();
@@ -50,7 +52,9 @@ try {
     ['anonymous_data_consent', 'false'],
     ['diagnostics_consent', 'false'],
   ];
-  const setting = db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)');
+  const setting = db.prepare(
+    'INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, ?)',
+  );
   for (const [key, value] of settings) setting.run(key, value, createdAt);
 
   db.prepare(`
@@ -69,5 +73,9 @@ try {
 
   console.log('[Native E2E] Isolated database seeded');
 } finally {
-  try { closeDatabase(); } finally { Module._load = originalLoad; }
+  try {
+    closeDatabase();
+  } finally {
+    Module._load = originalLoad;
+  }
 }

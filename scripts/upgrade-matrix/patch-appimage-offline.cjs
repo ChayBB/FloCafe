@@ -23,21 +23,24 @@ try {
   execFileSync(appImage, ['--appimage-extract'], { cwd: scratch, stdio: 'inherit' });
   if (!fs.statSync(root).isDirectory()) throw new Error(`AppImage extraction missing ${root}`);
 
-  execFileSync(process.execPath, [
-    path.join(__dirname, 'patch-offline-fixture.cjs'),
-    root,
-  ], { stdio: 'inherit' });
+  execFileSync(process.execPath, [path.join(__dirname, 'patch-offline-fixture.cjs'), root], {
+    stdio: 'inherit',
+  });
 
   const offset = Number(execFileSync(appImage, ['--appimage-offset'], { encoding: 'utf8' }).trim());
-  if (!Number.isSafeInteger(offset) || offset <= 0) throw new Error(`invalid AppImage runtime offset: ${offset}`);
+  if (!Number.isSafeInteger(offset) || offset <= 0)
+    throw new Error(`invalid AppImage runtime offset: ${offset}`);
   const original = fs.readFileSync(appImage);
-  if (offset >= original.length) throw new Error(`AppImage runtime offset exceeds file size: ${offset}`);
+  if (offset >= original.length)
+    throw new Error(`AppImage runtime offset exceeds file size: ${offset}`);
 
-  execFileSync('mksquashfs', [root, squashfs, '-noappend', '-comp', 'xz', '-quiet'], { stdio: 'inherit' });
-  fs.writeFileSync(patched, Buffer.concat([
-    original.subarray(0, offset),
-    fs.readFileSync(squashfs),
-  ]));
+  execFileSync('mksquashfs', [root, squashfs, '-noappend', '-comp', 'xz', '-quiet'], {
+    stdio: 'inherit',
+  });
+  fs.writeFileSync(
+    patched,
+    Buffer.concat([original.subarray(0, offset), fs.readFileSync(squashfs)]),
+  );
   fs.chmodSync(patched, fs.statSync(appImage).mode);
   fs.renameSync(patched, appImage);
 

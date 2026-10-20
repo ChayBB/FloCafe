@@ -18,11 +18,14 @@ try {
   fs.rmSync(patched, { force: true });
   fs.mkdirSync(scratch, { recursive: true });
   execFileSync('unsquashfs', ['-d', extracted, archive], { stdio: 'inherit' });
-  execFileSync(process.execPath, [
-    path.join(__dirname, 'patch-offline-fixture.cjs'),
-    extracted,
-  ], { stdio: 'inherit' });
-  execFileSync('mksquashfs', [extracted, patched, '-noappend', '-comp', 'xz', '-all-root', '-quiet'], { stdio: 'inherit' });
+  execFileSync(process.execPath, [path.join(__dirname, 'patch-offline-fixture.cjs'), extracted], {
+    stdio: 'inherit',
+  });
+  execFileSync(
+    'mksquashfs',
+    [extracted, patched, '-noappend', '-comp', 'xz', '-all-root', '-quiet'],
+    { stdio: 'inherit' },
+  );
   fs.chmodSync(patched, fs.statSync(archive).mode);
   fs.renameSync(patched, archive);
   console.log(JSON.stringify({ fixture: 'offline-squashfs', artifact: path.basename(archive) }));

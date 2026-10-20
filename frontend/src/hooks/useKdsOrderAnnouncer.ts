@@ -51,7 +51,10 @@ export function splitByScript(text: string): Segment[] {
 }
 
 /** Picks the best available voice for a list of language prefixes, in order of preference. */
-function pickVoice(voices: SpeechSynthesisVoice[], prefixes: string[]): SpeechSynthesisVoice | null {
+function pickVoice(
+  voices: SpeechSynthesisVoice[],
+  prefixes: string[],
+): SpeechSynthesisVoice | null {
   for (const prefix of prefixes) {
     const wanted = prefix.toLowerCase();
     const exact = voices.find((voice) => voice.lang.toLowerCase().replace('_', '-') === wanted);
@@ -86,7 +89,9 @@ export function useKdsOrderAnnouncer({
   const cancelledRef = useRef(false);
   const warnedRef = useRef(false);
   const formatTableRef = useRef(formatTable);
-  useEffect(() => { formatTableRef.current = formatTable; }, [formatTable]);
+  useEffect(() => {
+    formatTableRef.current = formatTable;
+  }, [formatTable]);
 
   // Autoplay policies keep a context suspended until the document is interacted
   // with; unlocking on the first touch means the first order of a shift is heard.
@@ -111,11 +116,20 @@ export function useKdsOrderAnnouncer({
     cancelledRef.current = false;
     return () => {
       cancelledRef.current = true;
-      try { window.speechSynthesis?.cancel(); } catch { /* not supported */ }
+      try {
+        window.speechSynthesis?.cancel();
+      } catch {
+        /* not supported */
+      }
     };
   }, []);
 
-  useEffect(() => () => { void audioRef.current?.close(); }, []);
+  useEffect(
+    () => () => {
+      void audioRef.current?.close();
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!enabled) {
@@ -144,7 +158,9 @@ export function useKdsOrderAnnouncer({
       if (cancelledRef.current) return;
       playWhenReady(
         () => audioRef.current,
-        (context) => { audioRef.current = context; },
+        (context) => {
+          audioRef.current = context;
+        },
         (context) => playChime(context, ORDER_TONES),
       );
       await wait(SPEECH_DELAY_MS);
@@ -158,7 +174,10 @@ export function useKdsOrderAnnouncer({
       const voices = synthesis.getVoices();
       const thaiVoice = pickVoice(voices, ['th-TH', 'th']);
       // Latin runs prefer the UI language when it is itself Latin-script, else English.
-      const latinVoice = pickVoice(voices, THAI_PATTERN.test(locale) ? ['en-US', 'en'] : [locale, 'en-US', 'en']);
+      const latinVoice = pickVoice(
+        voices,
+        THAI_PATTERN.test(locale) ? ['en-US', 'en'] : [locale, 'en-US', 'en'],
+      );
       if (!thaiVoice && !latinVoice) {
         if (!warnedRef.current) {
           warnedRef.current = true;

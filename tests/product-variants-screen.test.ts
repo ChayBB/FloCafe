@@ -20,11 +20,12 @@ const Module = require('module') as {
 // the lib module imports as it does inside Next.
 const originalResolveFilename = Module._resolveFilename;
 Module._resolveFilename = function (request: string, parent: any, isMain: boolean, options?: any) {
-  const resolvedRequest = request === '@countries'
-    ? path.resolve(ROOT, 'main/countries.ts')
-    : request.startsWith('@/')
-      ? path.resolve(ROOT, 'frontend/src', request.slice(2))
-      : request;
+  const resolvedRequest =
+    request === '@countries'
+      ? path.resolve(ROOT, 'main/countries.ts')
+      : request.startsWith('@/')
+        ? path.resolve(ROOT, 'frontend/src', request.slice(2))
+        : request;
   return originalResolveFilename.call(this, resolvedRequest, parent, isMain, options);
 };
 
@@ -124,18 +125,24 @@ check('toVariantRows normalises the 0/1 integer columns', () => {
 });
 
 check('toVariantRows applies the backend defaults to absent managed fields', () => {
-  const [sparse] = toVariantRows([variantFixture({
-    cost_price: null,
-    low_stock_threshold: null,
-    inventory_product_id: null,
-    inventory_deduction_quantity: null,
-    recipe_multiplier: undefined,
-  })]);
+  const [sparse] = toVariantRows([
+    variantFixture({
+      cost_price: null,
+      low_stock_threshold: null,
+      inventory_product_id: null,
+      inventory_deduction_quantity: null,
+      recipe_multiplier: undefined,
+    }),
+  ]);
   assert.equal(sparse.cost_price, null);
   assert.equal(sparse.low_stock_threshold, null);
   assert.equal(sparse.inventory_product_id, null);
   assert.equal(sparse.inventory_deduction_quantity, 1);
-  assert.equal(sparse.recipe_multiplier, '1', 'a response without a portion loads as one base portion');
+  assert.equal(
+    sparse.recipe_multiplier,
+    '1',
+    'a response without a portion loads as one base portion',
+  );
 });
 
 check('a loaded row survives load -> payload unchanged', () => {
@@ -177,19 +184,38 @@ check('every backend-managed field reaches the payload', () => {
 check('a portion survives load, edit, and save without currency rounding', () => {
   const rows = toVariantRows([variantFixture({ recipe_multiplier: 0.333 })]);
   const [payload] = buildVariantsPayload(rows, 2);
-  assert.equal(payload.recipe_multiplier, 0.333, 'a fraction of a portion is sent as typed, not rounded to two decimals');
+  assert.equal(
+    payload.recipe_multiplier,
+    0.333,
+    'a fraction of a portion is sent as typed, not rounded to two decimals',
+  );
 
   const edited = rows.map((r) => ({ ...r, id: r.id, recipe_multiplier: '2' }));
-  assert.equal(buildVariantsPayload(edited, 0)[0].recipe_multiplier, 2, 'a double portion survives a zero-decimal tenant');
+  assert.equal(
+    buildVariantsPayload(edited, 0)[0].recipe_multiplier,
+    2,
+    'a double portion survives a zero-decimal tenant',
+  );
 
   // Saving an unrelated field must carry the portion the editor loaded.
-  const [renamed] = buildVariantsPayload(rows.map((r) => ({ ...r, name: 'Large renamed' })), 2);
-  assert.equal(renamed.recipe_multiplier, 0.333, 'an unrelated edit preserves the configured portion');
+  const [renamed] = buildVariantsPayload(
+    rows.map((r) => ({ ...r, name: 'Large renamed' })),
+    2,
+  );
+  assert.equal(
+    renamed.recipe_multiplier,
+    0.333,
+    'an unrelated edit preserves the configured portion',
+  );
 });
 
 check('a new row starts at one portion and travels with the payload', () => {
   const fresh = newVariantRow();
-  assert.equal(fresh.recipe_multiplier, '1', 'a row the merchant adds consumes one base recipe portion');
+  assert.equal(
+    fresh.recipe_multiplier,
+    '1',
+    'a row the merchant adds consumes one base recipe portion',
+  );
   const [payload] = buildVariantsPayload([{ ...fresh, name: 'Small', price: '3' }], 2);
   assert.equal(payload.recipe_multiplier, 1, 'the default portion reaches the API');
 });
@@ -223,15 +249,25 @@ check('an unchanged stock field is not resubmitted; a changed one is', () => {
   const [loaded] = toVariantRows([variantFixture({ stock_quantity: 10 })]);
 
   const [unchanged] = buildVariantsPayload([{ ...loaded, name: 'Large renamed' }], 2);
-  assert.ok(!('stock_quantity' in unchanged), 'an unrelated edit leaves the stock field out of the payload');
+  assert.ok(
+    !('stock_quantity' in unchanged),
+    'an unrelated edit leaves the stock field out of the payload',
+  );
 
   const [formatted] = buildVariantsPayload([{ ...loaded, stock_quantity: '10.0' }], 2);
   assert.ok(!('stock_quantity' in formatted), 'a formatting-only stock edit is not resubmitted');
 
   const [edited] = buildVariantsPayload([{ ...loaded, stock_quantity: '12' }], 2);
-  assert.equal(edited.stock_quantity, 12, 'a changed stock field is submitted as the new absolute value');
+  assert.equal(
+    edited.stock_quantity,
+    12,
+    'a changed stock field is submitted as the new absolute value',
+  );
 
-  const [newRow] = buildVariantsPayload([row({ name: 'Small', price: '3', stock_quantity: '4' })], 2);
+  const [newRow] = buildVariantsPayload(
+    [row({ name: 'Small', price: '3', stock_quantity: '4' })],
+    2,
+  );
   assert.equal(newRow.stock_quantity, 4, 'a new row submits its opening stock');
 });
 
@@ -252,9 +288,14 @@ check('an edited inactive row travels so the edit is not dropped', () => {
     variantFixture(),
     variantFixture({ id: 'v-retired', name: 'Retired', is_active: false }),
   ]);
-  const edited = rows.map((r) => (r.id === 'v-retired' ? { ...r, name: 'Retired v2', touched: true } : r));
+  const edited = rows.map((r) =>
+    r.id === 'v-retired' ? { ...r, name: 'Retired v2', touched: true } : r,
+  );
   const payload = buildVariantsPayload(edited, 2);
-  assert.deepEqual(payload.map((entry) => entry.id), ['v-1', 'v-retired']);
+  assert.deepEqual(
+    payload.map((entry) => entry.id),
+    ['v-1', 'v-retired'],
+  );
   assert.equal(payload[1].name, 'Retired v2');
 });
 
@@ -265,8 +306,15 @@ check('a reactivated row travels and a skipped row keeps the order around it', (
     variantFixture({ id: 'v-last', name: 'Last' }),
   ]);
   const payload = buildVariantsPayload(rows, 2);
-  assert.deepEqual(payload.map((entry) => entry.id), ['v-first', 'v-last']);
-  assert.deepEqual(payload.map((entry) => entry.sort_order), [0, 2], 'the skipped row keeps its slot');
+  assert.deepEqual(
+    payload.map((entry) => entry.id),
+    ['v-first', 'v-last'],
+  );
+  assert.deepEqual(
+    payload.map((entry) => entry.sort_order),
+    [0, 2],
+    'the skipped row keeps its slot',
+  );
 
   const reactivated = rows.map((r) => (r.id === 'v-retired' ? { ...r, is_active: true } : r));
   assert.deepEqual(
@@ -301,7 +349,10 @@ check('prices are rounded to the tenant currency precision', () => {
 });
 
 check('negative stock is clamped so no ledger credit can be posted', () => {
-  const [negative] = buildVariantsPayload([row({ name: 'S', price: '3', stock_quantity: '-5' })], 2);
+  const [negative] = buildVariantsPayload(
+    [row({ name: 'S', price: '3', stock_quantity: '-5' })],
+    2,
+  );
   const [blank] = buildVariantsPayload([row({ name: 'S', price: '3', stock_quantity: '' })], 2);
   assert.equal(negative.stock_quantity, 0);
   assert.equal(blank.stock_quantity, 0);
@@ -315,13 +366,19 @@ check('sort_order follows the row order after a reorder', () => {
   ];
   // C moves up past B, then B's old slot moves up past A: [A,B,C] -> [A,C,B] -> [C,A,B].
   const reordered = moveVariantRow(moveVariantRow(rows, 2, -1), 0, 1);
-  assert.deepEqual(reordered.map((r: Row) => r.name), ['C', 'A', 'B']);
+  assert.deepEqual(
+    reordered.map((r: Row) => r.name),
+    ['C', 'A', 'B'],
+  );
   const payload = buildVariantsPayload(reordered, 2);
-  assert.deepEqual(payload.map((entry: { name: string; sort_order: number }) => [entry.name, entry.sort_order]), [
-    ['C', 0],
-    ['A', 1],
-    ['B', 2],
-  ]);
+  assert.deepEqual(
+    payload.map((entry: { name: string; sort_order: number }) => [entry.name, entry.sort_order]),
+    [
+      ['C', 0],
+      ['A', 1],
+      ['B', 2],
+    ],
+  );
 });
 
 check('an emptied variants table sends an empty array, deactivating them all', () => {
@@ -329,14 +386,23 @@ check('an emptied variants table sends an empty array, deactivating them all', (
 });
 
 check('a removed row is simply absent, so the API soft-deactivates it', () => {
-  const rows = toVariantRows([variantFixture(), variantFixture({ id: 'v-2', name: 'Small', price: 3 })]);
+  const rows = toVariantRows([
+    variantFixture(),
+    variantFixture({ id: 'v-2', name: 'Small', price: 3 }),
+  ]);
   const payload = buildVariantsPayload(removeVariantRow(rows, 0), 2);
-  assert.deepEqual(payload.map((entry: { id: string }) => entry.id), ['v-2']);
+  assert.deepEqual(
+    payload.map((entry: { id: string }) => entry.id),
+    ['v-2'],
+  );
   assert.equal(payload[0].sort_order, 0);
 });
 
 check('drop-in rows built without the loaded snapshot still send stock', () => {
-  const [payload] = buildVariantsPayload([row({ name: 'Free sample', price: '0', stock_quantity: '0' })], 2);
+  const [payload] = buildVariantsPayload(
+    [row({ name: 'Free sample', price: '0', stock_quantity: '0' })],
+    2,
+  );
   assert.equal(payload.stock_quantity, 0, 'a row with no loaded snapshot is treated as new');
 });
 
@@ -345,8 +411,14 @@ console.log('\nrow editing');
 
 check('moveVariantRow swaps neighbours', () => {
   const rows = [row({ name: 'A' }), row({ name: 'B' }), row({ name: 'C' })];
-  assert.deepEqual(moveVariantRow(rows, 0, 1).map((r: Row) => r.name), ['B', 'A', 'C']);
-  assert.deepEqual(moveVariantRow(rows, 2, -1).map((r: Row) => r.name), ['A', 'C', 'B']);
+  assert.deepEqual(
+    moveVariantRow(rows, 0, 1).map((r: Row) => r.name),
+    ['B', 'A', 'C'],
+  );
+  assert.deepEqual(
+    moveVariantRow(rows, 2, -1).map((r: Row) => r.name),
+    ['A', 'C', 'B'],
+  );
 });
 
 check('a no-op reorder at either edge returns the same rows', () => {
@@ -357,7 +429,10 @@ check('a no-op reorder at either edge returns the same rows', () => {
 
 check('removeVariantRow drops only the targeted row', () => {
   const rows = [row({ name: 'A' }), row({ name: 'B' }), row({ name: 'C' })];
-  assert.deepEqual(removeVariantRow(rows, 1).map((r: Row) => r.name), ['A', 'C']);
+  assert.deepEqual(
+    removeVariantRow(rows, 1).map((r: Row) => r.name),
+    ['A', 'C'],
+  );
 });
 
 // ── Pre-submit validation ────────────────────────────────────────────────────
@@ -374,8 +449,16 @@ const invalidCases: [string, Partial<Row>, boolean][] = [
   ['a zero portion', { name: 'Large', price: '5', recipe_multiplier: '0' }, true],
   ['a negative portion', { name: 'Large', price: '5', recipe_multiplier: '-1' }, true],
   ['a non-numeric portion', { name: 'Large', price: '5', recipe_multiplier: 'half' }, true],
-  ['a half portion is a real portion', { name: 'Large', price: '5', recipe_multiplier: '0.5' }, false],
-  ['a double portion is a real portion', { name: 'Large', price: '5', recipe_multiplier: '2' }, false],
+  [
+    'a half portion is a real portion',
+    { name: 'Large', price: '5', recipe_multiplier: '0.5' },
+    false,
+  ],
+  [
+    'a double portion is a real portion',
+    { name: 'Large', price: '5', recipe_multiplier: '2' },
+    false,
+  ],
 ];
 
 check('a portion has to be a positive finite number of base portions', () => {

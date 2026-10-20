@@ -76,8 +76,16 @@ db.exec(`
 `);
 
 const now = new Date().toISOString();
-db.prepare('INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)').run('max_order_notes_length', '200', now);
-db.prepare('INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)').run('max_item_notes_length', '100', now);
+db.prepare('INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)').run(
+  'max_order_notes_length',
+  '200',
+  now,
+);
+db.prepare('INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)').run(
+  'max_item_notes_length',
+  '100',
+  now,
+);
 
 console.log('Order Notes Validation Tests');
 console.log('='.repeat(40));
@@ -86,15 +94,29 @@ console.log('\nvalidateOrderNotes:');
 assertDoesNotThrow(() => validateOrderNotes(db, null), 'accepts null');
 assertDoesNotThrow(() => validateOrderNotes(db, undefined), 'accepts undefined');
 assertDoesNotThrow(() => validateOrderNotes(db, ''), 'accepts empty string');
-assertDoesNotThrow(() => validateOrderNotes(db, 'a'.repeat(200)), 'accepts 200 characters (boundary)');
-assertThrows(() => validateOrderNotes(db, 'a'.repeat(201)), 'exceed maximum length', 'rejects 201 characters (over boundary)');
+assertDoesNotThrow(
+  () => validateOrderNotes(db, 'a'.repeat(200)),
+  'accepts 200 characters (boundary)',
+);
+assertThrows(
+  () => validateOrderNotes(db, 'a'.repeat(201)),
+  'exceed maximum length',
+  'rejects 201 characters (over boundary)',
+);
 
 console.log('\nvalidateItemNotes:');
 assertDoesNotThrow(() => validateItemNotes(db, null), 'accepts null');
 assertDoesNotThrow(() => validateItemNotes(db, undefined), 'accepts undefined');
 assertDoesNotThrow(() => validateItemNotes(db, ''), 'accepts empty string');
-assertDoesNotThrow(() => validateItemNotes(db, 'a'.repeat(100)), 'accepts 100 characters (boundary)');
-assertThrows(() => validateItemNotes(db, 'a'.repeat(101)), 'exceed maximum length', 'rejects 101 characters (over boundary)');
+assertDoesNotThrow(
+  () => validateItemNotes(db, 'a'.repeat(100)),
+  'accepts 100 characters (boundary)',
+);
+assertThrows(
+  () => validateItemNotes(db, 'a'.repeat(101)),
+  'exceed maximum length',
+  'rejects 101 characters (over boundary)',
+);
 
 // Cleanup
 db.close();

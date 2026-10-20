@@ -23,7 +23,11 @@ import {
  * switched off for every later spec.
  */
 
-const GATE_SETTINGS = ['billing_type', 'kds_enabled', 'require_kitchen_delivered_before_settlement'];
+const GATE_SETTINGS = [
+  'billing_type',
+  'kds_enabled',
+  'require_kitchen_delivered_before_settlement',
+];
 
 let settingsBefore: Map<string, string | undefined>;
 
@@ -50,13 +54,18 @@ test.describe('@ci-tier1 kitchen delivery before billing', () => {
       ['kds_enabled', kdsEnabled],
       ['require_kitchen_delivered_before_settlement', 'true'],
     ] as const) {
-      const saved = await request.put(`${E2E_BASE_URL}/api/settings/${key}`, { headers, data: { value } });
+      const saved = await request.put(`${E2E_BASE_URL}/api/settings/${key}`, {
+        headers,
+        data: { value },
+      });
       expect(saved.ok(), `the gate needs ${key}=${value} (got ${await saved.text()})`).toBeTruthy();
     }
     return { headers, token };
   }
 
-  test('billing is refused while a kitchen line is still unserved, and allowed once served', async ({ request }) => {
+  test('billing is refused while a kitchen line is still unserved, and allowed once served', async ({
+    request,
+  }) => {
     const { headers } = await applyGate(request, 'true');
 
     const created = await request.post(`${E2E_BASE_URL}/api/orders`, {
@@ -67,14 +76,18 @@ test.describe('@ci-tier1 kitchen delivery before billing', () => {
         items: [orderItem(fixture.productId, { variantId: fixture.variants.Small.id })],
       },
     });
-    expect(created.status(), `creating a gate order must succeed: ${await created.text()}`).toBe(201);
+    expect(created.status(), `creating a gate order must succeed: ${await created.text()}`).toBe(
+      201,
+    );
     const order = (await created.json()).order;
 
     const generated = await request.post(`${E2E_BASE_URL}/api/bills/generate`, {
       headers,
       data: { order_id: order.id },
     });
-    expect(generated.status(), `generating a bill must succeed: ${await generated.text()}`).toBe(201);
+    expect(generated.status(), `generating a bill must succeed: ${await generated.text()}`).toBe(
+      201,
+    );
     const bill = (await generated.json()).bill;
     expect(Number(bill.total)).toBeGreaterThan(0);
 
@@ -84,7 +97,10 @@ test.describe('@ci-tier1 kitchen delivery before billing', () => {
       // /payment takes a single payment line as the body (not a payments array).
       data: { method: 'cash', amount: Number(bill.total) },
     });
-    expect(blocked.status(), `paying an unserved order must be refused, body: ${await blocked.text()}`).toBe(409);
+    expect(
+      blocked.status(),
+      `paying an unserved order must be refused, body: ${await blocked.text()}`,
+    ).toBe(409);
     const blockedBody = await blocked.json();
     expect(blockedBody.code).toBe('KITCHEN_ITEMS_UNDELIVERED');
     expect(Number(blockedBody.undeliveredCount)).toBeGreaterThan(0);
@@ -98,7 +114,10 @@ test.describe('@ci-tier1 kitchen delivery before billing', () => {
       headers,
       data: { status: 'served' },
     });
-    expect(served.ok(), `serving the kitchen line must succeed: ${await served.text()}`).toBeTruthy();
+    expect(
+      served.ok(),
+      `serving the kitchen line must succeed: ${await served.text()}`,
+    ).toBeTruthy();
 
     const paid = await request.post(`${E2E_BASE_URL}/api/bills/${bill.id}/payment`, {
       headers,
@@ -133,7 +152,9 @@ test.describe('@ci-tier1 kitchen delivery before billing', () => {
       headers,
       data: { order_id: order.id },
     });
-    expect(generated.status(), `generating a bill must succeed: ${await generated.text()}`).toBe(201);
+    expect(generated.status(), `generating a bill must succeed: ${await generated.text()}`).toBe(
+      201,
+    );
     const bill = (await generated.json()).bill;
 
     const paid = await request.post(`${E2E_BASE_URL}/api/bills/${bill.id}/payment`, {
@@ -141,7 +162,10 @@ test.describe('@ci-tier1 kitchen delivery before billing', () => {
       // /payment takes a single payment line as the body (not a payments array).
       data: { method: 'cash', amount: Number(bill.total) },
     });
-    expect(paid.ok(), `with KDS off an unserved order must still settle: ${await paid.text()}`).toBeTruthy();
+    expect(
+      paid.ok(),
+      `with KDS off an unserved order must still settle: ${await paid.text()}`,
+    ).toBeTruthy();
   });
 
   test('the KDS board itself stands down when KDS is disabled', async ({ page, request }) => {

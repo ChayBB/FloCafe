@@ -27,8 +27,12 @@ export const TEMPLATE_LABEL_IDS = {
 export type TemplateLabelId = keyof typeof TEMPLATE_LABEL_IDS;
 
 /** Explicit charge-row capabilities in the v1 country-pack template contract. */
-export const TEMPLATE_CHARGE_ROW_IDS = ['serviceCharge', 'deliveryCharge', 'packagingCharge'] as const;
-export type TemplateChargeRowId = typeof TEMPLATE_CHARGE_ROW_IDS[number];
+export const TEMPLATE_CHARGE_ROW_IDS = [
+  'serviceCharge',
+  'deliveryCharge',
+  'packagingCharge',
+] as const;
+export type TemplateChargeRowId = (typeof TEMPLATE_CHARGE_ROW_IDS)[number];
 
 /** Install-time caps for the `labels` map (#445): fail closed on misuse. */
 export const TEMPLATE_LABELS_MAX_ENTRIES = 64;
@@ -53,7 +57,9 @@ export function fitTemplateLabel(text: string, columns: number): string {
 export function validateTemplateChargeRows(rows: unknown): void {
   if (rows === undefined || rows === null) return;
   if (!Array.isArray(rows)) {
-    throw new Error('Print template totals.chargeRows must be an array of supported charge-row ids');
+    throw new Error(
+      'Print template totals.chargeRows must be an array of supported charge-row ids',
+    );
   }
   const seen = new Set<string>();
   for (const row of rows) {
@@ -78,11 +84,15 @@ export function declaredTemplateChargeRows(rows: unknown): TemplateChargeRowId[]
 export function validateTemplateLabelsMap(labels: unknown): void {
   if (labels === undefined || labels === null) return;
   if (!labels || typeof labels !== 'object' || Array.isArray(labels)) {
-    throw new Error('Print template labels must be an object mapping semantic label ids to strings');
+    throw new Error(
+      'Print template labels must be an object mapping semantic label ids to strings',
+    );
   }
   const entries = Object.entries(labels as Record<string, unknown>);
   if (entries.length > TEMPLATE_LABELS_MAX_ENTRIES) {
-    throw new Error(`Print template labels exceed the maximum of ${TEMPLATE_LABELS_MAX_ENTRIES} entries`);
+    throw new Error(
+      `Print template labels exceed the maximum of ${TEMPLATE_LABELS_MAX_ENTRIES} entries`,
+    );
   }
   for (const [key, value] of entries) {
     if (!Object.prototype.hasOwnProperty.call(TEMPLATE_LABEL_IDS, key)) {
@@ -90,7 +100,11 @@ export function validateTemplateLabelsMap(labels: unknown): void {
         `Unknown print template label id "${key}". Supported ids: ${Object.keys(TEMPLATE_LABEL_IDS).join(', ')}`,
       );
     }
-    if (typeof value !== 'string' || value.length < 1 || value.length > TEMPLATE_LABELS_MAX_VALUE_LENGTH) {
+    if (
+      typeof value !== 'string' ||
+      value.length < 1 ||
+      value.length > TEMPLATE_LABELS_MAX_VALUE_LENGTH
+    ) {
       throw new Error(
         `Print template label "${key}" must be a non-empty string of at most ${TEMPLATE_LABELS_MAX_VALUE_LENGTH} characters`,
       );
@@ -99,13 +113,18 @@ export function validateTemplateLabelsMap(labels: unknown): void {
 }
 
 /** Resolve one template label at render time, falling back to built-in catalog. */
-export function resolveTemplateLabel(labels: unknown, id: TemplateLabelId, lang: string, columns?: number): string {
-  const override = labels && typeof labels === 'object' && !Array.isArray(labels)
-    ? (labels as Record<string, unknown>)[id]
-    : undefined;
-  let resolved = typeof override === 'string' && override.length > 0
-    ? sanitizeTemplateLabelText(override)
-    : '';
+export function resolveTemplateLabel(
+  labels: unknown,
+  id: TemplateLabelId,
+  lang: string,
+  columns?: number,
+): string {
+  const override =
+    labels && typeof labels === 'object' && !Array.isArray(labels)
+      ? (labels as Record<string, unknown>)[id]
+      : undefined;
+  let resolved =
+    typeof override === 'string' && override.length > 0 ? sanitizeTemplateLabelText(override) : '';
   if (!resolved) resolved = printLabel(lang, TEMPLATE_LABEL_IDS[id]);
   return columns === undefined ? resolved : fitTemplateLabel(resolved, columns);
 }

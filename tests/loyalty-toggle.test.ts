@@ -16,13 +16,17 @@ const os = require('os');
 const path = require('path');
 const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-loyalty-toggle-'));
 Module._load = function (request: string, parent: unknown, isMain: boolean) {
-  if (request === 'electron') return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
+  if (request === 'electron')
+    return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
   return originalLoad.apply(this, arguments as any);
 };
 
 const {
-  initTestDb, getResults, closeDatabase,
-  assert, assertEqual,
+  initTestDb,
+  getResults,
+  closeDatabase,
+  assert,
+  assertEqual,
 } = require('./helpers/test-setup');
 
 const REMOVED_LOYALTY_SETTINGS = [
@@ -62,7 +66,10 @@ async function main() {
     // ── Test: customers.loyalty_points column dropped ──────────────────
     console.log('\n3. customers.loyalty_points column removed');
     const cols = db.prepare('PRAGMA table_info(customers)').all() as { name: string }[];
-    assert(!cols.some((c) => c.name === 'loyalty_points'), 'customers.loyalty_points column dropped');
+    assert(
+      !cols.some((c) => c.name === 'loyalty_points'),
+      'customers.loyalty_points column dropped',
+    );
 
     // ── Summary ───────────────────────────────────────────────────────
     console.log('\n' + '='.repeat(50));

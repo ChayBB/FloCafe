@@ -25,7 +25,12 @@ interface InitializeDatabaseDialogProps {
   onSuccess: (backupPath?: string) => void;
 }
 
-export function InitializeDatabaseDialog({ open, onOpenChange, onConfirm, onSuccess }: InitializeDatabaseDialogProps) {
+export function InitializeDatabaseDialog({
+  open,
+  onOpenChange,
+  onConfirm,
+  onSuccess,
+}: InitializeDatabaseDialogProps) {
   const t = useTranslations('settings');
   const tCommon = useTranslations('common');
   const [phrase, setPhrase] = useState('');
@@ -66,12 +71,8 @@ export function InitializeDatabaseDialog({ open, onOpenChange, onConfirm, onSucc
               {t('initializeDatabase')}
             </DialogTitle>
             <DialogDescription className="space-y-2 pt-2 text-start">
-              <span className="block">
-                {t('initializeDialogBody')}
-              </span>
-              <span className="block font-medium text-gray-700">
-                {t('initializeDialogBackup')}
-              </span>
+              <span className="block">{t('initializeDialogBody')}</span>
+              <span className="block font-medium text-gray-700">{t('initializeDialogBackup')}</span>
             </DialogDescription>
           </DialogHeader>
 
@@ -89,7 +90,9 @@ export function InitializeDatabaseDialog({ open, onOpenChange, onConfirm, onSucc
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={close}>{tCommon('cancel')}</Button>
+            <Button variant="outline" onClick={close}>
+              {tCommon('cancel')}
+            </Button>
             <Button
               variant="destructive"
               disabled={phrase !== CONFIRM_PHRASE}

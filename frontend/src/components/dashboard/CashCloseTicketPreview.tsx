@@ -87,8 +87,6 @@ export interface CashCloseTicketPreviewProps {
 
 const DASH = 'border-t border-dashed border-zinc-300 dark:border-zinc-700';
 
-
-
 /** Variance color matches the existing red/amber/grey-by-sign convention. */
 const varianceClass = (v: number): string => {
   if (v > 0) return 'text-amber-700 dark:text-amber-300';
@@ -96,7 +94,12 @@ const varianceClass = (v: number): string => {
   return 'text-zinc-700 dark:text-zinc-300';
 };
 
-export function CashCloseTicketPreview({ z, minorFactor, formatter, labels }: CashCloseTicketPreviewProps) {
+export function CashCloseTicketPreview({
+  z,
+  minorFactor,
+  formatter,
+  labels,
+}: CashCloseTicketPreviewProps) {
   const varianceSign = z.variance_cents > 0 ? '+' : z.variance_cents < 0 ? '−' : '';
   const taxRows = Array.isArray(z.tax_components) ? z.tax_components : [];
   const hasRefunds = z.refund_count > 0;
@@ -112,20 +115,21 @@ export function CashCloseTicketPreview({ z, minorFactor, formatter, labels }: Ca
         className="relative w-full max-w-sm rounded-xl shadow-sm bg-neutral-50 dark:bg-neutral-100 text-zinc-900 ring-1 ring-zinc-200/80 overflow-hidden"
       >
         {/* Tear-off top notch (purely decorative; mirrors a real ticket). */}
-        <div className="h-2 bg-[radial-gradient(circle_at_8px_0,transparent_8px,theme(colors.zinc.200)_9px)_repeat-x] bg-[length:16px_8px]" aria-hidden />
+        <div
+          className="h-2 bg-[radial-gradient(circle_at_8px_0,transparent_8px,theme(colors.zinc.200)_9px)_repeat-x] bg-[length:16px_8px]"
+          aria-hidden
+        />
 
         <div className="px-5 pt-4 pb-5 font-sans">
           {/* Headline */}
           <div className="text-center">
-            <p className="mt-1 text-base font-semibold tracking-tight">
-              Z #{z.z_number}
-            </p>
-            <p className="mt-0.5 text-xs text-zinc-500">
-              {labels.closedAt(z.business_date)}
-            </p>
+            <p className="mt-1 text-base font-semibold tracking-tight">Z #{z.z_number}</p>
+            <p className="mt-0.5 text-xs text-zinc-500">{labels.closedAt(z.business_date)}</p>
             {z.period_start && z.period_end && (
               <p className="mt-0.5 text-[11px] text-zinc-500 font-mono">
-                <Ltr>{z.period_start} - {z.period_end}</Ltr>
+                <Ltr>
+                  {z.period_start} - {z.period_end}
+                </Ltr>
               </p>
             )}
           </div>
@@ -133,7 +137,11 @@ export function CashCloseTicketPreview({ z, minorFactor, formatter, labels }: Ca
           <div className={`mt-3 ${DASH}`} />
 
           {/* Opening float */}
-          <Row label={labels.openingFloat} value={formatter(z.opening_float_cents / minorFactor)} first />
+          <Row
+            label={labels.openingFloat}
+            value={formatter(z.opening_float_cents / minorFactor)}
+            first
+          />
 
           <div className="mt-3 text-[10px] uppercase tracking-[0.18em] text-zinc-500">
             {labels.cashMovements}
@@ -172,9 +180,7 @@ export function CashCloseTicketPreview({ z, minorFactor, formatter, labels }: Ca
               />
             </>
           ) : (
-            <div className="mt-3 text-xs text-zinc-400 italic">
-              {labels.noRefunds}
-            </div>
+            <div className="mt-3 text-xs text-zinc-400 italic">{labels.noRefunds}</div>
           )}
 
           {/* Tax breakdown */}
@@ -216,17 +222,31 @@ export function CashCloseTicketPreview({ z, minorFactor, formatter, labels }: Ca
           <div className={`mt-3 ${DASH}`} />
 
           {/* Expected / Counted */}
-          <Row label={labels.expectedCash} value={formatter(z.expected_cash_cents / minorFactor)} first bold />
-          <Row label={labels.countedCash} value={formatter(z.counted_cash_cents / minorFactor)} bold />
+          <Row
+            label={labels.expectedCash}
+            value={formatter(z.expected_cash_cents / minorFactor)}
+            first
+            bold
+          />
+          <Row
+            label={labels.countedCash}
+            value={formatter(z.counted_cash_cents / minorFactor)}
+            bold
+          />
 
           <div className={`mt-2 ${DASH}`} />
 
           {/* Variance — the headline number */}
           <div className="mt-3 flex items-baseline justify-between">
-            <span className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">{labels.variance}</span>
+            <span className="text-[11px] uppercase tracking-[0.18em] text-zinc-500">
+              {labels.variance}
+            </span>
             <Ltr>
-              <span className={`text-lg font-semibold tabular-nums ${varianceClass(z.variance_cents)}`}>
-                {varianceSign}{formatter(Math.abs(z.variance_cents) / minorFactor)}
+              <span
+                className={`text-lg font-semibold tabular-nums ${varianceClass(z.variance_cents)}`}
+              >
+                {varianceSign}
+                {formatter(Math.abs(z.variance_cents) / minorFactor)}
               </span>
             </Ltr>
           </div>
@@ -241,9 +261,7 @@ export function CashCloseTicketPreview({ z, minorFactor, formatter, labels }: Ca
           <div className="mt-3 text-[10px] uppercase tracking-[0.18em] text-zinc-500">
             {labels.operator}
           </div>
-          <p className="mt-0.5 text-sm">
-            {z.closed_by_name}
-          </p>
+          <p className="mt-0.5 text-sm">{z.closed_by_name}</p>
 
           {/* Notes block — only when present. */}
           {z.notes && z.notes.trim().length > 0 && (
@@ -264,7 +282,10 @@ export function CashCloseTicketPreview({ z, minorFactor, formatter, labels }: Ca
         </div>
 
         {/* Tear-off bottom notch */}
-        <div className="h-2 bg-[radial-gradient(circle_at_8px_8px,transparent_8px,theme(colors.zinc.200)_9px)_repeat-x] bg-[length:16px_8px]" aria-hidden />
+        <div
+          className="h-2 bg-[radial-gradient(circle_at_8px_8px,transparent_8px,theme(colors.zinc.200)_9px)_repeat-x] bg-[length:16px_8px]"
+          aria-hidden
+        />
       </div>
     </div>
   );

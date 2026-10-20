@@ -51,7 +51,9 @@ function main() {
 
   const distDir = path.join(electronDir, 'dist');
   const app = fs.existsSync(distDir)
-    ? fs.readdirSync(distDir, { withFileTypes: true }).find((entry) => entry.isDirectory() && entry.name.endsWith('.app'))
+    ? fs
+        .readdirSync(distDir, { withFileTypes: true })
+        .find((entry) => entry.isDirectory() && entry.name.endsWith('.app'))
     : null;
 
   if (!app) fail('node_modules/electron is installed but no dist/*.app bundle was found.');
@@ -62,7 +64,9 @@ function main() {
     fail(`${appPath} is marked com.apple.quarantine (${quarantine.value.trim()}).`);
   }
   if (quarantine.state === 'error') {
-    fail(`could not read the quarantine attribute of ${appPath}: ${quarantine.message || 'unexpected xattr failure'}`);
+    fail(
+      `could not read the quarantine attribute of ${appPath}: ${quarantine.message || 'unexpected xattr failure'}`,
+    );
   }
 
   try {
@@ -71,7 +75,9 @@ function main() {
     fail(`${appPath} has no expected ad-hoc code signature and may be corrupted.`);
   }
 
-  console.log(`verify-electron-runtime: ${appPath} present, unquarantined, ad-hoc signed as expected.`);
+  console.log(
+    `verify-electron-runtime: ${appPath} present, unquarantined, ad-hoc signed as expected.`,
+  );
 }
 
 if (require.main === module) {

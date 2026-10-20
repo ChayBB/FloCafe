@@ -74,7 +74,11 @@ function encodeAttribute(buf: Buffer[], attr: IppAttribute): void {
   });
 }
 
-function buildRequest(operationId: number, operationAttributes: IppAttribute[], body?: Buffer): Buffer {
+function buildRequest(
+  operationId: number,
+  operationAttributes: IppAttribute[],
+  body?: Buffer,
+): Buffer {
   const parts: Buffer[] = [];
 
   const header = Buffer.alloc(8);
@@ -86,7 +90,11 @@ function buildRequest(operationId: number, operationAttributes: IppAttribute[], 
 
   parts.push(Buffer.from([TAG_OPERATION_ATTRIBUTES]));
   encodeAttribute(parts, { tag: VALUE_TAG.charset, name: 'attributes-charset', values: ['utf-8'] });
-  encodeAttribute(parts, { tag: VALUE_TAG.naturalLanguage, name: 'attributes-natural-language', values: ['en'] });
+  encodeAttribute(parts, {
+    tag: VALUE_TAG.naturalLanguage,
+    name: 'attributes-natural-language',
+    values: ['en'],
+  });
   for (const attr of operationAttributes) encodeAttribute(parts, attr);
 
   parts.push(Buffer.from([TAG_END_OF_ATTRIBUTES]));
@@ -165,7 +173,13 @@ function delay(ms: number): Promise<void> {
 }
 
 // Retry on ECONNREFUSED to handle cupsd launchd socket-activation idle races.
-async function ippRequest(path: string, operationId: number, operationAttributes: IppAttribute[], body?: Buffer, signal?: AbortSignal): Promise<IppResponse> {
+async function ippRequest(
+  path: string,
+  operationId: number,
+  operationAttributes: IppAttribute[],
+  body?: Buffer,
+  signal?: AbortSignal,
+): Promise<IppResponse> {
   const maxAttempts = 3;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
@@ -178,43 +192,55 @@ async function ippRequest(path: string, operationId: number, operationAttributes
   throw new Error('unreachable');
 }
 
-async function ippRequestOnce(path: string, operationId: number, operationAttributes: IppAttribute[], body?: Buffer, signal?: AbortSignal): Promise<IppResponse> {
+async function ippRequestOnce(
+  path: string,
+  operationId: number,
+  operationAttributes: IppAttribute[],
+  body?: Buffer,
+  signal?: AbortSignal,
+): Promise<IppResponse> {
   const requestBody = buildRequest(operationId, operationAttributes, body);
 
   return new Promise((resolve, reject) => {
-    const req = http.request({
-      host: CUPS_HOST,
-      port: CUPS_PORT,
-      path,
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/ipp',
-        'Content-Length': requestBody.length,
+    const req = http.request(
+      {
+        host: CUPS_HOST,
+        port: CUPS_PORT,
+        path,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/ipp',
+          'Content-Length': requestBody.length,
+        },
+        timeout: IPP_TIMEOUT_MS,
       },
-      timeout: IPP_TIMEOUT_MS,
-    }, (res) => {
-      const chunks: Buffer[] = [];
-      res.on('data', (chunk) => chunks.push(chunk));
-      res.on('end', () => {
-        const status = res.statusCode ?? 0;
-        if (status < 200 || status >= 300) {
-          reject(new Error(`local CUPS returned HTTP ${status} for ${path}`));
-          return;
-        }
-        try {
-          resolve(parseResponse(Buffer.concat(chunks)));
-        } catch (err) {
-          reject(err);
-        }
-      });
-      res.on('error', reject);
-    });
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk) => chunks.push(chunk));
+        res.on('end', () => {
+          const status = res.statusCode ?? 0;
+          if (status < 200 || status >= 300) {
+            reject(new Error(`local CUPS returned HTTP ${status} for ${path}`));
+            return;
+          }
+          try {
+            resolve(parseResponse(Buffer.concat(chunks)));
+          } catch (err) {
+            reject(err);
+          }
+        });
+        res.on('error', reject);
+      },
+    );
 
     req.on('timeout', () => req.destroy(new Error('IPP request to local CUPS server timed out')));
     req.on('error', reject);
 
     if (signal) {
-      if (signal.aborted) { req.destroy(new Error('aborted')); return; }
+      if (signal.aborted) {
+        req.destroy(new Error('aborted'));
+        return;
+      }
       signal.addEventListener('abort', () => req.destroy(new Error('aborted')), { once: true });
     }
 
@@ -238,19 +264,31 @@ const REQUESTED_PRINTER_ATTRIBUTES: IppAttribute = {
 
 /** Enumerates every printer CUPS knows about (queues for USB and network printers alike). */
 export async function ippGetPrinters(signal?: AbortSignal): Promise<IppAttributeGroup[]> {
-  const response = await ippRequest('/', OP_CUPS_GET_PRINTERS, [
-    { tag: VALUE_TAG.nameWithoutLanguage, name: 'requesting-user-name', values: ['flocafe'] },
-    REQUESTED_PRINTER_ATTRIBUTES,
-  ], undefined, signal);
+  const response = await ippRequest(
+    '/',
+    OP_CUPS_GET_PRINTERS,
+    [
+      { tag: VALUE_TAG.nameWithoutLanguage, name: 'requesting-user-name', values: ['flocafe'] },
+      REQUESTED_PRINTER_ATTRIBUTES,
+    ],
+    undefined,
+    signal,
+  );
   return response.groups;
 }
 
 /** Returns the CUPS-configured default printer's name, or null if none is set. */
 export async function ippGetDefaultPrinterName(signal?: AbortSignal): Promise<string | null> {
-  const response = await ippRequest('/', OP_CUPS_GET_DEFAULT, [
-    { tag: VALUE_TAG.nameWithoutLanguage, name: 'requesting-user-name', values: ['flocafe'] },
-    REQUESTED_PRINTER_ATTRIBUTES,
-  ], undefined, signal);
+  const response = await ippRequest(
+    '/',
+    OP_CUPS_GET_DEFAULT,
+    [
+      { tag: VALUE_TAG.nameWithoutLanguage, name: 'requesting-user-name', values: ['flocafe'] },
+      REQUESTED_PRINTER_ATTRIBUTES,
+    ],
+    undefined,
+    signal,
+  );
   const name = response.groups[0]?.['printer-name']?.[0];
   return typeof name === 'string' ? name : null;
 }
@@ -261,12 +299,29 @@ export interface IppPrinterAttributes {
 }
 
 /** Pre-flight check mirroring thermal.ts's describeCupsQueueProblem for the lp path. */
-export async function ippGetPrinterAttributes(printerName: string, signal?: AbortSignal): Promise<IppPrinterAttributes> {
-  const response = await ippRequest(`/printers/${encodeURIComponent(printerName)}`, OP_GET_PRINTER_ATTRIBUTES, [
-    { tag: VALUE_TAG.uri, name: 'printer-uri', values: [`ipp://localhost/printers/${encodeURIComponent(printerName)}`] },
-    { tag: VALUE_TAG.nameWithoutLanguage, name: 'requesting-user-name', values: ['flocafe'] },
-    { tag: VALUE_TAG.keyword, name: 'requested-attributes', values: ['printer-state', 'printer-is-accepting-jobs'] },
-  ], undefined, signal);
+export async function ippGetPrinterAttributes(
+  printerName: string,
+  signal?: AbortSignal,
+): Promise<IppPrinterAttributes> {
+  const response = await ippRequest(
+    `/printers/${encodeURIComponent(printerName)}`,
+    OP_GET_PRINTER_ATTRIBUTES,
+    [
+      {
+        tag: VALUE_TAG.uri,
+        name: 'printer-uri',
+        values: [`ipp://localhost/printers/${encodeURIComponent(printerName)}`],
+      },
+      { tag: VALUE_TAG.nameWithoutLanguage, name: 'requesting-user-name', values: ['flocafe'] },
+      {
+        tag: VALUE_TAG.keyword,
+        name: 'requested-attributes',
+        values: ['printer-state', 'printer-is-accepting-jobs'],
+      },
+    ],
+    undefined,
+    signal,
+  );
   const group = response.groups[0] || {};
   const state = group['printer-state']?.[0];
   const accepting = group['printer-is-accepting-jobs']?.[0];
@@ -284,13 +339,31 @@ export interface IppPrintResult {
 }
 
 /** Submits raw bytes (ESC/POS) as a Print-Job with document-format application/octet-stream — the IPP equivalent of `lp -o raw`. */
-export async function ippPrintRaw(printerName: string, data: Buffer, signal?: AbortSignal): Promise<IppPrintResult> {
-  const response = await ippRequest(`/printers/${encodeURIComponent(printerName)}`, OP_PRINT_JOB, [
-    { tag: VALUE_TAG.uri, name: 'printer-uri', values: [`ipp://localhost/printers/${encodeURIComponent(printerName)}`] },
-    { tag: VALUE_TAG.nameWithoutLanguage, name: 'requesting-user-name', values: ['flocafe'] },
-    { tag: VALUE_TAG.nameWithoutLanguage, name: 'job-name', values: ['FloCafe receipt'] },
-    { tag: VALUE_TAG.mimeMediaType, name: 'document-format', values: ['application/octet-stream'] },
-  ], data, signal);
+export async function ippPrintRaw(
+  printerName: string,
+  data: Buffer,
+  signal?: AbortSignal,
+): Promise<IppPrintResult> {
+  const response = await ippRequest(
+    `/printers/${encodeURIComponent(printerName)}`,
+    OP_PRINT_JOB,
+    [
+      {
+        tag: VALUE_TAG.uri,
+        name: 'printer-uri',
+        values: [`ipp://localhost/printers/${encodeURIComponent(printerName)}`],
+      },
+      { tag: VALUE_TAG.nameWithoutLanguage, name: 'requesting-user-name', values: ['flocafe'] },
+      { tag: VALUE_TAG.nameWithoutLanguage, name: 'job-name', values: ['FloCafe receipt'] },
+      {
+        tag: VALUE_TAG.mimeMediaType,
+        name: 'document-format',
+        values: ['application/octet-stream'],
+      },
+    ],
+    data,
+    signal,
+  );
 
   const jobId = response.groups[0]?.['job-id']?.[0];
   const ok = response.statusCode <= 0x00ff; // 0x00xx = successful-* per RFC 8011

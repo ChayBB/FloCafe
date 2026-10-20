@@ -18,9 +18,15 @@ test('editing the WhatsApp recipient survives delayed business settings', async 
   let markSettingsFulfilled!: () => void;
   let holdSettings = false;
   let delayedSettingsRequests = 0;
-  const settingsCanContinue = new Promise<void>((resolve) => { releaseSettings = resolve; });
-  const settingsStarted = new Promise<void>((resolve) => { markSettingsStarted = resolve; });
-  const settingsFulfilled = new Promise<void>((resolve) => { markSettingsFulfilled = resolve; });
+  const settingsCanContinue = new Promise<void>((resolve) => {
+    releaseSettings = resolve;
+  });
+  const settingsStarted = new Promise<void>((resolve) => {
+    markSettingsStarted = resolve;
+  });
+  const settingsFulfilled = new Promise<void>((resolve) => {
+    markSettingsFulfilled = resolve;
+  });
   await page.route('**/api/settings*', async (route) => {
     if (!holdSettings) return route.continue();
     delayedSettingsRequests += 1;
@@ -44,6 +50,11 @@ test('editing the WhatsApp recipient survives delayed business settings', async 
   releaseSettings();
   expect(delayedSettingsRequests).toBe(1);
   await settingsFulfilled;
-  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
   await expect(recipient).toHaveValue('+14165559876');
 });

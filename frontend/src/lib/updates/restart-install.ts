@@ -18,9 +18,8 @@ export function normalizeRestartInstallResult(raw: unknown): RestartInstallResul
   }
   const record = raw as { success?: unknown; error?: unknown };
   if (record.success === true) return { ok: true };
-  const error = typeof record.error === 'string' && record.error.length > 0
-    ? record.error
-    : undefined;
+  const error =
+    typeof record.error === 'string' && record.error.length > 0 ? record.error : undefined;
   return { ok: false, error };
 }
 

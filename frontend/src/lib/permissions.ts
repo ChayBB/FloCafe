@@ -1,8 +1,5 @@
 import type { Tenant } from '@/lib/types';
-import {
-  permissionDefaultAllows,
-  type PermissionId,
-} from '@shared/permissions';
+import { permissionDefaultAllows, type PermissionId } from '@shared/permissions';
 import { isRole } from '@shared/role-permissions';
 
 /** Client-side UX gate only; the backend always re-checks live authorization. */

@@ -21,9 +21,7 @@ export type GuestOrderLine = {
   special_instructions?: string;
 };
 
-export type ValidationResult =
-  | { ok: true; items: GuestOrderLine[] }
-  | { ok: false; error: string };
+export type ValidationResult = { ok: true; items: GuestOrderLine[] } | { ok: false; error: string };
 
 export type GuestTicketLine = {
   id: number;
@@ -48,19 +46,23 @@ export type GuestTicket = { order_number: string; items: GuestTicketLine[] } | n
  */
 export function tableTicket(tableId: string): GuestTicket {
   const db = getDatabase();
-  const order = db.prepare(`
+  const order = db
+    .prepare(`
     SELECT id, order_number, status FROM orders
     WHERE table_id = ? AND status NOT IN ('completed', 'cancelled')
     ORDER BY created_at DESC LIMIT 1
-  `).get(tableId) as { id: number; order_number: string; status: string } | undefined;
+  `)
+    .get(tableId) as { id: number; order_number: string; status: string } | undefined;
   if (!order) return null;
 
-  const items = db.prepare(`
+  const items = db
+    .prepare(`
     SELECT id, product_name, quantity, status, special_instructions
     FROM order_items
     WHERE order_id = ? AND status NOT IN ('cancelled', 'voided', 'void_adjustment', 'refunded')
     ORDER BY id
-  `).all(order.id) as GuestTicketLine[];
+  `)
+    .all(order.id) as GuestTicketLine[];
 
   return { order_number: order.order_number, items };
 }
@@ -85,19 +87,31 @@ export function validateGuestItems(rawItems: unknown): ValidationResult {
   for (const raw of rawItems as Record<string, unknown>[]) {
     const productId = String(raw?.product_id || '');
     const quantity = Number(raw?.quantity);
-    if (!productId || !Number.isInteger(quantity) || quantity < 1 || quantity > MAX_GUEST_QUANTITY) {
+    if (
+      !productId ||
+      !Number.isInteger(quantity) ||
+      quantity < 1 ||
+      quantity > MAX_GUEST_QUANTITY
+    ) {
       return { ok: false, error: 'Invalid item' };
     }
-    const sellable = db.prepare(`
+    const sellable = db
+      .prepare(`
       SELECT 1 FROM products p LEFT JOIN categories c ON c.id = p.category_id
       WHERE p.id = ? AND p.deleted_at IS NULL AND p.is_active = 1 AND (c.id IS NULL OR c.is_active = 1)
-    `).get(productId);
+    `)
+      .get(productId);
     if (!sellable) return { ok: false, error: 'Item is no longer available' };
 
-    const note = typeof raw?.special_instructions === 'string'
-      ? (raw.special_instructions as string).trim().slice(0, MAX_NOTE_LENGTH)
-      : '';
-    items.push({ product_id: productId, quantity, ...(note ? { special_instructions: note } : {}) });
+    const note =
+      typeof raw?.special_instructions === 'string'
+        ? (raw.special_instructions as string).trim().slice(0, MAX_NOTE_LENGTH)
+        : '';
+    items.push({
+      product_id: productId,
+      quantity,
+      ...(note ? { special_instructions: note } : {}),
+    });
   }
   return { ok: true, items };
 }
@@ -129,7 +143,11 @@ async function callPosApi(
   });
   const text = await response.text();
   let parsed: unknown = text;
-  try { parsed = JSON.parse(text); } catch { /* upstream error page */ }
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    /* upstream error page */
+  }
   return { status: response.status, body: parsed as Record<string, unknown> };
 }
 
@@ -150,11 +168,13 @@ export async function placeGuestOrder(
   options: { signal?: AbortSignal; idempotencyKey?: string } = {},
 ): Promise<PlacementResult> {
   const db = getDatabase();
-  const open = db.prepare(`
+  const open = db
+    .prepare(`
     SELECT id FROM orders
     WHERE table_id = ? AND status NOT IN ('completed', 'cancelled')
     ORDER BY created_at DESC LIMIT 1
-  `).get(tableId) as { id: number } | undefined;
+  `)
+    .get(tableId) as { id: number } | undefined;
 
   const result = open
     ? await callPosApi('POST', `/orders/${open.id}/items`, { items }, options)

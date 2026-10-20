@@ -25,7 +25,13 @@ const jwt = require('jsonwebtoken');
 const request = require('supertest');
 const Database = require('better-sqlite3');
 const {
-  initTestDb, createApp, assertEqual, getResults, getDatabase, closeDatabase, now,
+  initTestDb,
+  createApp,
+  assertEqual,
+  getResults,
+  getDatabase,
+  closeDatabase,
+  now,
 } = require('./helpers/test-setup');
 const { initDatabase, getDbPath } = require('../main/db');
 const { getJWTSecret, authRoutes } = require('../main/routes/auth');
@@ -46,7 +52,11 @@ async function run() {
     const second = new Database(getDbPath());
     second.exec('BEGIN EXCLUSIVE');
     try {
-      assertEqual(isTokenRevoked('locked-db-token'), true, 'locked revocation store fails closed (deny)');
+      assertEqual(
+        isTokenRevoked('locked-db-token'),
+        true,
+        'locked revocation store fails closed (deny)',
+      );
     } finally {
       second.exec('ROLLBACK');
       second.close();
@@ -63,13 +73,20 @@ async function run() {
 
   // ── 4. Missing revocation table (query failure) fails closed ────────────
   db.exec('DROP TABLE revoked_tokens');
-  assertEqual(isTokenRevoked('missing-table-token'), true, 'missing revoked_tokens table fails closed (deny)');
+  assertEqual(
+    isTokenRevoked('missing-table-token'),
+    true,
+    'missing revoked_tokens table fails closed (deny)',
+  );
 
   // ── 5. Route-level: valid token is denied when the store is unavailable ──
   {
     db.prepare(`INSERT INTO users (id, name, email, password, role, is_active, created_at, updated_at)
-      VALUES ('rev-owner-1', 'Rev Owner', 'rev-owner@test.local', ?, 'owner', 1, ?, ?)`)
-      .run(bcrypt.hashSync('Pass1234!', 10), now(), now());
+      VALUES ('rev-owner-1', 'Rev Owner', 'rev-owner@test.local', ?, 'owner', 1, ?, ?)`).run(
+      bcrypt.hashSync('Pass1234!', 10),
+      now(),
+      now(),
+    );
     const token = jwt.sign(
       { userId: 'rev-owner-1', email: 'rev-owner@test.local', role: 'owner' },
       getJWTSecret(),
@@ -77,13 +94,23 @@ async function run() {
     );
     const app = createApp({ '/api/auth': authRoutes });
     const res = await request(app).get('/api/auth/me').set('Authorization', `Bearer ${token}`);
-    assertEqual(res.status, 401, 'valid token is denied (401) when the revocation store is unavailable');
+    assertEqual(
+      res.status,
+      401,
+      'valid token is denied (401) when the revocation store is unavailable',
+    );
   }
 
   // ── 6. Closed database fails closed ─────────────────────────────────────
-  db.exec(`CREATE TABLE revoked_tokens (token_hash TEXT PRIMARY KEY, expires_at INTEGER, revoked_at TEXT)`);
+  db.exec(
+    `CREATE TABLE revoked_tokens (token_hash TEXT PRIMARY KEY, expires_at INTEGER, revoked_at TEXT)`,
+  );
   closeDatabase();
-  assertEqual(isTokenRevoked('closed-db-token'), true, 'closed revocation store fails closed (deny)');
+  assertEqual(
+    isTokenRevoked('closed-db-token'),
+    true,
+    'closed revocation store fails closed (deny)',
+  );
   initDatabase();
 
   const results = getResults();
@@ -100,7 +127,9 @@ run()
     fs.rmSync(testDir, { recursive: true, force: true });
   })
   .catch((err) => {
-    try { closeDatabase(); } catch { }
+    try {
+      closeDatabase();
+    } catch {}
     Module._load = originalLoad;
     fs.rmSync(testDir, { recursive: true, force: true });
     console.error(err);

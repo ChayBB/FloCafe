@@ -33,9 +33,16 @@ Module._load = function (request: string, parent: unknown, isMain: boolean) {
 };
 
 const {
-  assert: assertReports, assertEqual, assertIncludes, assertGreaterThan,
-  assertOrThrow, assertEqualOrThrow, assertIncludesOrThrow, assertGreaterThanOrThrow,
-  getResults, resetCounters,
+  assert: assertReports,
+  assertEqual,
+  assertIncludes,
+  assertGreaterThan,
+  assertOrThrow,
+  assertEqualOrThrow,
+  assertIncludesOrThrow,
+  assertGreaterThanOrThrow,
+  getResults,
+  resetCounters,
 } = require('./helpers/test-setup');
 
 function threw(fn: () => void): Error | null {
@@ -70,16 +77,36 @@ async function run() {
 
   // ── Throwing variants record the failure and abort ─────────────────────────
   const throwingFailures: Array<[string, () => void, string]> = [
-    ['assertOrThrow', () => assertOrThrow(false, 'deliberate throwing failure'), 'deliberate throwing failure'],
-    ['assertEqualOrThrow', () => assertEqualOrThrow(1, 2, 'deliberate throwing failure'), 'expected 2, got 1'],
-    ['assertIncludesOrThrow', () => assertIncludesOrThrow('abc', 'z', 'deliberate throwing failure'), 'does not contain'],
-    ['assertGreaterThanOrThrow', () => assertGreaterThanOrThrow(1, 2, 'deliberate throwing failure'), 'expected > 2, got 1'],
+    [
+      'assertOrThrow',
+      () => assertOrThrow(false, 'deliberate throwing failure'),
+      'deliberate throwing failure',
+    ],
+    [
+      'assertEqualOrThrow',
+      () => assertEqualOrThrow(1, 2, 'deliberate throwing failure'),
+      'expected 2, got 1',
+    ],
+    [
+      'assertIncludesOrThrow',
+      () => assertIncludesOrThrow('abc', 'z', 'deliberate throwing failure'),
+      'does not contain',
+    ],
+    [
+      'assertGreaterThanOrThrow',
+      () => assertGreaterThanOrThrow(1, 2, 'deliberate throwing failure'),
+      'expected > 2, got 1',
+    ],
   ];
   resetCounters();
   for (const [name, fn, detail] of throwingFailures) {
     const error = threw(fn);
     assert.ok(error, `${name} throws on a failing assertion`);
-    assert.match(error!.message, new RegExp(detail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `${name} reports why it failed`);
+    assert.match(
+      error!.message,
+      new RegExp(detail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+      `${name} reports why it failed`,
+    );
   }
   assert.deepEqual(
     getResults(),

@@ -100,7 +100,9 @@ export function setupWindowLoadRetry(
     if (transientErrors.includes(errorCode) && loadRetries < maxRetries) {
       loadRetries++;
       const delay = getDelay(loadRetries);
-      logger.info(`[Window] Retrying loadURL in ${delay}ms (attempt ${loadRetries}/${maxRetries})...`);
+      logger.info(
+        `[Window] Retrying loadURL in ${delay}ms (attempt ${loadRetries}/${maxRetries})...`,
+      );
       if (loadRetryTimer) clearTimeout(loadRetryTimer);
       loadRetryTimer = setTimeout(() => {
         loadRetryTimer = null;
@@ -114,7 +116,9 @@ export function setupWindowLoadRetry(
         clearTimeout(loadRetryTimer);
         loadRetryTimer = null;
       }
-      logger.error(`[Window] Exhausted loadURL retries (${maxRetries}) for ${validatedURL || getTargetUrl()}`);
+      logger.error(
+        `[Window] Exhausted loadURL retries (${maxRetries}) for ${validatedURL || getTargetUrl()}`,
+      );
       options?.onRetryExhausted?.({
         errorCode,
         errorDescription,
@@ -128,15 +132,18 @@ export function setupWindowLoadRetry(
     on: (event: string, listener: (...args: unknown[]) => void) => void;
   };
   webContents.on('did-finish-load', handleFinishLoad);
-  webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL, isMainFrame) => {
-    handleFailLoad(
-      event,
-      typeof errorCode === 'number' ? errorCode : 0,
-      String(errorDescription),
-      typeof validatedURL === 'string' ? validatedURL : undefined,
-      typeof isMainFrame === 'boolean' ? isMainFrame : true,
-    );
-  });
+  webContents.on(
+    'did-fail-load',
+    (event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+      handleFailLoad(
+        event,
+        typeof errorCode === 'number' ? errorCode : 0,
+        String(errorDescription),
+        typeof validatedURL === 'string' ? validatedURL : undefined,
+        typeof isMainFrame === 'boolean' ? isMainFrame : true,
+      );
+    },
+  );
 
   return {
     getRetries: () => loadRetries,

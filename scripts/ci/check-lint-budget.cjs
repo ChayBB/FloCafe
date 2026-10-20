@@ -79,18 +79,26 @@ for (const scope of SCOPES) {
     failed = true;
   }
   if (counts.exitCode !== 0 && counts.errors === 0) {
-    console.error(`oxlint exited ${counts.exitCode} for ${scope.name} without reporting a lint error.`);
+    console.error(
+      `oxlint exited ${counts.exitCode} for ${scope.name} without reporting a lint error.`,
+    );
     failed = true;
   }
   if (counts.warnings > limit) {
-    console.error(`Lint warning budget exceeded for ${scope.name}: ${counts.warnings} warnings (budget: ${limit}).`);
+    console.error(
+      `Lint warning budget exceeded for ${scope.name}: ${counts.warnings} warnings (budget: ${limit}).`,
+    );
     failed = true;
   } else {
-    console.log(`Lint warning budget OK for ${scope.name}: ${counts.warnings} warnings (budget: ${limit}).`);
+    console.log(
+      `Lint warning budget OK for ${scope.name}: ${counts.warnings} warnings (budget: ${limit}).`,
+    );
   }
 }
 
 if (failed) {
-  console.error('\nLower this by fixing warnings, not by raising the budget, unless the increase is a deliberate, reviewed tradeoff.');
+  console.error(
+    '\nLower this by fixing warnings, not by raising the budget, unless the increase is a deliberate, reviewed tradeoff.',
+  );
   process.exit(1);
 }

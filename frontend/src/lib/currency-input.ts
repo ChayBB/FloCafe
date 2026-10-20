@@ -42,11 +42,16 @@ export function groupAmountForDisplay(sanitized: string, format: AmountFormat): 
   if (!format.groupSeparator || !intPart) return sanitized;
   let grouped: string;
   try {
-    grouped = new Intl.NumberFormat(format.locale, { useGrouping: true, numberingSystem: 'latn' }).format(BigInt(intPart));
+    grouped = new Intl.NumberFormat(format.locale, {
+      useGrouping: true,
+      numberingSystem: 'latn',
+    }).format(BigInt(intPart));
   } catch {
     grouped = intPart;
   }
-  return rest.length ? `${grouped}${format.decimalSeparator}${rest.join(format.decimalSeparator)}` : grouped;
+  return rest.length
+    ? `${grouped}${format.decimalSeparator}${rest.join(format.decimalSeparator)}`
+    : grouped;
 }
 
 /** Parses a grouped, locale-separated display string back into a plain number, or null when empty/invalid. */
@@ -60,11 +65,15 @@ export function parseAmountInput(display: string, format: AmountFormat): number 
 /** Formats a plain number as the grouped, locale-separated string a CurrencyAmountInput should display. */
 export function formatAmountForDisplay(value: number, format: AmountFormat): string {
   const fixed = value.toFixed(format.currencyFractionDigits);
-  const localized = format.decimalSeparator === '.' ? fixed : fixed.replace('.', format.decimalSeparator);
+  const localized =
+    format.decimalSeparator === '.' ? fixed : fixed.replace('.', format.decimalSeparator);
   return groupAmountForDisplay(localized, format);
 }
 
-export function getDiscountInputStep(maxDecimals: number, discountType: CurrencyDiscountType): string {
+export function getDiscountInputStep(
+  maxDecimals: number,
+  discountType: CurrencyDiscountType,
+): string {
   return discountType === 'percentage' || maxDecimals === 0 ? '1' : '0.01';
 }
 

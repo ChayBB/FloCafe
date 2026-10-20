@@ -1,6 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { TaxEngine, applyPayableRounding, resolveTaxCategory, type TaxEngineLine } from '../main/services/tax-engine';
+import {
+  TaxEngine,
+  applyPayableRounding,
+  resolveTaxCategory,
+  type TaxEngineLine,
+} from '../main/services/tax-engine';
 import { calculateItemTax, previewCategoryRate } from '../main/services/tax';
 import type {
   CountryPack,
@@ -104,37 +109,52 @@ test('category resolution follows all six precedence steps', () => {
     categoryId: 'transaction',
     source: 'transaction_override',
   });
-  assert.equal(resolveTaxCategory(pack, { ...full, transactionCategoryId: undefined }).categoryId, 'merchant');
-  assert.equal(resolveTaxCategory(pack, {
-    ...full,
-    transactionCategoryId: undefined,
-    merchantCategoryId: undefined,
-  }).categoryId, 'explicit');
-  assert.equal(resolveTaxCategory(pack, {
-    ...full,
-    transactionCategoryId: undefined,
-    merchantCategoryId: undefined,
-    productCategoryId: undefined,
-  }).categoryId, 'parent');
-  assert.deepEqual(resolveTaxCategory(pack, {
-    ...full,
-    transactionCategoryId: undefined,
-    merchantCategoryId: undefined,
-    productCategoryId: undefined,
-    parentProductCategoryId: undefined,
-  }), { categoryId: 'addon-default', source: 'charge_default' });
+  assert.equal(
+    resolveTaxCategory(pack, { ...full, transactionCategoryId: undefined }).categoryId,
+    'merchant',
+  );
+  assert.equal(
+    resolveTaxCategory(pack, {
+      ...full,
+      transactionCategoryId: undefined,
+      merchantCategoryId: undefined,
+    }).categoryId,
+    'explicit',
+  );
+  assert.equal(
+    resolveTaxCategory(pack, {
+      ...full,
+      transactionCategoryId: undefined,
+      merchantCategoryId: undefined,
+      productCategoryId: undefined,
+    }).categoryId,
+    'parent',
+  );
+  assert.deepEqual(
+    resolveTaxCategory(pack, {
+      ...full,
+      transactionCategoryId: undefined,
+      merchantCategoryId: undefined,
+      productCategoryId: undefined,
+      parentProductCategoryId: undefined,
+    }),
+    { categoryId: 'addon-default', source: 'charge_default' },
+  );
 
   const withoutDefault = {
     ...pack,
     defaultCategories: { ...pack.defaultCategories, addon: '' },
   };
-  assert.deepEqual(resolveTaxCategory(withoutDefault, {
-    ...full,
-    transactionCategoryId: undefined,
-    merchantCategoryId: undefined,
-    productCategoryId: undefined,
-    parentProductCategoryId: undefined,
-  }), { categoryId: 'unclassified', source: 'unclassified' });
+  assert.deepEqual(
+    resolveTaxCategory(withoutDefault, {
+      ...full,
+      transactionCategoryId: undefined,
+      merchantCategoryId: undefined,
+      productCategoryId: undefined,
+      parentProductCategoryId: undefined,
+    }),
+    { categoryId: 'unclassified', source: 'unclassified' },
+  );
   assert.deepEqual(resolveTaxCategory(pack, { ...full, transactionExempt: true }), {
     categoryId: null,
     source: 'transaction_exemption',
@@ -154,15 +174,28 @@ test('compound percent tax uses acyclic line-local dependencies', () => {
     },
   ]);
   const result = calculate(pack, [line()]);
-  assert.deepEqual(result.lines[0].components.map((component) => component.amount), ['10.00', '5.50']);
+  assert.deepEqual(
+    result.lines[0].components.map((component) => component.amount),
+    ['10.00', '5.50'],
+  );
   assert.equal(result.lines[0].taxAmount, '15.50');
 
   const cyclic = packWith([
     {
-      id: 'a', label: 'A', type: 'percent', categoryIds: ['explicit'], rate: '1', baseRuleIds: ['b'],
+      id: 'a',
+      label: 'A',
+      type: 'percent',
+      categoryIds: ['explicit'],
+      rate: '1',
+      baseRuleIds: ['b'],
     },
     {
-      id: 'b', label: 'B', type: 'percent', categoryIds: ['explicit'], rate: '1', baseRuleIds: ['a'],
+      id: 'b',
+      label: 'B',
+      type: 'percent',
+      categoryIds: ['explicit'],
+      rate: '1',
+      baseRuleIds: ['a'],
     },
   ]);
   assert.throws(() => calculate(cyclic, [line()]), /dependency cycle/);
@@ -171,18 +204,31 @@ test('compound percent tax uses acyclic line-local dependencies', () => {
 test('fixed inclusive tax is removed before solving percent taxes', () => {
   const pack = packWith([
     {
-      id: 'fixed', label: 'Fixed', type: 'fixed', categoryIds: ['explicit'], amount: '10', appliesPer: 'line',
+      id: 'fixed',
+      label: 'Fixed',
+      type: 'fixed',
+      categoryIds: ['explicit'],
+      amount: '10',
+      appliesPer: 'line',
     },
     { id: 'vat', label: 'VAT', type: 'percent', categoryIds: ['explicit'], rate: '10' },
   ]);
   const result = calculate(pack, [line({ unitPrice: '120', taxBehavior: 'inclusive' })]);
   assert.equal(result.lines[0].taxableBase, '100.00');
-  assert.deepEqual(result.lines[0].components.map((component) => component.amount), ['10.00', '10.00']);
+  assert.deepEqual(
+    result.lines[0].components.map((component) => component.amount),
+    ['10.00', '10.00'],
+  );
   assert.equal(result.payableTotal, '120');
 
   const fixedInBase = packWith([
     {
-      id: 'fixed', label: 'Fixed', type: 'fixed', categoryIds: ['explicit'], amount: '10', appliesPer: 'line',
+      id: 'fixed',
+      label: 'Fixed',
+      type: 'fixed',
+      categoryIds: ['explicit'],
+      amount: '10',
+      appliesPer: 'line',
     },
     {
       id: 'vat',
@@ -195,7 +241,10 @@ test('fixed inclusive tax is removed before solving percent taxes', () => {
   ]);
   const based = calculate(fixedInBase, [line({ unitPrice: '120', taxBehavior: 'inclusive' })]);
   assert.equal(based.lines[0].taxableBase, '99.09');
-  assert.deepEqual(based.lines[0].components.map((component) => component.amount), ['10.00', '10.91']);
+  assert.deepEqual(
+    based.lines[0].components.map((component) => component.amount),
+    ['10.00', '10.91'],
+  );
 
   assert.throws(
     () => calculate(pack, [line({ unitPrice: '5', taxBehavior: 'inclusive' })]),
@@ -221,7 +270,11 @@ test('tax rounding implements all four methods', () => {
 
 test('unit, line, and document scopes round at their declared boundaries', () => {
   const rule: TaxRule = {
-    id: 'tax', label: 'Tax', type: 'percent', categoryIds: ['explicit'], rate: '5',
+    id: 'tax',
+    label: 'Tax',
+    type: 'percent',
+    categoryIds: ['explicit'],
+    rate: '5',
   };
   const unitPack = packWith([rule], { scope: 'unit' });
   assert.equal(
@@ -241,31 +294,44 @@ test('unit, line, and document scopes round at their declared boundaries', () =>
     line({ lineId: 'line-a', unitPrice: '0.10' }),
   ]);
   assert.equal(document.taxAmount, '0.01');
-  assert.deepEqual(document.lines.map((entry) => entry.taxAmount), ['0.00', '0.01']);
+  assert.deepEqual(
+    document.lines.map((entry) => entry.taxAmount),
+    ['0.00', '0.01'],
+  );
 });
 
 test('largest remainder ties sort by ruleId, then lineId', () => {
-  const ruleTie = packWith([
-    { id: 'b-rule', label: 'B', type: 'percent', categoryIds: ['explicit'], rate: '0.5' },
-    { id: 'a-rule', label: 'A', type: 'percent', categoryIds: ['explicit'], rate: '0.5' },
-  ], { scope: 'document' });
+  const ruleTie = packWith(
+    [
+      { id: 'b-rule', label: 'B', type: 'percent', categoryIds: ['explicit'], rate: '0.5' },
+      { id: 'a-rule', label: 'A', type: 'percent', categoryIds: ['explicit'], rate: '0.5' },
+    ],
+    { scope: 'document' },
+  );
   const byRule = calculate(ruleTie, [line({ unitPrice: '1' })]);
   assert.deepEqual(
     byRule.lines[0].components.map((component) => [component.ruleId, component.amount]),
-    [['b-rule', '0.00'], ['a-rule', '0.01']],
+    [
+      ['b-rule', '0.00'],
+      ['a-rule', '0.01'],
+    ],
   );
 
-  const lineTie = packWith([
-    { id: 'tax', label: 'Tax', type: 'percent', categoryIds: ['explicit'], rate: '0.5' },
-  ], { scope: 'document' });
+  const lineTie = packWith(
+    [{ id: 'tax', label: 'Tax', type: 'percent', categoryIds: ['explicit'], rate: '0.5' }],
+    { scope: 'document' },
+  );
   const byLine = calculate(lineTie, [
     line({ lineId: 'z-line', unitPrice: '1' }),
     line({ lineId: 'a-line', unitPrice: '1' }),
   ]);
-  assert.deepEqual(byLine.lines.map((entry) => [entry.lineId, entry.taxAmount]), [
-    ['z-line', '0.00'],
-    ['a-line', '0.01'],
-  ]);
+  assert.deepEqual(
+    byLine.lines.map((entry) => [entry.lineId, entry.taxAmount]),
+    [
+      ['z-line', '0.00'],
+      ['a-line', '0.01'],
+    ],
+  );
 });
 
 test('payable rounding is independent and implements all four methods', () => {
@@ -353,9 +419,11 @@ test('dual-rate and flat-rate packs reproduce current fixed behavior as data', (
     [{ title: 'Tax C', rate: 5, amount: 5 }],
   );
 
-  const flat = calculate(flatRatePack, [
-    line({ unitPrice: '100', productCategoryId: 'standard', taxBehavior: 'exclusive' }),
-  ], { businessType: 'restaurant' });
+  const flat = calculate(
+    flatRatePack,
+    [line({ unitPrice: '100', productCategoryId: 'standard', taxBehavior: 'exclusive' })],
+    { businessType: 'restaurant' },
+  );
   assert.deepEqual(
     flat.lines[0].components.map((component) => ({
       title: component.label,
@@ -364,32 +432,52 @@ test('dual-rate and flat-rate packs reproduce current fixed behavior as data', (
     })),
     [{ title: 'Tax', rate: 7, amount: 7 }],
   );
-  assert.equal(dualRatePack.rules.every((rule) => rule.rate !== undefined), true);
+  assert.equal(
+    dualRatePack.rules.every((rule) => rule.rate !== undefined),
+    true,
+  );
   assert.equal(flatRatePack.rules[0].rate, '7');
 });
 
 test('unclassified products are taxed at the standard rate, never silently zero', () => {
-  const dual = calculate(dualRatePack, [
-    line({ unitPrice: '1000', productCategoryId: 'unclassified', taxBehavior: 'exclusive' }),
-  ], { businessType: 'restaurant', storeStateCode: 'KA' });
+  const dual = calculate(
+    dualRatePack,
+    [line({ unitPrice: '1000', productCategoryId: 'unclassified', taxBehavior: 'exclusive' })],
+    { businessType: 'restaurant', storeStateCode: 'KA' },
+  );
   assert.equal(dual.lines[0].taxAmount, '50.00');
   assert.deepEqual(
     dual.lines[0].components.map((component) => [component.label, component.amount]),
-    [['Tax A', '25.00'], ['Tax B', '25.00']],
+    [
+      ['Tax A', '25.00'],
+      ['Tax B', '25.00'],
+    ],
   );
 
-  const flat = calculate(flatRatePack, [
-    line({ unitPrice: '100', productCategoryId: 'unclassified', taxBehavior: 'exclusive' }),
-  ], { businessType: 'restaurant' });
+  const flat = calculate(
+    flatRatePack,
+    [line({ unitPrice: '100', productCategoryId: 'unclassified', taxBehavior: 'exclusive' })],
+    { businessType: 'restaurant' },
+  );
   assert.deepEqual(
     flat.lines[0].components.map((component) => [component.label, component.amount]),
     [['Tax', '7.00']],
   );
 
-  const dualUnclassified = dualRatePack.categories.find((category) => category.id === 'unclassified')!;
-  const flatUnclassified = flatRatePack.categories.find((category) => category.id === 'unclassified')!;
-  assert.ok(dualUnclassified.ruleIds.length > 0, 'dual-rate unclassified category must carry real tax rules');
-  assert.ok(flatUnclassified.ruleIds.length > 0, 'flat-rate unclassified category must carry real tax rules');
+  const dualUnclassified = dualRatePack.categories.find(
+    (category) => category.id === 'unclassified',
+  )!;
+  const flatUnclassified = flatRatePack.categories.find(
+    (category) => category.id === 'unclassified',
+  )!;
+  assert.ok(
+    dualUnclassified.ruleIds.length > 0,
+    'dual-rate unclassified category must carry real tax rules',
+  );
+  assert.ok(
+    flatUnclassified.ruleIds.length > 0,
+    'flat-rate unclassified category must carry real tax rules',
+  );
 });
 
 test('products without a resolved tax category charge no tax, regardless of legacy tax_type/tax_rate', () => {
@@ -427,8 +515,20 @@ test('previewCategoryRate only counts rules the category actually claims via rul
   // claims via ruleIds, so checkout silently excludes 'orphan'. Before this
   // fix, previewCategoryRate selected by rule.categoryIds alone and would
   // have shown the merchant a rate (14%) checkout never actually charges.
-  const realRule: TaxRule = { id: 'real', label: 'Real Tax', type: 'percent', categoryIds: ['standard'], rate: '5' };
-  const orphanRule: TaxRule = { id: 'orphan', label: 'Orphan Tax', type: 'percent', categoryIds: ['standard'], rate: '9' };
+  const realRule: TaxRule = {
+    id: 'real',
+    label: 'Real Tax',
+    type: 'percent',
+    categoryIds: ['standard'],
+    rate: '5',
+  };
+  const orphanRule: TaxRule = {
+    id: 'orphan',
+    label: 'Orphan Tax',
+    type: 'percent',
+    categoryIds: ['standard'],
+    rate: '9',
+  };
   const pack: CountryPack = {
     ...packWith([realRule, orphanRule]),
     categories: [
@@ -438,12 +538,17 @@ test('previewCategoryRate only counts rules the category actually claims via rul
   };
 
   const preview = previewCategoryRate(pack, 'restaurant', 'standard');
-  assert.deepEqual(preview, { percent: 5, label: 'Real Tax 5%' },
-    'preview only counts the rule the category actually claims via ruleIds, not every rule that merely names the category');
+  assert.deepEqual(
+    preview,
+    { percent: 5, label: 'Real Tax 5%' },
+    'preview only counts the rule the category actually claims via ruleIds, not every rule that merely names the category',
+  );
 
-  const result = calculate(pack, [
-    line({ unitPrice: '100', productCategoryId: 'standard', taxBehavior: 'exclusive' }),
-  ], { businessType: 'restaurant' });
+  const result = calculate(
+    pack,
+    [line({ unitPrice: '100', productCategoryId: 'standard', taxBehavior: 'exclusive' })],
+    { businessType: 'restaurant' },
+  );
   assert.deepEqual(
     result.lines[0].components.map((component) => [component.label, component.amount]),
     [['Real Tax', '5.00']],

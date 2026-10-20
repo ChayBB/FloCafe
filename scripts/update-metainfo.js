@@ -19,7 +19,10 @@ const version = pkg.version;
 const date = new Date().toISOString().slice(0, 10);
 
 let notes = '';
-if (process.env.RELEASE_NOTES_FILE && require('node:fs').existsSync(process.env.RELEASE_NOTES_FILE)) {
+if (
+  process.env.RELEASE_NOTES_FILE &&
+  require('node:fs').existsSync(process.env.RELEASE_NOTES_FILE)
+) {
   notes = readFileSync(process.env.RELEASE_NOTES_FILE, 'utf8').trim();
 }
 if (!notes && require('node:fs').existsSync('/tmp/release-notes.md')) {
@@ -74,4 +77,6 @@ if (updated === xml) {
   throw new Error(`could not insert release ${version}: <releases> element was not recognized`);
 }
 writeFileSync(META_FILE, updated);
-console.log(`prepended <release version="${version}" date="${date}"> to ${path.basename(META_FILE)}`);
+console.log(
+  `prepended <release version="${version}" date="${date}"> to ${path.basename(META_FILE)}`,
+);

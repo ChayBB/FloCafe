@@ -15,9 +15,7 @@ import * as os from 'os';
 import * as path from 'path';
 
 const ROOT = path.join(__dirname, '..');
-const EVIDENCE_DIR =
-  process.env.EVIDENCE_DIR ||
-  path.join(os.tmpdir(), 'flo-ssr-evidence');
+const EVIDENCE_DIR = process.env.EVIDENCE_DIR || path.join(os.tmpdir(), 'flo-ssr-evidence');
 
 const Module = require('module');
 const frontendRequire = Module.createRequire(path.join(ROOT, 'frontend/package.json'));
@@ -26,7 +24,12 @@ const moduleApi = require('module') as {
   _resolveFilename: (...args: any[]) => string;
 };
 const originalResolveFilename = moduleApi._resolveFilename;
-moduleApi._resolveFilename = function (request: string, parent: any, isMain: boolean, options?: any) {
+moduleApi._resolveFilename = function (
+  request: string,
+  parent: any,
+  isMain: boolean,
+  options?: any,
+) {
   let resolvedRequest = request;
   if (request.startsWith('@/')) {
     resolvedRequest = path.resolve(ROOT, 'frontend/src', request.slice(2));
@@ -45,7 +48,11 @@ React.useSyncExternalStore = function (subscribe: any, getSnapshot: any, getServ
 };
 
 const { IntlProvider, useFormatter, useTranslations } = frontendRequire('use-intl');
-const { I18nProvider, handleI18nError, getDefaultTimeZone } = require('../frontend/src/components/providers/I18nProvider');
+const {
+  I18nProvider,
+  handleI18nError,
+  getDefaultTimeZone,
+} = require('../frontend/src/components/providers/I18nProvider');
 const { LANGUAGES } = require('../frontend/src/lib/i18n/languages');
 const { loadLocaleMessages, getCachedMessages } = require('../frontend/src/lib/i18n/loader');
 const { usePosSettingsStore } = require('../frontend/src/store/pos-settings');
@@ -59,7 +66,11 @@ interface ScreenshotTask {
   outputPath: string;
 }
 
-async function renderScreenshotsWithPlaywright(tasks: ScreenshotTask[], width = 700, height = 400): Promise<void> {
+async function renderScreenshotsWithPlaywright(
+  tasks: ScreenshotTask[],
+  width = 700,
+  height = 400,
+): Promise<void> {
   let browser: any;
   try {
     const { chromium } = frontendRequire('playwright');
@@ -80,7 +91,9 @@ async function renderScreenshotsWithPlaywright(tasks: ScreenshotTask[], width = 
   } catch (err: any) {
     if (process.env.REQUIRE_VISUAL_EVIDENCE === '1') throw err;
     // Non-fatal if headless browser cannot be spawned in restricted CI/sandbox
-    console.log(`  ℹ Screenshot generation skipped (${err?.message?.split('\n')[0] || 'browser unavailable'})`);
+    console.log(
+      `  ℹ Screenshot generation skipped (${err?.message?.split('\n')[0] || 'browser unavailable'})`,
+    );
   } finally {
     if (browser) await browser.close().catch(() => undefined);
   }
@@ -201,23 +214,37 @@ async function run(): Promise<void> {
 
     // 1. Verify getDefaultTimeZone produces a valid non-empty timezone
     const tz = getDefaultTimeZone();
-    assert(typeof tz === 'string' && tz.length > 0, 'getDefaultTimeZone must return a non-empty string');
+    assert(
+      typeof tz === 'string' && tz.length > 0,
+      'getDefaultTimeZone must return a non-empty string',
+    );
     console.log(`  ✓ getDefaultTimeZone() returns "${tz}"`);
 
     // 2. Exercise the production handleI18nError callback exported by I18nProvider
-    assert(typeof handleI18nError === 'function', 'handleI18nError must be exported by I18nProvider');
+    assert(
+      typeof handleI18nError === 'function',
+      'handleI18nError must be exported by I18nProvider',
+    );
 
     // Verify ENVIRONMENT_FALLBACK is suppressed by production callback
     loggedErrors = [];
     handleI18nError({ code: 'ENVIRONMENT_FALLBACK', message: 'Environment fallback warning' });
-    assert(loggedErrors.length === 0, 'ENVIRONMENT_FALLBACK must be suppressed by handleI18nError without calling console.error');
+    assert(
+      loggedErrors.length === 0,
+      'ENVIRONMENT_FALLBACK must be suppressed by handleI18nError without calling console.error',
+    );
     console.log('  ✓ ENVIRONMENT_FALLBACK suppressed by production handleI18nError');
 
     // Verify non-ENVIRONMENT_FALLBACK errors are forwarded to console.error by production callback
     loggedErrors = [];
     handleI18nError({ code: 'MISSING_MESSAGE', message: 'Missing message test error' });
-    assert(loggedErrors.length > 0, 'Non-ENVIRONMENT_FALLBACK errors must be forwarded to console.error by handleI18nError');
-    console.log('  ✓ Other error codes (e.g. MISSING_MESSAGE) are forwarded to console.error by production handleI18nError');
+    assert(
+      loggedErrors.length > 0,
+      'Non-ENVIRONMENT_FALLBACK errors must be forwarded to console.error by handleI18nError',
+    );
+    console.log(
+      '  ✓ Other error codes (e.g. MISSING_MESSAGE) are forwarded to console.error by production handleI18nError',
+    );
 
     // 3. SSR render inside I18nProvider
     loggedErrors = [];
@@ -225,9 +252,17 @@ async function run(): Promise<void> {
       React.createElement(I18nProvider, null, React.createElement(DateDisplay)),
     );
 
-    assert(ssrHtml.includes('date-val'), 'SSR render of DateDisplay inside I18nProvider must produce valid HTML');
-    assert(loggedErrors.length === 0, `SSR render produced unexpected console errors: ${JSON.stringify(loggedErrors)}`);
-    console.log('  ✓ I18nProvider rendered DateDisplay in SSR with zero console errors or warnings');
+    assert(
+      ssrHtml.includes('date-val'),
+      'SSR render of DateDisplay inside I18nProvider must produce valid HTML',
+    );
+    assert(
+      loggedErrors.length === 0,
+      `SSR render produced unexpected console errors: ${JSON.stringify(loggedErrors)}`,
+    );
+    console.log(
+      '  ✓ I18nProvider rendered DateDisplay in SSR with zero console errors or warnings',
+    );
   } finally {
     console.error = originalConsoleError;
   }
@@ -281,11 +316,7 @@ async function run(): Promise<void> {
     let markup = '';
     try {
       markup = ReactDOMServer.renderToString(
-        React.createElement(
-          I18nProvider,
-          null,
-          React.createElement(FormattedDateTimeWidget),
-        ),
+        React.createElement(I18nProvider, null, React.createElement(FormattedDateTimeWidget)),
       );
     } catch (err) {
       errorCaught = true;
@@ -318,7 +349,9 @@ async function run(): Promise<void> {
 
   await renderScreenshotsWithPlaywright(screenshotTasks);
 
-  console.log(`\n✅ All ${generatedArtifacts.length} evidence artifacts generated in ${EVIDENCE_DIR}`);
+  console.log(
+    `\n✅ All ${generatedArtifacts.length} evidence artifacts generated in ${EVIDENCE_DIR}`,
+  );
 }
 
 run().catch((err) => {

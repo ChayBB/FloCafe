@@ -8,7 +8,11 @@ import assert from 'assert';
 import { parseScaleBarcode, resolveScannedProduct } from '../frontend/src/lib/scale-barcode';
 
 const parsed = parseScaleBarcode('2101234012507');
-assert.deepEqual(parsed, { plu: '01234', quantity: 1.25 }, 'default scale barcode parses prefix, PLU, and grams');
+assert.deepEqual(
+  parsed,
+  { plu: '01234', quantity: 1.25 },
+  'default scale barcode parses prefix, PLU, and grams',
+);
 
 assert.equal(parseScaleBarcode('9901234012507'), null, 'non-scale prefix is ignored');
 assert.equal(parseScaleBarcode('2101234000007'), null, 'zero-weight scale labels are ignored');
@@ -145,7 +149,11 @@ assert.deepEqual(
   'pound sale units convert from label grams',
 );
 
-assert.equal(resolveScannedProduct('2156789012507', products), null, 'non-fractional products do not resolve scale labels');
+assert.equal(
+  resolveScannedProduct('2156789012507', products),
+  null,
+  'non-fractional products do not resolve scale labels',
+);
 
 const largeVariant = {
   id: 'var-large',
@@ -164,8 +172,18 @@ const largeVariant = {
   is_active: true,
   sort_order: 0,
 };
-const retiredVariant = { ...largeVariant, id: 'var-retired', name: 'Retired', barcode: 'VAR-2', is_active: false };
-const variantProduct = { ...products[1], barcode: 'PROD-1', variants: [largeVariant, retiredVariant] };
+const retiredVariant = {
+  ...largeVariant,
+  id: 'var-retired',
+  name: 'Retired',
+  barcode: 'VAR-2',
+  is_active: false,
+};
+const variantProduct = {
+  ...products[1],
+  barcode: 'PROD-1',
+  variants: [largeVariant, retiredVariant],
+};
 
 assert.deepEqual(
   resolveScannedProduct('VAR-1', [variantProduct]),

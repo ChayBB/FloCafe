@@ -28,8 +28,12 @@ class RasterSurfaceStub {
     send: () => {},
     loadURL: async () => {},
   };
-  isDestroyed() { return this.destroyed; }
-  close() { this.destroyed = true; }
+  isDestroyed() {
+    return this.destroyed;
+  }
+  close() {
+    this.destroyed = true;
+  }
   on() {}
   removeListener() {}
 }
@@ -49,7 +53,15 @@ process.env.JWT_SECRET = 'test-secret-print-menu-printer-selection';
 
 const assert = require('node:assert/strict');
 const {
-  initTestDb, createApp, startServer, seedOwnerUser, seedCategory, seedProduct, api, closeDatabase, now,
+  initTestDb,
+  createApp,
+  startServer,
+  seedOwnerUser,
+  seedCategory,
+  seedProduct,
+  api,
+  closeDatabase,
+  now,
 } = require('./helpers/test-setup');
 const { printerRoutes } = require('../main/routes/printers');
 const { destroySharedRasterRenderer } = require('../main/printers/raster-renderer');
@@ -96,43 +108,87 @@ async function main() {
     return res.data.printer.id;
   };
 
-  const printMenu = (body: Record<string, unknown>) => api(baseUrl, '/api/printers/print-menu', {
-    method: 'POST',
-    headers: owner.authHeader,
-    body,
-  });
+  const printMenu = (body: Record<string, unknown>) =>
+    api(baseUrl, '/api/printers/print-menu', {
+      method: 'POST',
+      headers: owner.authHeader,
+      body,
+    });
 
   try {
     const frontCounterId = await createPrinter('Front Counter Printer', true);
     const backBarId = await createPrinter('Back Bar Printer', false);
 
     const explicit = await printMenu({ printerId: backBarId });
-    assert.equal(explicit.status, 200, `an explicit printerId prints the menu (${JSON.stringify(explicit.data)})`);
-    assert.equal(explicit.data.printerName, 'Back Bar Printer', 'the picked printer is the one printed to');
-    assert.ok(Array.isArray(explicit.data.bytes) && explicit.data.bytes.length > 0, 'the picked printer receives the encoded menu');
+    assert.equal(
+      explicit.status,
+      200,
+      `an explicit printerId prints the menu (${JSON.stringify(explicit.data)})`,
+    );
+    assert.equal(
+      explicit.data.printerName,
+      'Back Bar Printer',
+      'the picked printer is the one printed to',
+    );
+    assert.ok(
+      Array.isArray(explicit.data.bytes) && explicit.data.bytes.length > 0,
+      'the picked printer receives the encoded menu',
+    );
 
     const byDefault = await printMenu({});
-    assert.equal(byDefault.status, 200, `omitting printerId still prints the menu (${JSON.stringify(byDefault.data)})`);
-    assert.equal(byDefault.data.printerName, 'Front Counter Printer', 'omitting printerId keeps the configured default in charge');
+    assert.equal(
+      byDefault.status,
+      200,
+      `omitting printerId still prints the menu (${JSON.stringify(byDefault.data)})`,
+    );
+    assert.equal(
+      byDefault.data.printerName,
+      'Front Counter Printer',
+      'omitting printerId keeps the configured default in charge',
+    );
 
     const widthOverride = await printMenu({ printerId: backBarId, paperWidth: 58 });
-    assert.equal(widthOverride.status, 200, `an explicit printerId still honours paperWidth (${JSON.stringify(widthOverride.data)})`);
-    assert.equal(widthOverride.data.printerName, 'Back Bar Printer', 'choosing a paper width does not change which printer is targeted');
+    assert.equal(
+      widthOverride.status,
+      200,
+      `an explicit printerId still honours paperWidth (${JSON.stringify(widthOverride.data)})`,
+    );
+    assert.equal(
+      widthOverride.data.printerName,
+      'Back Bar Printer',
+      'choosing a paper width does not change which printer is targeted',
+    );
 
     const unknown = await printMenu({ printerId: 'no-such-printer' });
     assert.equal(unknown.status, 404, `an unknown printerId is refused (${unknown.status})`);
-    assert.equal(unknown.data.code, 'printer_not_found', 'an unknown printerId is refused as printer_not_found');
+    assert.equal(
+      unknown.data.code,
+      'printer_not_found',
+      'an unknown printerId is refused as printer_not_found',
+    );
 
     const numericId = await printMenu({ printerId: 999999 });
     assert.equal(numericId.status, 400, `a numeric printerId is rejected (${numericId.status})`);
-    assert.equal(numericId.data.error, 'printerId must be a string', 'a numeric printerId reports the expected message');
+    assert.equal(
+      numericId.data.error,
+      'printerId must be a string',
+      'a numeric printerId reports the expected message',
+    );
 
     const selectedByDefault = await printMenu({ printerId: frontCounterId });
-    assert.equal(selectedByDefault.data.printerName, 'Front Counter Printer', 'picking the default printer explicitly is also honoured');
+    assert.equal(
+      selectedByDefault.data.printerName,
+      'Front Counter Printer',
+      'picking the default printer explicitly is also honoured',
+    );
 
     const malformed = await printMenu({ printerId: { id: backBarId } });
     assert.equal(malformed.status, 400, `a non-scalar printerId is rejected (${malformed.status})`);
-    assert.equal(malformed.data.error, 'printerId must be a string', 'a non-scalar printerId reports the expected message');
+    assert.equal(
+      malformed.data.error,
+      'printerId must be a string',
+      'a non-scalar printerId reports the expected message',
+    );
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
@@ -147,7 +203,9 @@ async function main() {
 }
 
 main().catch((error) => {
-  try { closeDatabase(); } catch { }
+  try {
+    closeDatabase();
+  } catch {}
   console.error(error);
   process.exit(1);
 });

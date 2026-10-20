@@ -57,7 +57,7 @@ async function main() {
   const custId = 'cust-auth-test-001';
   db.prepare(
     `INSERT OR IGNORE INTO customers (id, name, phone, is_active, created_at, updated_at)
-     VALUES (?, ?, ?, 1, ?, ?)`
+     VALUES (?, ?, ?, 1, ?, ?)`,
   ).run(custId, 'Auth Test Customer', '5550000001', now(), now());
 
   // Seed users for role checks — requirePermission() resolves effective
@@ -66,7 +66,7 @@ async function main() {
   function seedRoleUser(id: string, role: string, email: string) {
     db.prepare(
       `INSERT OR IGNORE INTO users (id, name, email, password, role, is_active, created_at, updated_at)
-       VALUES (?, ?, ?, 'unused', ?, 1, ?, ?)`
+       VALUES (?, ?, ?, 'unused', ?, 1, ?, ?)`,
     ).run(id, id, email, role, now(), now());
   }
   seedRoleUser('owner-auth-001', 'owner', 'owner@auth.test');
@@ -75,22 +75,22 @@ async function main() {
   seedRoleUser('server-auth-001', 'server', 'server@auth.test');
   seedRoleUser('chef-auth-001', 'chef', 'chef@auth.test');
 
-  const ownerAuth   = makeToken('owner-auth-001',   'owner',   'owner@auth.test');
-  const managerAuth = makeToken('mgr-auth-001',     'manager', 'manager@auth.test');
+  const ownerAuth = makeToken('owner-auth-001', 'owner', 'owner@auth.test');
+  const managerAuth = makeToken('mgr-auth-001', 'manager', 'manager@auth.test');
   const cashierAuth = makeToken('cashier-auth-001', 'cashier', 'cashier@auth.test');
-  const waiterAuth  = makeToken('server-auth-001',  'server',  'server@auth.test');
-  const chefAuth    = makeToken('chef-auth-001',    'chef',    'chef@auth.test');
+  const waiterAuth = makeToken('server-auth-001', 'server', 'server@auth.test');
+  const chefAuth = makeToken('chef-auth-001', 'chef', 'chef@auth.test');
 
   const app = createApp({ '/api/customers': customerRoutes });
 
   console.log('\n── 1. Unauthenticated requests must return 401 ──────────────');
 
   const unauthCases: Array<[string, string, object?]> = [
-    ['GET',    '/api/customers/'],
-    ['GET',    `/api/customers/${custId}`],
-    ['GET',    `/api/customers/${custId}/wallet`],
-    ['POST',   '/api/customers/', { name: 'Attacker', phone: '5559999999' }],
-    ['PUT',    `/api/customers/${custId}`, { name: 'Modified' }],
+    ['GET', '/api/customers/'],
+    ['GET', `/api/customers/${custId}`],
+    ['GET', `/api/customers/${custId}/wallet`],
+    ['POST', '/api/customers/', { name: 'Attacker', phone: '5559999999' }],
+    ['PUT', `/api/customers/${custId}`, { name: 'Modified' }],
     ['DELETE', '/api/customers/admin/cleanup'],
   ];
 
@@ -103,14 +103,23 @@ async function main() {
 
   console.log('\n── 2. Read endpoints: cashier + server allowed ──────────────');
 
-  for (const [label, auth] of [['cashier', cashierAuth], ['server', waiterAuth]]) {
-    const listRes = await request(app).get('/api/customers/').set(auth as any);
+  for (const [label, auth] of [
+    ['cashier', cashierAuth],
+    ['server', waiterAuth],
+  ]) {
+    const listRes = await request(app)
+      .get('/api/customers/')
+      .set(auth as any);
     assertEqual(listRes.status, 200, `${label} can GET /api/customers/`);
 
-    const getRes = await request(app).get(`/api/customers/${custId}`).set(auth as any);
+    const getRes = await request(app)
+      .get(`/api/customers/${custId}`)
+      .set(auth as any);
     assertEqual(getRes.status, 200, `${label} can GET /api/customers/:id`);
 
-    const walletRes = await request(app).get(`/api/customers/${custId}/wallet`).set(auth as any);
+    const walletRes = await request(app)
+      .get(`/api/customers/${custId}/wallet`)
+      .set(auth as any);
     assertEqual(walletRes.status, 200, `${label} can GET /api/customers/:id/wallet`);
   }
 
@@ -126,7 +135,11 @@ async function main() {
 
   // Cashiers can correct a customer's name/phone from the POS (e.g. a typo
   // caught at checkout). There's no DELETE to worry about — see 4b below.
-  for (const [label, auth] of [['cashier', cashierAuth], ['manager', managerAuth], ['owner', ownerAuth]]) {
+  for (const [label, auth] of [
+    ['cashier', cashierAuth],
+    ['manager', managerAuth],
+    ['owner', ownerAuth],
+  ]) {
     const putRes = await request(app)
       .put(`/api/customers/${custId}`)
       .set(auth as any)
@@ -142,7 +155,11 @@ async function main() {
   // Assert this for the highest-privilege role too, so the route can't
   // quietly come back gated behind "owner only".
   const ownerDeleteRes = await request(app).delete(`/api/customers/${custId}`).set(ownerAuth);
-  assertEqual(ownerDeleteRes.status, 404, 'DELETE /api/customers/:id does not exist, even for owner');
+  assertEqual(
+    ownerDeleteRes.status,
+    404,
+    'DELETE /api/customers/:id does not exist, even for owner',
+  );
 
   const stillActive = db.prepare('SELECT is_active FROM customers WHERE id = ?').get(custId) as any;
   assertEqual(stillActive.is_active, 1, 'customer row is untouched — not soft-deleted');
@@ -175,7 +192,9 @@ main()
     console.log('\n✅ Customer auth tests passed');
   })
   .catch((error) => {
-    try { closeDatabase(); } catch { }
+    try {
+      closeDatabase();
+    } catch {}
     Module._load = originalLoad;
     fs.rmSync(testDir, { recursive: true, force: true });
     console.error(error);

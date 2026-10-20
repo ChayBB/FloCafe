@@ -28,7 +28,9 @@ function main() {
     .sort((a, b) => b.length - a.length);
 
   if (offenders.length > 0) {
-    console.error(`\npackage.json scripts too long for cmd.exe (limit ${CMD_LIMIT}, allowed ${MAX}):\n`);
+    console.error(
+      `\npackage.json scripts too long for cmd.exe (limit ${CMD_LIMIT}, allowed ${MAX}):\n`,
+    );
     for (const { name, length } of offenders) {
       console.error(`  ${name}: ${length} characters`);
     }
@@ -38,10 +40,14 @@ function main() {
     process.exit(1);
   }
 
-  const longest = Object.entries(scripts)
-    .reduce((worst, [name, command]) => (command.length > worst.length ? { name, length: command.length } : worst),
-      { name: '(none)', length: 0 });
-  console.log(`Script command lengths OK: longest is ${longest.name} at ${longest.length} of ${MAX} allowed.`);
+  const longest = Object.entries(scripts).reduce(
+    (worst, [name, command]) =>
+      command.length > worst.length ? { name, length: command.length } : worst,
+    { name: '(none)', length: 0 },
+  );
+  console.log(
+    `Script command lengths OK: longest is ${longest.name} at ${longest.length} of ${MAX} allowed.`,
+  );
 }
 
 main();

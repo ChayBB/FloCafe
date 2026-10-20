@@ -10,13 +10,19 @@ const os = require('os');
 const path = require('path');
 const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-print-kds-resilience-'));
 Module._load = function (request: string, parent: unknown, isMain: boolean) {
-  if (request === 'electron') return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
+  if (request === 'electron')
+    return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
   return originalLoad.apply(this, arguments as any);
 };
 
 const moduleApi = require('module') as { _resolveFilename: (...args: any[]) => string };
 const originalResolveFilename = moduleApi._resolveFilename;
-moduleApi._resolveFilename = function (request: string, parent: any, isMain: boolean, options?: any) {
+moduleApi._resolveFilename = function (
+  request: string,
+  parent: any,
+  isMain: boolean,
+  options?: any,
+) {
   let resolvedRequest = request;
   if (request.startsWith('@print/')) {
     resolvedRequest = path.resolve(__dirname, '../shared/print', request.slice('@print/'.length));
@@ -29,8 +35,12 @@ moduleApi._resolveFilename = function (request: string, parent: any, isMain: boo
 };
 
 const {
-  initTestDb, assert, assertEqual, assertIncludes,
-  getResults, closeDatabase,
+  initTestDb,
+  assert,
+  assertEqual,
+  assertIncludes,
+  getResults,
+  closeDatabase,
 } = require('./helpers/test-setup');
 
 const { printWebBill } = require('../frontend/src/lib/printer/web-print');
@@ -41,7 +51,12 @@ const { EventEmitter } = require('events');
 const { WebSocket } = require('ws');
 
 type MockWindow = {
-  document: { open: () => void; write: (_html: string) => void; close: () => void; readyState: string };
+  document: {
+    open: () => void;
+    write: (_html: string) => void;
+    close: () => void;
+    readyState: string;
+  };
   closed: boolean;
   printCalls: number;
   print: () => void;
@@ -58,7 +73,9 @@ function createMockWindow(readyState: string): MockWindow {
     },
     closed: false,
     printCalls: 0,
-    print: () => { win.printCalls += 1; },
+    print: () => {
+      win.printCalls += 1;
+    },
     onload: null,
   };
   return win;
@@ -130,7 +147,11 @@ async function testWebPrintSingleTrigger(): Promise<void> {
     await printPromise;
     if (mockWindow.onload) mockWindow.onload();
 
-    assertEqual(mockWindow.printCalls, 1, `window.print called once (got ${mockWindow.printCalls})`);
+    assertEqual(
+      mockWindow.printCalls,
+      1,
+      `window.print called once (got ${mockWindow.printCalls})`,
+    );
   } finally {
     (global as any).window = originalWindow;
   }
@@ -145,7 +166,9 @@ class StallAfterConnectSocket extends EventEmitter {
 
   connect(_port: number, _host: string, cb?: () => void): this {
     this.connectCb = cb;
-    process.nextTick(() => { if (this.connectCb) this.connectCb(); });
+    process.nextTick(() => {
+      if (this.connectCb) this.connectCb();
+    });
     return this;
   }
 
@@ -175,7 +198,9 @@ class StallAfterConnectSocket extends EventEmitter {
 }
 
 async function testThermalPhaseAwareTimeout(): Promise<void> {
-  console.log('\n─── phase-aware-timeout: network timeout message is phase-aware after connect ───');
+  console.log(
+    '\n─── phase-aware-timeout: network timeout message is phase-aware after connect ───',
+  );
   const originalSocket = net.Socket;
   let mock: StallAfterConnectSocket | null = null;
   (net as any).Socket = function () {
@@ -190,12 +215,20 @@ async function testThermalPhaseAwareTimeout(): Promise<void> {
     mock!.fireTimeout();
     const result = await printPromise;
     assertEqual(result.ok, false, 'timed-out print fails');
-    assertIncludes(String(result.detail || ''), 'writing', `detail mentions writing phase: ${result.detail}`);
+    assertIncludes(
+      String(result.detail || ''),
+      'writing',
+      `detail mentions writing phase: ${result.detail}`,
+    );
     assert(
       !String(result.detail || '').includes('connecting'),
       `detail does not claim connect phase after connect: ${result.detail}`,
     );
-    assertEqual(classifyPrintFailure(result.detail), 'timeout', 'phase-aware timeout still classifies as timeout');
+    assertEqual(
+      classifyPrintFailure(result.detail),
+      'timeout',
+      'phase-aware timeout still classifies as timeout',
+    );
     assertEqual(mock!.destroyed, true, 'socket destroyed on timeout');
   } finally {
     (net as any).Socket = originalSocket;
@@ -216,8 +249,16 @@ async function testThermalPhaseAwareTimeout(): Promise<void> {
     connectMock!.fireTimeout();
     const result = await printPromise;
     assertEqual(result.ok, false, 'connect-phase timeout fails');
-    assertIncludes(String(result.detail || ''), 'connecting', `connect-phase detail: ${result.detail}`);
-    assertEqual(classifyPrintFailure(result.detail), 'timeout', 'connect timeout still classifies as timeout');
+    assertIncludes(
+      String(result.detail || ''),
+      'connecting',
+      `connect-phase detail: ${result.detail}`,
+    );
+    assertEqual(
+      classifyPrintFailure(result.detail),
+      'timeout',
+      'connect timeout still classifies as timeout',
+    );
   } finally {
     (net as any).Socket = originalSocket2;
   }
@@ -251,7 +292,9 @@ function createFakeWs(options?: { closeThrows?: boolean }): any {
 }
 
 async function testKdsZombieEvictionAndCloseGuard(): Promise<void> {
-  console.log('\n─── kds-zombie-eviction/kds-close-throw-guard: zombie KDS eviction and closeKdsClient throw guard ───');
+  console.log(
+    '\n─── kds-zombie-eviction/kds-close-throw-guard: zombie KDS eviction and closeKdsClient throw guard ───',
+  );
   if (!process.env.JWT_SECRET) process.env.JWT_SECRET = 'test-secret-print-kds-resilience';
   const db = initTestDb();
   const bcrypt = require('bcryptjs');
@@ -262,9 +305,18 @@ async function testKdsZombieEvictionAndCloseGuard(): Promise<void> {
   db.prepare(
     `INSERT INTO users (id, name, email, password, role, is_active, created_at, updated_at)
      VALUES (?, ?, ?, ?, 'chef', 1, ?, ?)`,
-  ).run('kds-r4-chef', 'R4 Chef', 'kds-r4@flo.local', bcrypt.hashSync('Pass123!', 10), now(), now());
+  ).run(
+    'kds-r4-chef',
+    'R4 Chef',
+    'kds-r4@flo.local',
+    bcrypt.hashSync('Pass123!', 10),
+    now(),
+    now(),
+  );
 
-  const token = jwt.sign({ userId: 'kds-r4-chef', role: 'chef', jti: 'kds-r4-1' }, getJWTSecret(), { expiresIn: '1h' });
+  const token = jwt.sign({ userId: 'kds-r4-chef', role: 'chef', jti: 'kds-r4-1' }, getJWTSecret(), {
+    expiresIn: '1h',
+  });
 
   const connectionHandlers: Array<(ws: any, req: any) => void> = [];
   const wss = new EventEmitter() as any;
@@ -328,12 +380,16 @@ async function main() {
   const { passed, failed, total } = getResults();
   console.log('\n' + '='.repeat(50));
   console.log(`${passed}/${total} passed, ${failed} failed`);
-  try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
+  try {
+    fs.rmSync(testDir, { recursive: true, force: true });
+  } catch {}
   process.exit(failed === 0 ? 0 : 1);
 }
 
 main().catch((err: any) => {
   console.error('Test runner error:', err);
-  try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
+  try {
+    fs.rmSync(testDir, { recursive: true, force: true });
+  } catch {}
   process.exit(1);
 });

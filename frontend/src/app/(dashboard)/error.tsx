@@ -8,7 +8,13 @@ import { reportRendererError } from '@/lib/report-renderer-error';
 
 const AUTO_RETRY_DELAY_MS = 2000;
 
-export default function DashboardError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
+export default function DashboardError({
+  error,
+  reset,
+}: {
+  error: Error & { digest?: string };
+  reset: () => void;
+}) {
   const reportedDigest = useRef<string | undefined>(undefined);
   const hasAutoRetried = useRef(false);
   const [autoRetrying, setAutoRetrying] = useState(false);
@@ -57,12 +63,16 @@ export default function DashboardError({ error, reset }: { error: Error & { dige
             <>
               <div className="flex gap-2">
                 <Button onClick={() => reset()}>Try Again</Button>
-                <Button variant="outline" onClick={() => window.location.reload()}>Reload Flo</Button>
+                <Button variant="outline" onClick={() => window.location.reload()}>
+                  Reload Flo
+                </Button>
               </div>
               <p className="text-xs text-muted-foreground">
                 {reportStatus === 'pending' && 'Sending a diagnostic report to help us fix this…'}
-                {reportStatus === 'sent' && 'A diagnostic report was sent automatically to help us fix this.'}
-                {reportStatus === 'failed' && "Couldn't send a diagnostic report automatically — diagnostics may be off in Settings > Privacy, or there's no connection."}
+                {reportStatus === 'sent' &&
+                  'A diagnostic report was sent automatically to help us fix this.'}
+                {reportStatus === 'failed' &&
+                  "Couldn't send a diagnostic report automatically — diagnostics may be off in Settings > Privacy, or there's no connection."}
               </p>
             </>
           )}

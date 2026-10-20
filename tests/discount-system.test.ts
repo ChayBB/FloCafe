@@ -66,7 +66,9 @@ function assertEqual(actual: any, expected: any, message: string) {
     console.log(`  ✓ ${message}`);
   } else {
     failed++;
-    console.error(`  ✗ ${message} — expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
+    console.error(
+      `  ✗ ${message} — expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`,
+    );
   }
 }
 
@@ -103,7 +105,7 @@ async function listen(app: any): Promise<http.Server> {
 async function request(
   baseUrl: string,
   urlPath: string,
-  options: Record<string, any> = {}
+  options: Record<string, any> = {},
 ): Promise<{ status: number; data: any }> {
   const response = await (globalThis as any).fetch(baseUrl + urlPath, {
     headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
@@ -135,36 +137,51 @@ function seedTestData() {
   const db = getDatabase();
   // Regional settings come from signup, never a fallback; seed one
   // explicitly so resolveRegionalSnapshot() resolves.
-  db.prepare(`INSERT INTO settings (key, value, updated_at) VALUES ('country', 'IN', ?) ON CONFLICT(key) DO UPDATE SET value='IN', updated_at=excluded.updated_at`).run(now());
+  db.prepare(
+    `INSERT INTO settings (key, value, updated_at) VALUES ('country', 'IN', ?) ON CONFLICT(key) DO UPDATE SET value='IN', updated_at=excluded.updated_at`,
+  ).run(now());
 
   // Create a category and product for order items
+  db.prepare(`INSERT INTO categories (id, name, sort_order) VALUES (?, ?, ?)`).run(
+    'cat-disc',
+    'Test Category',
+    1,
+  );
   db.prepare(
-    `INSERT INTO categories (id, name, sort_order) VALUES (?, ?, ?)`
-  ).run('cat-disc', 'Test Category', 1);
-  db.prepare(
-    `INSERT INTO products (id, category_id, name, price, is_active, sort_order) VALUES (?, ?, ?, ?, ?, ?)`
+    `INSERT INTO products (id, category_id, name, price, is_active, sort_order) VALUES (?, ?, ?, ?, ?, ?)`,
   ).run('prod-disc', 'cat-disc', 'Test Item', 500, 1, 1);
 
   // Real user row — order_audit_log.actor_user_id is a FK, so the mocked
   // auth identity below must resolve to an actual users row.
   db.prepare(
-    `INSERT OR IGNORE INTO users (id, name, email, password, role, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)`
-  ).run('owner-disc-test', 'Test Owner', 'owner-disc-test@test.local', 'unused', 'owner', now(), now());
+    `INSERT OR IGNORE INTO users (id, name, email, password, role, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
+  ).run(
+    'owner-disc-test',
+    'Test Owner',
+    'owner-disc-test@test.local',
+    'unused',
+    'owner',
+    now(),
+    now(),
+  );
 
   // Create an order with a known total (500 for 1 item)
   db.prepare(
     `INSERT INTO orders (order_number, table_id, type, status, subtotal, tax_amount, total, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run('ORD-DISC-001', null, 'takeaway', 'pending', 500, 0, 500, now(), now());
-  const orderId = (db.prepare('SELECT id FROM orders WHERE order_number = ?').get('ORD-DISC-001') as any).id;
+  const orderId = (
+    db.prepare('SELECT id FROM orders WHERE order_number = ?').get('ORD-DISC-001') as any
+  ).id;
 
   // Create order item
   db.prepare(
     `INSERT INTO order_items (order_id, product_id, product_name, unit_price, quantity, subtotal, tax_amount, total, status, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(orderId, 'prod-disc', 'Test Item', 500, 1, 500, 0, 500, 'pending', now(), now());
 
-  const itemId = (db.prepare('SELECT id FROM order_items WHERE order_id = ?').get(orderId) as any).id;
+  const itemId = (db.prepare('SELECT id FROM order_items WHERE order_id = ?').get(orderId) as any)
+    .id;
 
   return { orderId, itemId };
 }
@@ -193,7 +210,12 @@ async function main() {
   app.use(express.json());
   // Mock auth middleware — must run before routes
   app.use((req: any, _res: any, next: any) => {
-    req.user = { id: 'owner-disc-test', userId: 'owner-disc-test', role: 'owner', name: 'Test Owner' };
+    req.user = {
+      id: 'owner-disc-test',
+      userId: 'owner-disc-test',
+      role: 'owner',
+      name: 'Test Owner',
+    };
     next();
   });
   app.use('/api/orders', orderRoutes);
@@ -246,7 +268,9 @@ async function main() {
     {
       // Reset order to original state (clear previous discount)
       const db = getDatabase();
-      db.prepare('UPDATE orders SET discount_type = NULL, discount_value = 0, discount_amount = 0, total = 500 WHERE id = ?').run(orderId);
+      db.prepare(
+        'UPDATE orders SET discount_type = NULL, discount_value = 0, discount_amount = 0, total = 500 WHERE id = ?',
+      ).run(orderId);
 
       const res = await request(baseUrl, `/api/orders/${orderId}/discount`, {
         method: 'PATCH',
@@ -351,7 +375,9 @@ async function main() {
     {
       // Reset item to original state (clear previous discount)
       const db = getDatabase();
-      db.prepare('UPDATE order_items SET discount_amount = 0, subtotal = 500, total = 500 WHERE id = ?').run(itemId);
+      db.prepare(
+        'UPDATE order_items SET discount_amount = 0, subtotal = 500, total = 500 WHERE id = ?',
+      ).run(itemId);
 
       const res = await request(baseUrl, `/api/orders/${orderId}/items/${itemId}/discount`, {
         method: 'PATCH',

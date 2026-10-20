@@ -72,7 +72,10 @@ export function playWhenReady(
       render(target);
       return;
     }
-    void target.resume().then(() => render(target)).catch(() => {});
+    void target
+      .resume()
+      .then(() => render(target))
+      .catch(() => {});
   } catch {
     // A device without Web Audio still gets the on-screen alert.
   }

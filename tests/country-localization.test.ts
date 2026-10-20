@@ -58,7 +58,10 @@ try {
   assert(countryMatchesQuery(germany, 'DE', 'es'), 'search matches the ISO country code');
   assert(countryMatchesQuery(germany, 'EUR', 'es'), 'search matches the currency');
   assert(countryMatchesQuery(germany, 'de-DE', 'es'), 'search matches the country locale');
-  assert(!countryMatchesQuery(germany, 'Brasil', 'es'), 'search excludes unrelated localized names');
+  assert(
+    !countryMatchesQuery(germany, 'Brasil', 'es'),
+    'search excludes unrelated localized names',
+  );
 
   assert.deepEqual(
     codes(sortCountriesByLocalizedName(selectedCountries(), 'es')),

@@ -147,11 +147,13 @@ async function main() {
 
   // requirePermission() resolves effective permissions from a real users row
   // keyed by req.user.userId — seed an active owner so settings checks pass.
-  getDatabase().prepare(`
+  getDatabase()
+    .prepare(`
     INSERT INTO users (id, name, email, password, role, is_active, created_at, updated_at)
     VALUES ('theme-mode-owner', 'Test Owner', 'theme-mode-owner@test.local', 'unused', 'owner', 1, ?, ?)
     ON CONFLICT(id) DO NOTHING
-  `).run(now(), now());
+  `)
+    .run(now(), now());
 
   // Register IPC handlers against the mocked ipcMain (printer-ipc pattern).
   registerIpcHandlers();
@@ -192,7 +194,10 @@ async function main() {
         body: JSON.stringify({ value: 'bogus' }),
       });
       assert.equal(res.status, 400, 'returns 400');
-      assert.ok(String(res.data?.error).includes('Invalid theme_mode value'), 'error mentions theme_mode');
+      assert.ok(
+        String(res.data?.error).includes('Invalid theme_mode value'),
+        'error mentions theme_mode',
+      );
     }
 
     // ── HTTP wildcard PUT — also rejects non-string non-mode values ──
@@ -215,9 +220,9 @@ async function main() {
       });
       assert.equal(res.status, 200, 'returns 200');
       const db = getDatabase();
-      const row = db
-        .prepare("SELECT value FROM settings WHERE key = 'theme_mode'")
-        .get() as { value: string } | undefined;
+      const row = db.prepare("SELECT value FROM settings WHERE key = 'theme_mode'").get() as
+        | { value: string }
+        | undefined;
       assert.equal(row?.value, 'dark', 'row persisted to SQLite as "dark"');
     }
 
@@ -240,9 +245,9 @@ async function main() {
       const result = await handler!(trustedSender, 'theme_mode', 'light');
       assert.equal(result?.success, true, 'returns success: true');
       const db = getDatabase();
-      const row = db
-        .prepare("SELECT value FROM settings WHERE key = 'theme_mode'")
-        .get() as { value: string } | undefined;
+      const row = db.prepare("SELECT value FROM settings WHERE key = 'theme_mode'").get() as
+        | { value: string }
+        | undefined;
       assert.equal(row?.value, 'light', 'IPC write also persisted (overwrote prior "dark")');
     }
 
@@ -254,8 +259,6 @@ async function main() {
       const result = await handler!(trustedSender, 'theme_mode', 'DARK');
       assert.equal(result?.success, false, 'uppercase is not a valid ThemeMode');
     }
-
-
   } finally {
     if (server) server.close();
     closeDatabase();

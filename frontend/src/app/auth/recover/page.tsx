@@ -28,7 +28,8 @@ export default function RecoverAccessPage() {
   const [pinAvailable, setPinAvailable] = useState<boolean | null>(null);
 
   useEffect(() => {
-    api.get('/auth/setup/status')
+    api
+      .get('/auth/setup/status')
       .then(({ data }) => setPinAvailable(!!data.masterPinAvailable))
       .catch(() => {
         console.warn('[RecoverAccess] Could not verify Master PIN availability');
@@ -120,109 +121,113 @@ export default function RecoverAccessPage() {
         <Card>
           <CardContent className="pt-6">
             {pinAvailable === null ? (
-              <p className="text-sm text-muted-foreground text-center py-6">{t('recoverChecking')}</p>
+              <p className="text-sm text-muted-foreground text-center py-6">
+                {t('recoverChecking')}
+              </p>
             ) : pinAvailable === false ? (
               <div className="text-center py-4">
                 <p className="text-sm text-destructive font-medium">{t('recoverPinUnavailable')}</p>
               </div>
             ) : (
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="recover-email">{t('email')}</Label>
-                <Input
-                  id="recover-email"
-                  type="email"
-                  autoComplete="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder={t('emailPlaceholder')}
-                  dir="ltr"
-                  required
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="recover-pin">{t('recoverPinLabel')}</Label>
-                <p className="text-xs text-muted-foreground">{t('recoverPinHint')}</p>
-                <div className="relative">
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="recover-email">{t('email')}</Label>
                   <Input
-                    id="recover-pin"
-                    type={showPin ? 'text' : 'password'}
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    maxLength={4}
-                    value={masterPin}
-                    onChange={(e) => setMasterPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                    placeholder="••••"
-                    className="text-center text-lg tracking-[0.5em] pe-10"
+                    id="recover-email"
+                    type="email"
+                    autoComplete="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder={t('emailPlaceholder')}
+                    dir="ltr"
                     required
                   />
-                  <button
-                    type="button"
-                    onClick={() => setShowPin(!showPin)}
-                    className="absolute end-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground focus:outline-none"
-                    tabIndex={-1}
-                  >
-                    {showPin ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
                 </div>
-              </div>
 
-              <div className="grid grid-cols-1 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="new-password">{t('recoverNewPasswordLabel')}</Label>
+                  <Label htmlFor="recover-pin">{t('recoverPinLabel')}</Label>
+                  <p className="text-xs text-muted-foreground">{t('recoverPinHint')}</p>
                   <div className="relative">
                     <Input
-                      id="new-password"
-                      type={showPassword ? 'text' : 'password'}
-                      autoComplete="new-password"
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      placeholder={t('recoverNewPasswordPlaceholder')}
-                      className="pe-10"
+                      id="recover-pin"
+                      type={showPin ? 'text' : 'password'}
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      maxLength={4}
+                      value={masterPin}
+                      onChange={(e) => setMasterPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                      placeholder="••••"
+                      className="text-center text-lg tracking-[0.5em] pe-10"
                       required
                     />
                     <button
                       type="button"
-                      onClick={() => setShowPassword(!showPassword)}
+                      onClick={() => setShowPin(!showPin)}
                       className="absolute end-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground focus:outline-none"
                       tabIndex={-1}
                     >
-                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      {showPin ? <EyeOff size={16} /> : <Eye size={16} />}
                     </button>
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="confirm-new-password">{t('recoverConfirmPasswordLabel')}</Label>
-                  <Input
-                    id="confirm-new-password"
-                    type={showPassword ? 'text' : 'password'}
-                    autoComplete="new-password"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    placeholder={t('recoverConfirmPasswordPlaceholder')}
-                    required
-                  />
+
+                <div className="grid grid-cols-1 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="new-password">{t('recoverNewPasswordLabel')}</Label>
+                    <div className="relative">
+                      <Input
+                        id="new-password"
+                        type={showPassword ? 'text' : 'password'}
+                        autoComplete="new-password"
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        placeholder={t('recoverNewPasswordPlaceholder')}
+                        className="pe-10"
+                        required
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute end-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground focus:outline-none"
+                        tabIndex={-1}
+                      >
+                        {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="confirm-new-password">{t('recoverConfirmPasswordLabel')}</Label>
+                    <Input
+                      id="confirm-new-password"
+                      type={showPassword ? 'text' : 'password'}
+                      autoComplete="new-password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      placeholder={t('recoverConfirmPasswordPlaceholder')}
+                      required
+                    />
+                  </div>
                 </div>
-              </div>
 
-              {!isPasswordValid(newPassword) && newPassword.length > 0 && (
-                <p className="text-xs font-medium text-red-600">{t('recoverPasswordRequirements')}</p>
-              )}
-              {passwordsEntered && (
-                <p className={`text-xs font-medium ${passwordsMatch ? 'text-green-600' : 'text-red-600'}`}>
-                  {passwordsMatch ? tSetup('passwordsMatch') : tSetup('passwordsMismatch')}
-                </p>
-              )}
+                {!isPasswordValid(newPassword) && newPassword.length > 0 && (
+                  <p className="text-xs font-medium text-red-600">
+                    {t('recoverPasswordRequirements')}
+                  </p>
+                )}
+                {passwordsEntered && (
+                  <p
+                    className={`text-xs font-medium ${passwordsMatch ? 'text-green-600' : 'text-red-600'}`}
+                  >
+                    {passwordsMatch ? tSetup('passwordsMatch') : tSetup('passwordsMismatch')}
+                  </p>
+                )}
 
-              {formError && (
-                <p className="text-sm text-destructive text-center">{formError}</p>
-              )}
+                {formError && <p className="text-sm text-destructive text-center">{formError}</p>}
 
-              <Button type="submit" disabled={loading} className="w-full" size="lg">
-                {loading ? t('recoverSubmitting') : t('recoverSubmit')}
-              </Button>
-            </form>
+                <Button type="submit" disabled={loading} className="w-full" size="lg">
+                  {loading ? t('recoverSubmitting') : t('recoverSubmit')}
+                </Button>
+              </form>
             )}
           </CardContent>
         </Card>

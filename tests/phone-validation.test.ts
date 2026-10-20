@@ -1,7 +1,8 @@
 const Module = require('module');
 const originalLoad = Module._load;
 Module._load = function (request, parent, isMain) {
-  if (request === 'electron') return { app: { isPackaged: true, getPath: () => '/tmp', getVersion: () => 'test' } };
+  if (request === 'electron')
+    return { app: { isPackaged: true, getPath: () => '/tmp', getVersion: () => 'test' } };
   return originalLoad.apply(this, arguments);
 };
 
@@ -32,11 +33,13 @@ try {
   // it anyway for '+'-prefixed input (CodeRabbit review on #780: the
   // pre-login support-ticket route has no resolvable country).
   parsed = parsePhoneE164('+919876543210', '');
-  if (!parsed || parsed.e164 !== '+919876543210') throw new Error('Failed E164 parsing with no defaultCountry');
+  if (!parsed || parsed.e164 !== '+919876543210')
+    throw new Error('Failed E164 parsing with no defaultCountry');
 
   // National-format input still requires defaultCountry to be resolvable.
   parsed = parsePhoneE164('9876543210', '');
-  if (parsed !== null) throw new Error('National-format input without defaultCountry should be rejected');
+  if (parsed !== null)
+    throw new Error('National-format input without defaultCountry should be rejected');
 
   console.log('All phone validation tests passed');
   process.exit(0);

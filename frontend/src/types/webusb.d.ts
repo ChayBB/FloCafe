@@ -53,10 +53,23 @@ declare global {
     claimInterface(interfaceNumber: number): Promise<void>;
     releaseInterface(interfaceNumber: number): Promise<void>;
     selectAlternateInterface(interfaceNumber: number, alternateSetting: number): Promise<void>;
-    controlTransferIn(setup: USBControlTransferParameters, length: number): Promise<USBInTransferResult>;
-    controlTransferOut(setup: USBControlTransferParameters, data?: BufferSource): Promise<USBOutTransferResult>;
-    isochronousTransferIn(endpointNumber: number, packetLengths: number[]): Promise<USBIsochronousInTransferResult>;
-    isochronousTransferOut(endpointNumber: number, data: BufferSource, packetLengths: number[]): Promise<USBIsochronousOutTransferResult>;
+    controlTransferIn(
+      setup: USBControlTransferParameters,
+      length: number,
+    ): Promise<USBInTransferResult>;
+    controlTransferOut(
+      setup: USBControlTransferParameters,
+      data?: BufferSource,
+    ): Promise<USBOutTransferResult>;
+    isochronousTransferIn(
+      endpointNumber: number,
+      packetLengths: number[],
+    ): Promise<USBIsochronousInTransferResult>;
+    isochronousTransferOut(
+      endpointNumber: number,
+      data: BufferSource,
+      packetLengths: number[],
+    ): Promise<USBIsochronousOutTransferResult>;
     transferIn(endpointNumber: number, length: number): Promise<USBInTransferResult>;
     transferOut(endpointNumber: number, data: BufferSource): Promise<USBOutTransferResult>;
     forget(): Promise<void>;
@@ -132,7 +145,14 @@ declare global {
     status: USBTransferStatus;
   }
 
-  type USBTransferStatus = 'ok' | 'stall' | 'babble' | 'transfer-error' | 'timeout' | 'cancelled' | 'lost';
+  type USBTransferStatus =
+    | 'ok'
+    | 'stall'
+    | 'babble'
+    | 'transfer-error'
+    | 'timeout'
+    | 'cancelled'
+    | 'lost';
 }
 
 export {};

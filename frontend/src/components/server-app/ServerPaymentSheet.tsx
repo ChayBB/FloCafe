@@ -47,7 +47,12 @@ export interface ServerPaymentSheetProps {
  * Split payments stay on the POS.
  */
 export function ServerPaymentSheet({
-  api, tableId, tableName, formatMoney, onClose, onPaid,
+  api,
+  tableId,
+  tableName,
+  formatMoney,
+  onClose,
+  onPaid,
 }: ServerPaymentSheetProps) {
   const t = useTranslations('serverApp');
   const tPos = useTranslations('pos');
@@ -74,8 +79,12 @@ export function ServerPaymentSheet({
           api.get('/api/payment-methods').catch(() => ({ data: { payment_methods: [] } })),
         ]);
         if (cancelled) return;
-        const orders: OpenOrder[] = (ordersRes.data.orders || [])
-          .map((order: { id: number; order_number: string }) => ({ id: order.id, order_number: order.order_number }));
+        const orders: OpenOrder[] = (ordersRes.data.orders || []).map(
+          (order: { id: number; order_number: string }) => ({
+            id: order.id,
+            order_number: order.order_number,
+          }),
+        );
         // Generated one at a time: each call recalculates totals for its own order.
         const loaded: TicketBill[] = [];
         for (const order of orders) {
@@ -84,7 +93,11 @@ export function ServerPaymentSheet({
           loaded.push({ order, bill: data.bill });
         }
         setTickets(loaded);
-        setMethods((methodsRes.data.payment_methods || []).filter((method: CustomPaymentMethod) => method.is_active !== false));
+        setMethods(
+          (methodsRes.data.payment_methods || []).filter(
+            (method: CustomPaymentMethod) => method.is_active !== false,
+          ),
+        );
       } catch (error: unknown) {
         if (cancelled) return;
         toastApiError(error, t('billLoadFailed'), apiErrorT);
@@ -93,8 +106,10 @@ export function ServerPaymentSheet({
         if (!cancelled) setLoading(false);
       }
     })();
-    return () => { cancelled = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api, tableId]);
 
   async function pay(line: { method: string; payment_method_id?: number }) {
@@ -113,7 +128,8 @@ export function ServerPaymentSheet({
           settledBillIds.add(billKey);
           continue;
         }
-        const idempotencyKey = idempotencyKeysRef.current.get(billKey) || createPaymentIdempotencyKey();
+        const idempotencyKey =
+          idempotencyKeysRef.current.get(billKey) || createPaymentIdempotencyKey();
         idempotencyKeysRef.current.set(billKey, idempotencyKey);
         const { data } = await api.post(
           `/api/bills/${ticket.bill.id}/payments`,
@@ -124,10 +140,16 @@ export function ServerPaymentSheet({
         if (!updated || updated.payment_status !== 'paid') {
           // A partial settlement committed, so this bill's next attempt is a new request.
           idempotencyKeysRef.current.delete(billKey);
-          setTickets((current) => current
-            .filter((row) => !settledBillIds.has(String(row.bill.id)))
-            .map((row) => String(row.bill.id) === billKey && updated ? { ...row, bill: updated } : row));
-          toast.error(tPos('paymentIncomplete', { amount: formatMoney(Number(updated?.balance) || 0) }));
+          setTickets((current) =>
+            current
+              .filter((row) => !settledBillIds.has(String(row.bill.id)))
+              .map((row) =>
+                String(row.bill.id) === billKey && updated ? { ...row, bill: updated } : row,
+              ),
+          );
+          toast.error(
+            tPos('paymentIncomplete', { amount: formatMoney(Number(updated?.balance) || 0) }),
+          );
           return;
         }
         idempotencyKeysRef.current.delete(billKey);
@@ -175,16 +197,25 @@ export function ServerPaymentSheet({
             {/* Every open ticket on the table is listed so the total is never a surprise. */}
             <ul className="mt-3 space-y-1">
               {tickets.map((ticket) => (
-                <li key={ticket.bill.id} className="flex items-center justify-between gap-2 text-sm">
-                  <Ltr as="span" className="truncate text-muted-foreground">#{ticket.order.order_number}</Ltr>
-                  <Ltr as="span" className="shrink-0 font-medium">{formatMoney(ticket.bill.balance)}</Ltr>
+                <li
+                  key={ticket.bill.id}
+                  className="flex items-center justify-between gap-2 text-sm"
+                >
+                  <Ltr as="span" className="truncate text-muted-foreground">
+                    #{ticket.order.order_number}
+                  </Ltr>
+                  <Ltr as="span" className="shrink-0 font-medium">
+                    {formatMoney(ticket.bill.balance)}
+                  </Ltr>
                 </li>
               ))}
             </ul>
 
             <div className="my-4 flex items-baseline justify-between border-y border-border py-3">
               <span className="text-sm text-muted-foreground">{tPos('balanceDue')}</span>
-              <span className="text-2xl font-bold"><Ltr>{formatMoney(balanceDue)}</Ltr></span>
+              <span className="text-2xl font-bold">
+                <Ltr>{formatMoney(balanceDue)}</Ltr>
+              </span>
             </div>
 
             <div className="flex-1 space-y-2 overflow-y-auto">
@@ -220,7 +251,11 @@ export function ServerPaymentSheet({
               ))}
             </div>
 
-            {paying && <p className="pt-3 text-center text-sm text-muted-foreground">{tPos('processingPayment')}</p>}
+            {paying && (
+              <p className="pt-3 text-center text-sm text-muted-foreground">
+                {tPos('processingPayment')}
+              </p>
+            )}
           </>
         )}
       </div>

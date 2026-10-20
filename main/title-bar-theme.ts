@@ -37,7 +37,10 @@ export function applyTitleBarOverlayTheme(
   const candidate = win as OverlayCapableWindow | null | undefined;
   if (!candidate || typeof candidate.setTitleBarOverlay !== 'function') return false;
   try {
-    candidate.setTitleBarOverlay({ ...resolveTitleBarOverlayColors(isDark), height: TITLE_BAR_HEIGHT });
+    candidate.setTitleBarOverlay({
+      ...resolveTitleBarOverlayColors(isDark),
+      height: TITLE_BAR_HEIGHT,
+    });
     return true;
   } catch {
     // Some window-manager combinations reject runtime overlay changes even
@@ -62,7 +65,10 @@ export function attachTitleBarThemeSync(
   };
   nativeTheme.on('updated', onUpdated);
   return () => {
-    (nativeTheme as ThemeLike & { off?(event: 'updated', listener: () => void): unknown }).off?.('updated', onUpdated);
+    (nativeTheme as ThemeLike & { off?(event: 'updated', listener: () => void): unknown }).off?.(
+      'updated',
+      onUpdated,
+    );
   };
 }
 

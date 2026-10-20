@@ -20,15 +20,26 @@ const os = require('os');
 const path = require('path');
 const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-discount-edge-'));
 Module._load = function (request: string, parent: unknown, isMain: boolean) {
-  if (request === 'electron') return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
+  if (request === 'electron')
+    return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
   return originalLoad.apply(this, arguments as any);
 };
 
 const {
-  initTestDb, createApp, startServer,
-  seedOwnerUser, seedCategory, seedProduct,
-  api, assert, assertEqual, assertIncludes,
-  getResults, closeDatabase, getDatabase, now,
+  initTestDb,
+  createApp,
+  startServer,
+  seedOwnerUser,
+  seedCategory,
+  seedProduct,
+  api,
+  assert,
+  assertEqual,
+  assertIncludes,
+  getResults,
+  closeDatabase,
+  getDatabase,
+  now,
 } = require('./helpers/test-setup');
 
 const { orderRoutes } = require('../main/routes/orders');
@@ -47,8 +58,12 @@ async function main() {
   seedProduct(db, 'prod-edge-2', 'cat-edge', 'Pasta', 500);
   seedProduct(db, 'prod-edge-3', 'cat-edge', 'Burger', 400);
   db.prepare(`INSERT INTO addon_groups (id, name) VALUES ('ag-edge', 'Extras')`).run();
-  db.prepare(`INSERT INTO addons (id, addon_group_id, name, price, is_active) VALUES ('addon-edge-cheese', 'ag-edge', 'Extra Cheese', 100, 1)`).run();
-  db.prepare(`INSERT INTO addon_group_product (product_id, addon_group_id) VALUES ('prod-edge-3', 'ag-edge')`).run();
+  db.prepare(
+    `INSERT INTO addons (id, addon_group_id, name, price, is_active) VALUES ('addon-edge-cheese', 'ag-edge', 'Extra Cheese', 100, 1)`,
+  ).run();
+  db.prepare(
+    `INSERT INTO addon_group_product (product_id, addon_group_id) VALUES ('prod-edge-3', 'ag-edge')`,
+  ).run();
   db.prepare(`
     INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
@@ -89,11 +104,15 @@ async function main() {
 
     // Apply ₹50 item-level discount to item 1
     const item1Id = items[0].id;
-    const itemDiscountRes = await api(baseUrl, `/api/orders/${orderIdA}/items/${item1Id}/discount`, {
-      method: 'PATCH',
-      body: { discount_type: 'amount', discount_value: 50 },
-      headers: authHeader,
-    });
+    const itemDiscountRes = await api(
+      baseUrl,
+      `/api/orders/${orderIdA}/items/${item1Id}/discount`,
+      {
+        method: 'PATCH',
+        body: { discount_type: 'amount', discount_value: 50 },
+        headers: authHeader,
+      },
+    );
     assertEqual(itemDiscountRes.status, 200, 'item discount applied');
     assertEqual(itemDiscountRes.data.item.discount_amount, 50, 'item 1 discount = ₹50');
 
@@ -169,11 +188,13 @@ async function main() {
       method: 'POST',
       body: {
         type: 'takeaway',
-        items: [{
-          product_id: 'prod-edge-3',
-          quantity: 1,
-          addons: [{ id: 'addon-edge-cheese', quantity: 1 }],
-        }],
+        items: [
+          {
+            product_id: 'prod-edge-3',
+            quantity: 1,
+            addons: [{ id: 'addon-edge-cheese', quantity: 1 }],
+          },
+        ],
       },
       headers: authHeader,
     });
@@ -185,20 +206,29 @@ async function main() {
     assertEqual(orderC.data.order.subtotal, 500, 'order subtotal = ₹500 (400 + 100 addon)');
 
     // Apply 10% item-level discount
-    const addonDiscountRes = await api(baseUrl, `/api/orders/${orderIdC}/items/${itemCId}/discount`, {
-      method: 'PATCH',
-      body: { discount_type: 'percentage', discount_value: 10 },
-      headers: authHeader,
-    });
+    const addonDiscountRes = await api(
+      baseUrl,
+      `/api/orders/${orderIdC}/items/${itemCId}/discount`,
+      {
+        method: 'PATCH',
+        body: { discount_type: 'percentage', discount_value: 10 },
+        headers: authHeader,
+      },
+    );
     assertEqual(addonDiscountRes.status, 200, 'item discount applied');
 
     // Discount should be 10% of ₹500 = ₹50 (not 10% of ₹400 = ₹40)
-    assertEqual(addonDiscountRes.data.item.discount_amount, 50, 'discount = ₹50 (10% of ₹500, including addon)');
-
+    assertEqual(
+      addonDiscountRes.data.item.discount_amount,
+      50,
+      'discount = ₹50 (10% of ₹500, including addon)',
+    );
   } finally {
     server.close();
     closeDatabase();
-    try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
+    try {
+      fs.rmSync(testDir, { recursive: true, force: true });
+    } catch {}
   }
 
   const { passed, failed, total } = getResults();

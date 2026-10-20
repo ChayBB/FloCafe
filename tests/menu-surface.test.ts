@@ -13,7 +13,10 @@ import {
   openApplicationMenuSubmenu,
   type ApplicationMenuItem,
 } from '../main/application-menu';
-import { dispatchQuickSearchRequest, subscribeToQuickSearch } from '../frontend/src/lib/quick-search';
+import {
+  dispatchQuickSearchRequest,
+  subscribeToQuickSearch,
+} from '../frontend/src/lib/quick-search';
 
 const submenuItem = (label: string): ApplicationMenuItem => ({
   label,
@@ -32,12 +35,16 @@ const menu = [
 ];
 
 const entries = listApplicationMenuEntries(menu);
-assert.deepEqual(entries, [
-  { key: '0', label: 'File' },
-  { key: '1', label: 'Edit' },
-  { key: '3', label: 'Orders' },
-  { key: '6', label: 'Help' },
-], 'keys address Menu.items so separators, blank labels, and submenu-less items are skipped');
+assert.deepEqual(
+  entries,
+  [
+    { key: '0', label: 'File' },
+    { key: '1', label: 'Edit' },
+    { key: '3', label: 'Orders' },
+    { key: '6', label: 'Help' },
+  ],
+  'keys address Menu.items so separators, blank labels, and submenu-less items are skipped',
+);
 
 assert.deepEqual(listApplicationMenuEntries([]), []);
 
@@ -128,15 +135,21 @@ assert.deepEqual(open(null, liveWindow, 0, 0), { error: 'Unknown menu entry' });
 assert.deepEqual(open(0, liveWindow, 0, 0), { error: 'Unknown menu entry' });
 assert.deepEqual(open('0', destroyedWindow, 0, 0), { error: 'Window unavailable' });
 assert.deepEqual(open('0', null, 0, 0), { error: 'Window unavailable' });
-assert.deepEqual(
-  openApplicationMenuSubmenu(null, '0', liveWindow as never, 0, 0),
-  { error: 'Application menu unavailable' },
-);
+assert.deepEqual(openApplicationMenuSubmenu(null, '0', liveWindow as never, 0, 0), {
+  error: 'Application menu unavailable',
+});
 assert.equal(popupCalls.length, 4, 'rejected requests never pop anything');
 
 // Electron reads a negative pair as "open at the cursor"; the renderer always
 // sends a measured button rect, so a negative coordinate is a client bug.
-for (const [x, y] of [[-1, 0], [0, -1], [Number.NaN, 0], ['0', 0], [null, 0], [0, undefined]]) {
+for (const [x, y] of [
+  [-1, 0],
+  [0, -1],
+  [Number.NaN, 0],
+  ['0', 0],
+  [null, 0],
+  [0, undefined],
+]) {
   assert.deepEqual(open('0', liveWindow, x, y), { error: 'Invalid menu position' });
 }
 assert.equal(popupCalls.length, 4);
@@ -154,12 +167,15 @@ const staleFrame = { frameToken: 'frame-stale', detached: false };
 const detachedFrame = { frameToken: 'frame-main', detached: true };
 
 const sender = (overrides: Record<string, unknown>) =>
-  isApplicationMenuSender(mainWindow as never, {
-    window: mainWindow,
-    currentFrame,
-    senderFrame: currentFrame,
-    ...overrides,
-  } as never);
+  isApplicationMenuSender(
+    mainWindow as never,
+    {
+      window: mainWindow,
+      currentFrame,
+      senderFrame: currentFrame,
+      ...overrides,
+    } as never,
+  );
 
 assert.equal(sender({}), true);
 assert.equal(
@@ -168,27 +184,30 @@ assert.equal(
   'a sender that is not the main window is refused even when it passes the origin check',
 );
 assert.equal(sender({ window: null }), false, 'a sender that owns no window is refused');
-assert.equal(
-  sender({ senderFrame: staleFrame }),
-  false,
-  'a message from a stale frame is refused',
-);
+assert.equal(sender({ senderFrame: staleFrame }), false, 'a message from a stale frame is refused');
 assert.equal(
   sender({ senderFrame: detachedFrame }),
   false,
   'a message from a detached frame is refused',
 );
 assert.equal(
-  isApplicationMenuSender(null, { window: mainWindow, currentFrame, senderFrame: currentFrame } as never),
+  isApplicationMenuSender(null, {
+    window: mainWindow,
+    currentFrame,
+    senderFrame: currentFrame,
+  } as never),
   false,
   'no main window means no popup',
 );
 assert.equal(
-  isApplicationMenuSender(destroyedWindowForSender as never, {
-    window: destroyedWindowForSender,
-    currentFrame,
-    senderFrame: currentFrame,
-  } as never),
+  isApplicationMenuSender(
+    destroyedWindowForSender as never,
+    {
+      window: destroyedWindowForSender,
+      currentFrame,
+      senderFrame: currentFrame,
+    } as never,
+  ),
   false,
   'a destroyed main window is refused',
 );
@@ -199,8 +218,14 @@ const previousWindow = (globalThis as any).window;
 try {
   let focusRequests = 0;
   dispatchQuickSearchRequest();
-  const unsubscribeQuickSearch = subscribeToQuickSearch(() => { focusRequests += 1; });
-  assert.equal(focusRequests, 1, 'a quick-search request sent before POS subscribes is replayed once');
+  const unsubscribeQuickSearch = subscribeToQuickSearch(() => {
+    focusRequests += 1;
+  });
+  assert.equal(
+    focusRequests,
+    1,
+    'a quick-search request sent before POS subscribes is replayed once',
+  );
 
   dispatchQuickSearchRequest();
   assert.equal(focusRequests, 2, 'a quick-search request sent after POS subscribes is handled');

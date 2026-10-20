@@ -88,7 +88,10 @@ async function runWindowsDispatch(
 }
 
 function assertNoSubprocessEvidence(detail: string, label: string): void {
-  assert.ok(!detail.includes('-EncodedCommand'), `${label}: encoded-command switch must not escape`);
+  assert.ok(
+    !detail.includes('-EncodedCommand'),
+    `${label}: encoded-command switch must not escape`,
+  );
   assert.ok(!detail.includes('-NoProfile'), `${label}: command arguments must not escape`);
   assert.ok(!detail.includes('Command failed:'), `${label}: the raw command line must not escape`);
   assert.ok(!BASE64_BLOB.test(detail), `${label}: the encoded helper payload must not escape`);
@@ -100,7 +103,12 @@ function assertProcessClassifications(): void {
   // Stable classifications for the process-level shapes Node reports, plus
   // the defensive default for anything unrecognized.
   assert.equal(
-    describeWindowsPrintProcessFailure({ killed: true, signal: 'SIGTERM', code: null, message: 'Command failed: powershell -EncodedCommand AAAA' }),
+    describeWindowsPrintProcessFailure({
+      killed: true,
+      signal: 'SIGTERM',
+      code: null,
+      message: 'Command failed: powershell -EncodedCommand AAAA',
+    }),
     'Windows print command timed out',
   );
   assert.equal(
@@ -173,7 +181,10 @@ async function main(): Promise<void> {
       (verbose.detail || '').length <= MAX_DETAIL_LENGTH,
       `verbose stderr is bounded (got ${(verbose.detail || '').length} chars)`,
     );
-    assert.ok((verbose.detail || '').includes('SendRaw'), 'the useful stderr text survives the bound');
+    assert.ok(
+      (verbose.detail || '').includes('SendRaw'),
+      'the useful stderr text survives the bound',
+    );
     assert.ok((verbose.detail || '').endsWith('[truncated]'), 'the bound is marked as truncated');
 
     // 6. The helper executable is missing.

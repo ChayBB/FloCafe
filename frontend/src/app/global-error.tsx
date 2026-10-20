@@ -5,7 +5,13 @@ import { reportRendererError } from '@/lib/report-renderer-error';
 
 /** Root error boundary catching layout-level exceptions;
  * renders dedicated html/body wrapper. */
-export default function GlobalError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
+export default function GlobalError({
+  error,
+  reset,
+}: {
+  error: Error & { digest?: string };
+  reset: () => void;
+}) {
   const reportedDigest = useRef<string | undefined>(undefined);
   const [reportStatus, setReportStatus] = useState<'pending' | 'sent' | 'failed'>('pending');
 
@@ -23,8 +29,23 @@ export default function GlobalError({ error, reset }: { error: Error & { digest?
 
   return (
     <html lang="en">
-      <body style={{ margin: 0, fontFamily: 'system-ui, sans-serif', background: '#f8f8f8', color: '#1a1a1a' }}>
-        <div style={{ display: 'flex', minHeight: '100vh', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <body
+        style={{
+          margin: 0,
+          fontFamily: 'system-ui, sans-serif',
+          background: '#f8f8f8',
+          color: '#1a1a1a',
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            minHeight: '100vh',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+          }}
+        >
           <div style={{ maxWidth: 420, textAlign: 'center' }}>
             <h1 style={{ fontSize: 18, fontWeight: 600, marginBottom: 8 }}>Flo needs to restart</h1>
             <p style={{ fontSize: 14, color: '#555', marginBottom: 16 }}>
@@ -36,13 +57,26 @@ export default function GlobalError({ error, reset }: { error: Error & { digest?
             <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
               <button
                 onClick={() => reset()}
-                style={{ padding: '8px 16px', borderRadius: 6, border: 'none', background: '#D93D00', color: '#fff', cursor: 'pointer' }}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: 6,
+                  border: 'none',
+                  background: '#D93D00',
+                  color: '#fff',
+                  cursor: 'pointer',
+                }}
               >
                 Try Again
               </button>
               <button
                 onClick={() => window.location.reload()}
-                style={{ padding: '8px 16px', borderRadius: 6, border: '1px solid #ccc', background: '#fff', cursor: 'pointer' }}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: 6,
+                  border: '1px solid #ccc',
+                  background: '#fff',
+                  cursor: 'pointer',
+                }}
               >
                 Reload Flo
               </button>

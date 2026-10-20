@@ -18,16 +18,18 @@ export function useServerKdsInfo(baseUrl = ''): ServerKdsInfo {
 
   useEffect(() => {
     let cancelled = false;
-    fetchServerInfo(baseUrl).then((server) => {
-      if (cancelled) return;
-      setInfo({
-        language: server.language,
-        country: server.country,
-        kdsDefaultView: server.kdsDefaultView,
+    fetchServerInfo(baseUrl)
+      .then((server) => {
+        if (cancelled) return;
+        setInfo({
+          language: server.language,
+          country: server.country,
+          kdsDefaultView: server.kdsDefaultView,
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setInfo(EMPTY);
       });
-    }).catch(() => {
-      if (!cancelled) setInfo(EMPTY);
-    });
     return () => {
       cancelled = true;
     };

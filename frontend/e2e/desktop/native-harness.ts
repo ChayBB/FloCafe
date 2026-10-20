@@ -5,7 +5,13 @@ import { spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { _electron as electron, chromium, type Browser, type ElectronApplication, type Page } from 'playwright';
+import {
+  _electron as electron,
+  chromium,
+  type Browser,
+  type ElectronApplication,
+  type Page,
+} from 'playwright';
 
 const require = createRequire(__filename);
 const electronPath = require('electron') as string;
@@ -69,7 +75,8 @@ async function findServicePorts(): Promise<NativeServicePorts> {
   for (let attempt = 0; attempt < 200; attempt += 1) {
     const main = firstCandidate + attempt * 3;
     const candidate = { main, kds: main + 1, serverApp: main + 2, devTools: main + 3 };
-    if ((await Promise.all(Object.values(candidate).map(isPortAvailable))).every(Boolean)) return candidate;
+    if ((await Promise.all(Object.values(candidate).map(isPortAvailable))).every(Boolean))
+      return candidate;
   }
   throw new Error(`Unable to reserve a native E2E service port set near ${firstCandidate}`);
 }
@@ -83,12 +90,21 @@ function runSeed(env: Record<string, string>): Promise<void> {
       stdio: 'pipe',
     });
     let output = '';
-    child.stdout.on('data', (chunk) => { output += String(chunk); });
-    child.stderr.on('data', (chunk) => { output += String(chunk); });
+    child.stdout.on('data', (chunk) => {
+      output += String(chunk);
+    });
+    child.stderr.on('data', (chunk) => {
+      output += String(chunk);
+    });
     child.once('error', reject);
     child.once('exit', (code, signal) => {
       if (code === 0) resolve();
-      else reject(new Error(`Native E2E fixture seed failed (code=${code}, signal=${signal}): ${output.trim()}`));
+      else
+        reject(
+          new Error(
+            `Native E2E fixture seed failed (code=${code}, signal=${signal}): ${output.trim()}`,
+          ),
+        );
     });
   });
 }
@@ -110,7 +126,9 @@ async function waitForHealth(ports: NativeServicePorts): Promise<void> {
     }
     await delay(100);
   }
-  throw new Error(`Native E2E services did not become healthy: ${String(lastError || 'unexpected health response')}`);
+  throw new Error(
+    `Native E2E services did not become healthy: ${String(lastError || 'unexpected health response')}`,
+  );
 }
 
 async function waitForRendererServices(page: Page): Promise<void> {
@@ -118,9 +136,11 @@ async function waitForRendererServices(page: Page): Promise<void> {
   while (Date.now() < deadline) {
     const running = await page.evaluate(async () => {
       const status = await window.electronAPI?.getStatus();
-      return status?.server === 'running'
-        && status.kdsServer === 'running'
-        && status.serverApp === 'running';
+      return (
+        status?.server === 'running' &&
+        status.kdsServer === 'running' &&
+        status.serverApp === 'running'
+      );
     });
     if (running) return;
     await delay(100);
@@ -168,14 +188,16 @@ async function waitForRelaunchedPid(pidFile: string, previousPid: number): Promi
     try {
       const pid = Number.parseInt(readFileSync(pidFile, 'utf8'), 10);
       if (Number.isInteger(pid) && pid > 0 && pid !== previousPid) return pid;
-    } catch {
-    }
+    } catch {}
     await delay(100);
   }
   throw new Error(`Relaunched Electron process PID was not written to ${pidFile}`);
 }
 
-async function connectToRelaunchedPage(devToolsPort: number, mainPort: number): Promise<{ browser: Browser; page: Page }> {
+async function connectToRelaunchedPage(
+  devToolsPort: number,
+  mainPort: number,
+): Promise<{ browser: Browser; page: Page }> {
   const endpoint = `http://127.0.0.1:${devToolsPort}`;
   const deadline = Date.now() + 30_000;
   let lastError: unknown;
@@ -187,7 +209,11 @@ async function connectToRelaunchedPage(devToolsPort: number, mainPort: number): 
       while (Date.now() < pageDeadline) {
         const pages = browser.contexts().flatMap((context) => context.pages());
         const page = pages.find((candidate) => {
-          try { return new URL(candidate.url()).port === String(mainPort); } catch { return false; }
+          try {
+            return new URL(candidate.url()).port === String(mainPort);
+          } catch {
+            return false;
+          }
         });
         if (page) return { browser, page };
         await delay(200);
@@ -199,7 +225,9 @@ async function connectToRelaunchedPage(devToolsPort: number, mainPort: number): 
     }
     await delay(200);
   }
-  throw new Error(`Relaunched Electron page did not become available: ${String(lastError || 'unexpected CDP state')}`);
+  throw new Error(
+    `Relaunched Electron page did not become available: ${String(lastError || 'unexpected CDP state')}`,
+  );
 }
 
 function forceTerminate(pid: number): boolean {
@@ -253,9 +281,13 @@ async function boundedGracefulClose(
     await app.evaluate(({ app: electronApp }) => electronApp.quit());
     await Promise.race([
       cleanupComplete,
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error(
-        `Electron graceful close exceeded ${GRACEFUL_CLOSE_TIMEOUT_MS}ms`,
-      )), GRACEFUL_CLOSE_TIMEOUT_MS)),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () =>
+            reject(new Error(`Electron graceful close exceeded ${GRACEFUL_CLOSE_TIMEOUT_MS}ms`)),
+          GRACEFUL_CLOSE_TIMEOUT_MS,
+        ),
+      ),
     ]);
     await app.close();
   } catch (error) {
@@ -269,21 +301,31 @@ async function boundedGracefulClose(
     exited = await waitForProcessExit(pid);
   }
 
-  const portsClosed = (await Promise.all(Object.values(ports).map(waitForPortClosed))).every(Boolean);
+  const portsClosed = (await Promise.all(Object.values(ports).map(waitForPortClosed))).every(
+    Boolean,
+  );
   let profileCleanupError: unknown;
   if (exited && !options.keepProfile) {
-    try { rmSync(profileDir, { recursive: true, force: true }); } catch (error) { profileCleanupError = error; }
+    try {
+      rmSync(profileDir, { recursive: true, force: true });
+    } catch (error) {
+      profileCleanupError = error;
+    }
   }
 
   if (gracefulError || forcedCleanup || !exited || !portsClosed || profileCleanupError) {
-    throw new Error([
-      'Native Electron teardown failed',
-      gracefulError ? `graceful=${String(gracefulError)}` : '',
-      forcedCleanup ? 'forced_cleanup=true' : '',
-      `pid_exited=${exited}`,
-      `ports_closed=${portsClosed}`,
-      profileCleanupError ? `profile=${String(profileCleanupError)}` : '',
-    ].filter(Boolean).join('; '));
+    throw new Error(
+      [
+        'Native Electron teardown failed',
+        gracefulError ? `graceful=${String(gracefulError)}` : '',
+        forcedCleanup ? 'forced_cleanup=true' : '',
+        `pid_exited=${exited}`,
+        `ports_closed=${portsClosed}`,
+        profileCleanupError ? `profile=${String(profileCleanupError)}` : '',
+      ]
+        .filter(Boolean)
+        .join('; '),
+    );
   }
 }
 
@@ -302,7 +344,9 @@ async function boundedRelaunchClose(
     await browser.close().catch(() => {});
   }
   requestProcessExit(pid);
-  try { await app.close(); } catch {}
+  try {
+    await app.close();
+  } catch {}
 
   let exited = await waitForProcessExit(pid);
   let forcedCleanup = false;
@@ -311,20 +355,30 @@ async function boundedRelaunchClose(
     exited = await waitForProcessExit(pid);
   }
 
-  const portsClosed = (await Promise.all(Object.values(ports).map(waitForPortClosed))).every(Boolean);
+  const portsClosed = (await Promise.all(Object.values(ports).map(waitForPortClosed))).every(
+    Boolean,
+  );
   let profileCleanupError: unknown;
   if (exited) {
-    try { rmSync(profileDir, { recursive: true, force: true }); } catch (error) { profileCleanupError = error; }
+    try {
+      rmSync(profileDir, { recursive: true, force: true });
+    } catch (error) {
+      profileCleanupError = error;
+    }
   }
 
   if (forcedCleanup || !exited || !portsClosed || profileCleanupError) {
-    throw new Error([
-      'Native Electron relaunch teardown failed',
-      forcedCleanup ? 'forced_cleanup=true' : '',
-      `pid_exited=${exited}`,
-      `ports_closed=${portsClosed}`,
-      profileCleanupError ? `profile=${String(profileCleanupError)}` : '',
-    ].filter(Boolean).join('; '));
+    throw new Error(
+      [
+        'Native Electron relaunch teardown failed',
+        forcedCleanup ? 'forced_cleanup=true' : '',
+        `pid_exited=${exited}`,
+        `ports_closed=${portsClosed}`,
+        profileCleanupError ? `profile=${String(profileCleanupError)}` : '',
+      ]
+        .filter(Boolean)
+        .join('; '),
+    );
   }
 }
 
@@ -337,7 +391,9 @@ export async function createNativeElectronHarness(): Promise<NativeElectronHarne
   const ports = await findServicePorts();
   const pidFile = path.join(profileDir, 'electron.pid');
   const inheritedEnv = Object.fromEntries(
-    Object.entries(process.env).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+    Object.entries(process.env).filter(
+      (entry): entry is [string, string] => typeof entry[1] === 'string',
+    ),
   );
   const env: Record<string, string> = {
     ...inheritedEnv,
@@ -380,74 +436,113 @@ export async function createNativeElectronHarness(): Promise<NativeElectronHarne
       return { main: status?.port, kds: kds && 'port' in kds ? kds.port : undefined };
     });
     if (actualPorts.main !== ports.main || actualPorts.kds !== ports.kds) {
-      throw new Error(`Native E2E service port mismatch: expected ${JSON.stringify(ports)}, got ${JSON.stringify(actualPorts)}`);
+      throw new Error(
+        `Native E2E service port mismatch: expected ${JSON.stringify(ports)}, got ${JSON.stringify(actualPorts)}`,
+      );
     }
 
     // The app's root export is a redirect boundary, so drive the renderer to a
     // concrete public route before any test asserts route-owned UI state.
-    await activePage.goto(`http://localhost:${ports.main}/auth/login`, { waitUntil: 'domcontentloaded' });
+    await activePage.goto(`http://localhost:${ports.main}/auth/login`, {
+      waitUntil: 'domcontentloaded',
+    });
 
-    const buildAuthenticate = (getPage: () => Page, nextApp: ElectronApplication) => async (): Promise<void> => {
-      const nextPage = getPage();
-      let currentPath = new URL(nextPage.url()).pathname.replace(/\/+$/, '') || '/';
-      if (currentPath === '/') {
-        await nextPage.goto(`http://localhost:${ports.main}/auth/login`, { waitUntil: 'domcontentloaded' });
-        currentPath = new URL(nextPage.url()).pathname.replace(/\/+$/, '') || '/';
-      }
-      if (currentPath !== '/auth/login' && currentPath !== '/pos' && currentPath !== '/dashboard') {
-        throw new Error(`Native E2E expected a stable auth route, got ${nextPage.url()}`);
-      }
-      if (currentPath === '/auth/login') {
-        const hasPersistedSession = await nextPage.evaluate(() => Boolean(localStorage.getItem('token'))).catch(() => false);
-        if (hasPersistedSession) {
-          await nextPage.waitForFunction(() => {
-            const path = window.location.pathname.replace(/\/+$/, '') || '/';
-            return path === '/pos' || !localStorage.getItem('token');
-          }, { timeout: 30_000 }).catch(() => {});
+    const buildAuthenticate =
+      (getPage: () => Page, nextApp: ElectronApplication) => async (): Promise<void> => {
+        const nextPage = getPage();
+        let currentPath = new URL(nextPage.url()).pathname.replace(/\/+$/, '') || '/';
+        if (currentPath === '/') {
+          await nextPage.goto(`http://localhost:${ports.main}/auth/login`, {
+            waitUntil: 'domcontentloaded',
+          });
           currentPath = new URL(nextPage.url()).pathname.replace(/\/+$/, '') || '/';
         }
-      }
-      if (currentPath === '/auth/login') {
-        await nextPage.locator('#email').fill(env.FLO_E2E_OWNER_EMAIL);
-        await nextPage.locator('#password').fill(env.FLO_E2E_OWNER_PASSWORD);
-        await nextPage.locator('button[type="submit"]').click();
-        await nextPage.waitForURL((url) => url.pathname.replace(/\/+$/, '') === '/pos', { timeout: 30_000 });
-      } else if (currentPath !== '/pos') {
-        await nextPage.goto(`http://localhost:${ports.main}/pos`, { waitUntil: 'domcontentloaded' });
-        await nextPage.waitForURL((url) => url.pathname.replace(/\/+$/, '') === '/pos', { timeout: 30_000 });
-      }
-      if (!hiddenWindow) {
-        const activeOrigin = new URL(nextPage.url()).origin;
-        await nextPage.bringToFront().catch(() => {});
-        await nextApp.evaluate(({ app: electronApp, BrowserWindow }, origin) => {
-          electronApp.focus({ steal: true });
-          const target = BrowserWindow.getAllWindows().find((window: { webContents: { getURL: () => string }; isDestroyed: () => boolean }) => {
-            try { return new URL(window.webContents.getURL()).origin === origin; } catch { return false; }
-          });
-          if (!target || target.isDestroyed()) return;
-          target.show();
-          target.focus();
-          target.webContents.focus();
-          // Xvfb runs without a window manager in CI, so briefly toggling
-          // always-on-top is the reliable way to deliver native focus there.
-          if (process.platform === 'linux') {
-            target.setAlwaysOnTop(true);
-            target.setAlwaysOnTop(false);
-            electronApp.focus({ steal: true });
+        if (
+          currentPath !== '/auth/login' &&
+          currentPath !== '/pos' &&
+          currentPath !== '/dashboard'
+        ) {
+          throw new Error(`Native E2E expected a stable auth route, got ${nextPage.url()}`);
+        }
+        if (currentPath === '/auth/login') {
+          const hasPersistedSession = await nextPage
+            .evaluate(() => Boolean(localStorage.getItem('token')))
+            .catch(() => false);
+          if (hasPersistedSession) {
+            await nextPage
+              .waitForFunction(
+                () => {
+                  const path = window.location.pathname.replace(/\/+$/, '') || '/';
+                  return path === '/pos' || !localStorage.getItem('token');
+                },
+                { timeout: 30_000 },
+              )
+              .catch(() => {});
+            currentPath = new URL(nextPage.url()).pathname.replace(/\/+$/, '') || '/';
           }
-        }, activeOrigin);
-        await nextPage.waitForFunction(() => document.hasFocus() && document.documentElement.dataset.floWindowFocused === 'true');
-      }
-      await nextPage.waitForFunction(() => document.documentElement.dataset.floDesktopTitlebar === 'true');
-    };
+        }
+        if (currentPath === '/auth/login') {
+          await nextPage.locator('#email').fill(env.FLO_E2E_OWNER_EMAIL);
+          await nextPage.locator('#password').fill(env.FLO_E2E_OWNER_PASSWORD);
+          await nextPage.locator('button[type="submit"]').click();
+          await nextPage.waitForURL((url) => url.pathname.replace(/\/+$/, '') === '/pos', {
+            timeout: 30_000,
+          });
+        } else if (currentPath !== '/pos') {
+          await nextPage.goto(`http://localhost:${ports.main}/pos`, {
+            waitUntil: 'domcontentloaded',
+          });
+          await nextPage.waitForURL((url) => url.pathname.replace(/\/+$/, '') === '/pos', {
+            timeout: 30_000,
+          });
+        }
+        if (!hiddenWindow) {
+          const activeOrigin = new URL(nextPage.url()).origin;
+          await nextPage.bringToFront().catch(() => {});
+          await nextApp.evaluate(({ app: electronApp, BrowserWindow }, origin) => {
+            electronApp.focus({ steal: true });
+            const target = BrowserWindow.getAllWindows().find(
+              (window: { webContents: { getURL: () => string }; isDestroyed: () => boolean }) => {
+                try {
+                  return new URL(window.webContents.getURL()).origin === origin;
+                } catch {
+                  return false;
+                }
+              },
+            );
+            if (!target || target.isDestroyed()) return;
+            target.show();
+            target.focus();
+            target.webContents.focus();
+            // Xvfb runs without a window manager in CI, so briefly toggling
+            // always-on-top is the reliable way to deliver native focus there.
+            if (process.platform === 'linux') {
+              target.setAlwaysOnTop(true);
+              target.setAlwaysOnTop(false);
+              electronApp.focus({ steal: true });
+            }
+          }, activeOrigin);
+          await nextPage.waitForFunction(
+            () =>
+              document.hasFocus() && document.documentElement.dataset.floWindowFocused === 'true',
+          );
+        }
+        await nextPage.waitForFunction(
+          () => document.documentElement.dataset.floDesktopTitlebar === 'true',
+        );
+      };
 
     return {
       app,
-      get page() { return activePage; },
+      get page() {
+        return activePage;
+      },
       ports,
       profileDir,
       hiddenWindow,
-      setActivePage: (page) => { activePage = page; },
+      setActivePage: (page) => {
+        activePage = page;
+      },
       authenticateDashboard: buildAuthenticate(() => activePage, app),
       simulateTerminalRuntimeLoss: async () => {
         await app!.evaluate(async ({ app: electronApp }) => {
@@ -460,17 +555,29 @@ export async function createNativeElectronHarness(): Promise<NativeElectronHarne
           if (!mainModule) throw new Error('Native E2E could not access process.mainModule');
           const path = mainModule.require('node:path') as typeof import('node:path');
           const root = electronApp.getAppPath();
-          const mainServer = mainModule.require(path.join(root, 'dist/main/server')) as { stopServer: () => Promise<void> };
-          const kdsServer = mainModule.require(path.join(root, 'dist/main/kds-server')) as { stopKdsServer: () => Promise<void> };
-          const serverApp = mainModule.require(path.join(root, 'dist/main/server-app')) as { stopServerApp: () => Promise<void> };
-          await Promise.all([mainServer.stopServer(), kdsServer.stopKdsServer(), serverApp.stopServerApp()]);
+          const mainServer = mainModule.require(path.join(root, 'dist/main/server')) as {
+            stopServer: () => Promise<void>;
+          };
+          const kdsServer = mainModule.require(path.join(root, 'dist/main/kds-server')) as {
+            stopKdsServer: () => Promise<void>;
+          };
+          const serverApp = mainModule.require(path.join(root, 'dist/main/server-app')) as {
+            stopServerApp: () => Promise<void>;
+          };
+          await Promise.all([
+            mainServer.stopServer(),
+            kdsServer.stopKdsServer(),
+            serverApp.stopServerApp(),
+          ]);
         });
       },
       relaunchAndWaitForPage: async () => {
         const previousPid = initialPid;
         if (!previousPid) throw new Error('Native Electron process did not expose a PID');
-        try { await app!.close(); } catch {}
-        if (!await waitForProcessExit(previousPid)) {
+        try {
+          await app!.close();
+        } catch {}
+        if (!(await waitForProcessExit(previousPid))) {
           throw new Error(`Original Electron process ${previousPid} did not exit after relaunch`);
         }
         relaunchedPid = await waitForRelaunchedPid(pidFile, previousPid);
@@ -502,17 +609,23 @@ export async function createNativeElectronHarness(): Promise<NativeElectronHarne
         await newPage.waitForURL((url) => url.port === String(ports.main), { timeout: 30_000 });
         await waitForHealth(ports);
         await waitForRendererServices(newPage);
-        await newPage.goto(`http://localhost:${ports.main}/auth/login`, { waitUntil: 'domcontentloaded' });
+        await newPage.goto(`http://localhost:${ports.main}/auth/login`, {
+          waitUntil: 'domcontentloaded',
+        });
         let newActivePage = newPage;
         let newRelaunchedBrowser: Browser | null = null;
         let newRelaunchedPid: number | null = null;
         return {
           app: newApp,
-          get page() { return newActivePage; },
+          get page() {
+            return newActivePage;
+          },
           ports,
           profileDir,
           hiddenWindow,
-          setActivePage: (page) => { newActivePage = page; },
+          setActivePage: (page) => {
+            newActivePage = page;
+          },
           authenticateDashboard: buildAuthenticate(() => newActivePage, newApp),
           simulateTerminalRuntimeLoss: async () => {
             await newApp.evaluate(async ({ app: electronApp }) => {
@@ -525,18 +638,32 @@ export async function createNativeElectronHarness(): Promise<NativeElectronHarne
               if (!mainModule) throw new Error('Native E2E could not access process.mainModule');
               const path = mainModule.require('node:path') as typeof import('node:path');
               const root = electronApp.getAppPath();
-              const mainServer = mainModule.require(path.join(root, 'dist/main/server')) as { stopServer: () => Promise<void> };
-              const kdsServer = mainModule.require(path.join(root, 'dist/main/kds-server')) as { stopKdsServer: () => Promise<void> };
-              const serverApp = mainModule.require(path.join(root, 'dist/main/server-app')) as { stopServerApp: () => Promise<void> };
-              await Promise.all([mainServer.stopServer(), kdsServer.stopKdsServer(), serverApp.stopServerApp()]);
+              const mainServer = mainModule.require(path.join(root, 'dist/main/server')) as {
+                stopServer: () => Promise<void>;
+              };
+              const kdsServer = mainModule.require(path.join(root, 'dist/main/kds-server')) as {
+                stopKdsServer: () => Promise<void>;
+              };
+              const serverApp = mainModule.require(path.join(root, 'dist/main/server-app')) as {
+                stopServerApp: () => Promise<void>;
+              };
+              await Promise.all([
+                mainServer.stopServer(),
+                kdsServer.stopKdsServer(),
+                serverApp.stopServerApp(),
+              ]);
             });
           },
           relaunchAndWaitForPage: async () => {
             const previousPid = newApp.process().pid;
             if (!previousPid) throw new Error('Native Electron process did not expose a PID');
-            try { await newApp.close(); } catch {}
-            if (!await waitForProcessExit(previousPid)) {
-              throw new Error(`Original Electron process ${previousPid} did not exit after relaunch`);
+            try {
+              await newApp.close();
+            } catch {}
+            if (!(await waitForProcessExit(previousPid))) {
+              throw new Error(
+                `Original Electron process ${previousPid} did not exit after relaunch`,
+              );
             }
             newRelaunchedPid = await waitForRelaunchedPid(pidFile, previousPid);
             const connection = await connectToRelaunchedPage(ports.devTools, ports.main);
@@ -546,7 +673,13 @@ export async function createNativeElectronHarness(): Promise<NativeElectronHarne
           },
           close: async () => {
             if (newRelaunchedPid) {
-              await boundedRelaunchClose(newApp, newRelaunchedBrowser, newRelaunchedPid, ports, profileDir);
+              await boundedRelaunchClose(
+                newApp,
+                newRelaunchedBrowser,
+                newRelaunchedPid,
+                ports,
+                profileDir,
+              );
               return;
             }
             await boundedGracefulClose(newApp, ports, profileDir);

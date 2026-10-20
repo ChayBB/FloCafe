@@ -35,7 +35,10 @@ function authHeaders(accept = 'application/vnd.github+json') {
 }
 
 async function request(url, options = {}) {
-  const response = await fetch(url, { ...options, headers: { ...authHeaders(), ...(options.headers || {}) } });
+  const response = await fetch(url, {
+    ...options,
+    headers: { ...authHeaders(), ...(options.headers || {}) },
+  });
   if (!response.ok) {
     const body = await response.text();
     throw new Error(`GitHub request failed (${response.status}) for ${url}: ${body.slice(0, 500)}`);
@@ -79,7 +82,12 @@ function tryUploadWithGh(release, filePath, repo) {
   return { name: path.basename(filePath) };
 }
 
-async function uploadAsset(release, name, bytes, { maxRetries = 3, retryDelayMs = 3000, requestFn = request, filePath, repo } = {}) {
+async function uploadAsset(
+  release,
+  name,
+  bytes,
+  { maxRetries = 3, retryDelayMs = 3000, requestFn = request, filePath, repo } = {},
+) {
   for (let attempt = 1; attempt <= maxRetries; attempt += 1) {
     try {
       if (filePath && typeof release.tag_name === 'string') {
@@ -93,7 +101,8 @@ async function uploadAsset(release, name, bytes, { maxRetries = 3, retryDelayMs 
           }
         }
       }
-      if (typeof release.upload_url !== 'string' || release.upload_url === '') throw new Error('release has no upload URL');
+      if (typeof release.upload_url !== 'string' || release.upload_url === '')
+        throw new Error('release has no upload URL');
       const uploadUrl = release.upload_url.replace(/\{\?name,label\}$/, '');
       const response = await requestFn(`${uploadUrl}?name=${encodeURIComponent(name)}`, {
         method: 'POST',
@@ -103,14 +112,21 @@ async function uploadAsset(release, name, bytes, { maxRetries = 3, retryDelayMs 
         },
         body: bytes,
       });
-      if (response.status !== 201) throw new Error(`GitHub asset upload returned unexpected status ${response.status} for ${name}`);
+      if (response.status !== 201)
+        throw new Error(
+          `GitHub asset upload returned unexpected status ${response.status} for ${name}`,
+        );
       return await response.json();
     } catch (error) {
-      const isRetryable = /408|422|500|502|503|504|ECONNRESET|ETIMEDOUT|EPIPE|fetch failed/i.test(error.message);
+      const isRetryable = /408|422|500|502|503|504|ECONNRESET|ETIMEDOUT|EPIPE|fetch failed/i.test(
+        error.message,
+      );
       if (!isRetryable || attempt === maxRetries) {
         throw error;
       }
-      console.warn(`upload ${name} attempt ${attempt} failed (${error.message}); cleaning up and retrying in ${Math.round((retryDelayMs * attempt) / 1000)}s...`);
+      console.warn(
+        `upload ${name} attempt ${attempt} failed (${error.message}); cleaning up and retrying in ${Math.round((retryDelayMs * attempt) / 1000)}s...`,
+      );
       if (typeof release.assets_url === 'string' && release.assets_url !== '') {
         try {
           const assetsResponse = await requestFn(release.assets_url);
@@ -130,9 +146,18 @@ async function uploadAsset(release, name, bytes, { maxRetries = 3, retryDelayMs 
   }
 }
 
-async function ensureReleaseAssets({ release, files, readFile = fs.readFile, fetchExistingAsset = fetchAssetBytes, upload = uploadAsset, repo } = {}) {
-  if (!release || release.draft !== true) throw new Error('release asset reuse requires a draft release');
-  if (!Array.isArray(files) || files.length === 0) throw new Error('release asset reuse requires files');
+async function ensureReleaseAssets({
+  release,
+  files,
+  readFile = fs.readFile,
+  fetchExistingAsset = fetchAssetBytes,
+  upload = uploadAsset,
+  repo,
+} = {}) {
+  if (!release || release.draft !== true)
+    throw new Error('release asset reuse requires a draft release');
+  if (!Array.isArray(files) || files.length === 0)
+    throw new Error('release asset reuse requires files');
   const existing = new Map((release.assets || []).map((asset) => [asset.name, asset]));
   const requested = new Set();
   const results = [];
@@ -146,7 +171,9 @@ async function ensureReleaseAssets({ release, files, readFile = fs.readFile, fet
     if (current) {
       const currentBytes = Buffer.from(await fetchExistingAsset(current));
       if (!currentBytes.equals(bytes)) {
-        throw new Error(`release asset ${name} already exists with different bytes (${digest(currentBytes)} != ${digest(bytes)})`);
+        throw new Error(
+          `release asset ${name} already exists with different bytes (${digest(currentBytes)} != ${digest(bytes)})`,
+        );
       }
       results.push({ name, id: current.id, action: 'reused' });
       continue;
@@ -165,7 +192,8 @@ async function main() {
   const apiBase = `https://api.github.com/repos/${repo}`;
   const release = await findReleaseByTag(apiBase, tag);
   const results = await ensureReleaseAssets({ release, files, repo });
-  for (const result of results) console.log(`${result.action} ${result.name}${result.id ? ` (${result.id})` : ''}`);
+  for (const result of results)
+    console.log(`${result.action} ${result.name}${result.id ? ` (${result.id})` : ''}`);
 }
 
 if (require.main === module) {

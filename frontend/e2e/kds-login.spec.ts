@@ -14,7 +14,10 @@ test('KDS standalone logs in and restores its session', async ({ page }) => {
   // The controls must be hydrated on the first authenticated render, not
   // only after a full reload.
   await page.getByRole('button', { name: 'Kanban', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Kanban', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: 'Kanban', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
 
   await page.reload();
   await expect(page.getByTestId('kds-workspace')).toBeVisible();
@@ -23,6 +26,11 @@ test('KDS standalone logs in and restores its session', async ({ page }) => {
   await page.reload();
   await expect(page.getByTestId('kds-workspace')).toBeVisible();
   await expect(page.getByTestId('kds-login-form')).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Kanban', exact: true })).toHaveAttribute('aria-pressed', 'true');
-  expect(pageErrors.filter((error) => /Minified React error #418|Hydration failed/i.test(error.message))).toHaveLength(0);
+  await expect(page.getByRole('button', { name: 'Kanban', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  expect(
+    pageErrors.filter((error) => /Minified React error #418|Hydration failed/i.test(error.message)),
+  ).toHaveLength(0);
 });

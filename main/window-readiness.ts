@@ -69,7 +69,8 @@ export function isFullDocumentMainFrameNavigation(details: {
 }
 
 export function registerRendererDocument(documentNonce: unknown): boolean {
-  if (typeof documentNonce !== 'string' || !DOCUMENT_NONCE_PATTERN.test(documentNonce)) return false;
+  if (typeof documentNonce !== 'string' || !DOCUMENT_NONCE_PATTERN.test(documentNonce))
+    return false;
   rendererDocumentNonce = documentNonce;
   return true;
 }
@@ -102,11 +103,11 @@ export function isCurrentRendererFrame(
   currentFrame: { frameToken?: string; detached?: boolean } | null | undefined,
 ): boolean {
   return Boolean(
-    senderFrame
-      && currentFrame
-      && senderFrame.detached !== true
-      && currentFrame.detached !== true
-      && typeof senderFrame.frameToken === 'string'
-      && senderFrame.frameToken === currentFrame.frameToken,
+    senderFrame &&
+    currentFrame &&
+    senderFrame.detached !== true &&
+    currentFrame.detached !== true &&
+    typeof senderFrame.frameToken === 'string' &&
+    senderFrame.frameToken === currentFrame.frameToken,
   );
 }

@@ -41,8 +41,10 @@ async function waitFor(name, timeoutMs, probe) {
     }
     await sleep(1000);
   }
-  throw new HarnessError(`Timed out after ${timeoutMs}ms waiting for ${name}` +
-    (lastError ? `; last error: ${lastError.message}` : ''));
+  throw new HarnessError(
+    `Timed out after ${timeoutMs}ms waiting for ${name}` +
+      (lastError ? `; last error: ${lastError.message}` : ''),
+  );
 }
 
 function apiRequest(method, pathname, { token, body } = {}) {
@@ -72,12 +74,14 @@ function apiRequest(method, pathname, { token, body } = {}) {
             // non-JSON body — surface the raw text in the error below
           }
           if (res.statusCode >= 400) {
-            reject(new HarnessError(`${method} ${pathname} -> ${res.statusCode}: ${text.slice(0, 300)}`));
+            reject(
+              new HarnessError(`${method} ${pathname} -> ${res.statusCode}: ${text.slice(0, 300)}`),
+            );
           } else {
             resolve(json);
           }
         });
-      }
+      },
     );
     req.on('error', reject);
     req.on('timeout', () => req.destroy(new HarnessError(`${method} ${pathname} timed out`)));
@@ -135,35 +139,53 @@ async function cdpEval(port, expression, timeoutMs = 20000) {
   const targets = await fetchCdpTargets(port, timeoutMs);
   // Prefer the main POS window page; fall back to any page target.
   const pages = targets.filter((t) => t.type === 'page');
-  if (pages.length === 0) throw new HarnessError(`No page targets on :${port}: ${JSON.stringify(targets)}`);
+  if (pages.length === 0)
+    throw new HarnessError(`No page targets on :${port}: ${JSON.stringify(targets)}`);
   const target = pages.find((t) => !/kds/i.test(t.title || t.url || '')) ?? pages[0];
 
   const ws = new WebSocket(target.webSocketDebuggerUrl);
   try {
     await waitForCdpWebSocket(ws, target.webSocketDebuggerUrl, timeoutMs);
     const result = await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new HarnessError(`CDP eval timed out: ${expression.slice(0, 80)}`)), timeoutMs);
-      ws.addEventListener('message', (event) => {
-        const msg = JSON.parse(event.data);
-        if (msg.id === undefined) return;
-        clearTimeout(timer);
-        if (msg.error) reject(new HarnessError(`CDP error: ${JSON.stringify(msg.error)}`));
-        else resolve(msg.result);
-      }, { once: true });
-      ws.send(JSON.stringify({
-        id: ++cdpMessageId,
-        method: 'Runtime.evaluate',
-        params: { expression, awaitPromise: true, returnByValue: true },
-      }));
+      const timer = setTimeout(
+        () => reject(new HarnessError(`CDP eval timed out: ${expression.slice(0, 80)}`)),
+        timeoutMs,
+      );
+      ws.addEventListener(
+        'message',
+        (event) => {
+          const msg = JSON.parse(event.data);
+          if (msg.id === undefined) return;
+          clearTimeout(timer);
+          if (msg.error) reject(new HarnessError(`CDP error: ${JSON.stringify(msg.error)}`));
+          else resolve(msg.result);
+        },
+        { once: true },
+      );
+      ws.send(
+        JSON.stringify({
+          id: ++cdpMessageId,
+          method: 'Runtime.evaluate',
+          params: { expression, awaitPromise: true, returnByValue: true },
+        }),
+      );
     });
     if (result.exceptionDetails) {
-      const detail = result.exceptionDetails.exception?.description ||
-        result.exceptionDetails.text || 'unknown exception';
-      throw new HarnessError(`Renderer exception evaluating "${expression.slice(0, 80)}": ${detail}`);
+      const detail =
+        result.exceptionDetails.exception?.description ||
+        result.exceptionDetails.text ||
+        'unknown exception';
+      throw new HarnessError(
+        `Renderer exception evaluating "${expression.slice(0, 80)}": ${detail}`,
+      );
     }
     return result.result?.value;
   } finally {
-    try { ws.close(); } catch { /* already closed */ }
+    try {
+      ws.close();
+    } catch {
+      /* already closed */
+    }
   }
 }
 
@@ -172,7 +194,8 @@ async function cdpEval(port, expression, timeoutMs = 20000) {
 async function waitForApi(timeoutMs = 120000) {
   return waitFor(`Express API on :${API_PORT}`, timeoutMs, async () => {
     const status = await apiRequest('GET', '/api/health').catch(() =>
-      apiRequest('GET', '/api/pos-info').catch(() => null));
+      apiRequest('GET', '/api/pos-info').catch(() => null),
+    );
     return status !== null ? status : undefined;
   });
 }
@@ -185,7 +208,9 @@ async function waitForApi(timeoutMs = 120000) {
 async function setupAndSeed({ email, password, masterPin, ownerApprovalPin = '5791' }) {
   const setupStatus = await apiRequest('GET', '/api/auth/setup/status');
   if (!setupStatus?.needsSetup) {
-    throw new HarnessError('App reports setup already complete on a fresh install; refusing to run against unknown state');
+    throw new HarnessError(
+      'App reports setup already complete on a fresh install; refusing to run against unknown state',
+    );
   }
   await apiRequest('POST', '/api/auth/setup/initialize', {
     body: {
@@ -237,25 +262,32 @@ async function setupAndSeed({ email, password, masterPin, ownerApprovalPin = '57
 }
 
 /** Verify the seeded records survived the upgrade. Throws on any loss. */
-async function verifySeeds(seeds, expectedVersion, {
-  skipBetaPreference = false,
-  skipBetaPreferenceReason = 'beta preference not in scope',
-} = {}) {
+async function verifySeeds(
+  seeds,
+  expectedVersion,
+  { skipBetaPreference = false, skipBetaPreferenceReason = 'beta preference not in scope' } = {},
+) {
   const problems = [];
   const appInfo = await cdpEval(DEBUG_PORT(), 'window.electronAPI.getAppInfo()');
   if (appInfo?.version !== expectedVersion) {
     problems.push(`running version is ${appInfo?.version}, expected ${expectedVersion}`);
   }
 
-  const orderBody = await apiRequest('GET', `/api/orders/${seeds.orderId}`, { token: seeds.token }).catch((e) => {
+  const orderBody = await apiRequest('GET', `/api/orders/${seeds.orderId}`, {
+    token: seeds.token,
+  }).catch((e) => {
     problems.push(`seeded order unreadable after upgrade: ${e.message}`);
     return null;
   });
   const order = orderBody?.order ?? orderBody;
   if (order && order.special_instructions !== 'survives the 468 upgrade') {
-    problems.push(`seeded order lost its marker note: ${JSON.stringify(order.special_instructions)}`);
+    problems.push(
+      `seeded order lost its marker note: ${JSON.stringify(order.special_instructions)}`,
+    );
   }
-  const printers = await apiRequest('GET', '/api/printers', { token: seeds.token }).catch(() => null);
+  const printers = await apiRequest('GET', '/api/printers', { token: seeds.token }).catch(
+    () => null,
+  );
   const printerList = Array.isArray(printers) ? printers : printers?.printers;
   if (!printerList?.some((p) => p.id === seeds.printerId)) {
     problems.push('seeded printer config missing after upgrade');
@@ -267,7 +299,9 @@ async function verifySeeds(seeds, expectedVersion, {
     try {
       const betaEnabled = await cdpEval(DEBUG_PORT(), 'window.electronAPI.getBetaChannel()');
       if (betaEnabled !== true) {
-        problems.push(`beta-channel preference did not persist across the upgrade (got ${JSON.stringify(betaEnabled)})`);
+        problems.push(
+          `beta-channel preference did not persist across the upgrade (got ${JSON.stringify(betaEnabled)})`,
+        );
       } else {
         betaCheck = 'PASS';
       }
@@ -275,7 +309,8 @@ async function verifySeeds(seeds, expectedVersion, {
       if (!/getBetaChannel is not a function/.test(error.message)) throw error;
     }
   }
-  if (problems.length > 0) throw new HarnessError(`Post-upgrade verification failed:\n- ${problems.join('\n- ')}`);
+  if (problems.length > 0)
+    throw new HarnessError(`Post-upgrade verification failed:\n- ${problems.join('\n- ')}`);
   return { version: appInfo.version, betaCheck };
 }
 
@@ -290,13 +325,17 @@ async function waitReadyToInstall({ expectedVersion, timeoutMs }) {
   const statuses = [];
   return waitFor(`ready-to-install (${expectedVersion ?? 'any'})`, timeoutMs, async () => {
     const status = await cdpEval(DEBUG_PORT(), 'window.electronAPI.getUpdateStatus()');
-    statuses.push(`${new Date().toISOString()} ${status.status}${status.percent != null ? ` ${Number(status.percent).toFixed(1)}%` : ''}${status.version ? ` v${status.version}` : ''}${status.error ? ` error=${status.error}` : ''}`);
+    statuses.push(
+      `${new Date().toISOString()} ${status.status}${status.percent != null ? ` ${Number(status.percent).toFixed(1)}%` : ''}${status.version ? ` v${status.version}` : ''}${status.error ? ` error=${status.error}` : ''}`,
+    );
     if (process.env.FLO_STATUS_LOG) {
       fs.appendFileSync(process.env.FLO_STATUS_LOG, `${statuses.at(-1)}\n`);
     }
     if (status.status === 'ready-to-install') {
       if (expectedVersion && status.version && status.version !== expectedVersion) {
-        throw new HarnessError(`Updater staged version ${status.version} but expected ${expectedVersion}`);
+        throw new HarnessError(
+          `Updater staged version ${status.version} but expected ${expectedVersion}`,
+        );
       }
       return status;
     }

@@ -91,16 +91,19 @@ test.before(async () => {
         value = true;
       } else if (message.params.expression.includes('getUpdateStatus')) {
         state.updatePolls += 1;
-        value = state.updatePolls === 1
-          ? { status: 'checking' }
-          : { status: 'ready-to-install', version: '3.3.1-beta.1' };
+        value =
+          state.updatePolls === 1
+            ? { status: 'checking' }
+            : { status: 'ready-to-install', version: '3.3.1-beta.1' };
       } else {
         value = null;
       }
-      socket.send(JSON.stringify({
-        id: message.id,
-        result: { result: { value } },
-      }));
+      socket.send(
+        JSON.stringify({
+          id: message.id,
+          result: { result: { value } },
+        }),
+      );
     });
   });
 
@@ -114,11 +117,13 @@ test.before(async () => {
 
   cdpServer.httpServer = http.createServer((request, response) => {
     if (request.url !== '/json') return response.writeHead(404).end();
-    sendJson(response, 200, [{
-      type: 'page',
-      title: 'Flo Cafe',
-      webSocketDebuggerUrl: `ws://127.0.0.1:${cdpPort}`,
-    }]);
+    sendJson(response, 200, [
+      {
+        type: 'page',
+        title: 'Flo Cafe',
+        webSocketDebuggerUrl: `ws://127.0.0.1:${cdpPort}`,
+      },
+    ]);
   });
   await listen(cdpServer.httpServer);
   process.env.FLO_DEBUG_PORT = String(cdpServer.httpServer.address().port);
@@ -161,7 +166,9 @@ test('setupAndSeed sends the required first-run data through the public API', as
     cloud_server_url: 'http://127.0.0.1:9',
   });
   assert.ok(state.requests.some(({ method, path }) => method === 'POST' && path === '/api/orders'));
-  assert.ok(state.requests.some(({ method, path }) => method === 'POST' && path === '/api/printers'));
+  assert.ok(
+    state.requests.some(({ method, path }) => method === 'POST' && path === '/api/printers'),
+  );
 });
 
 test('waitReadyToInstall and verifySeeds observe staged version and persistence', async () => {
@@ -171,11 +178,14 @@ test('waitReadyToInstall and verifySeeds observe staged version and persistence'
   });
   assert.deepEqual(staged, { status: 'ready-to-install', version: '3.3.1-beta.1' });
 
-  const evidence = await harness.verifySeeds({
-    token: 'matrix-test-token',
-    orderId: 'order-1',
-    printerId: 'printer-1',
-  }, '3.3.1-beta.1');
+  const evidence = await harness.verifySeeds(
+    {
+      token: 'matrix-test-token',
+      orderId: 'order-1',
+      printerId: 'printer-1',
+    },
+    '3.3.1-beta.1',
+  );
   assert.deepEqual(evidence, { version: '3.3.1-beta.1', betaCheck: 'PASS' });
 });
 
@@ -188,11 +198,13 @@ test('cdpEval bounds target discovery and websocket handshakes', async () => {
   const targetPort = await listen(stalledTarget);
   const targetServer = http.createServer((request, response) => {
     if (request.url !== '/json') return response.writeHead(404).end();
-    sendJson(response, 200, [{
-      type: 'page',
-      title: 'Flo Cafe',
-      webSocketDebuggerUrl: `ws://127.0.0.1:${targetPort}`,
-    }]);
+    sendJson(response, 200, [
+      {
+        type: 'page',
+        title: 'Flo Cafe',
+        webSocketDebuggerUrl: `ws://127.0.0.1:${targetPort}`,
+      },
+    ]);
   });
   const targetServerPort = await listen(targetServer);
   const stalledDiscoveryServer = http.createServer(() => {});
@@ -201,11 +213,11 @@ test('cdpEval bounds target discovery and websocket handshakes', async () => {
   try {
     await assert.rejects(
       harness.cdpEval(targetServerPort, 'true', 50),
-      /CDP websocket handshake timed out after 50ms/
+      /CDP websocket handshake timed out after 50ms/,
     );
     await assert.rejects(
       harness.cdpEval(stalledDiscoveryPort, 'true', 50),
-      /CDP target discovery timed out after 50ms/
+      /CDP target discovery timed out after 50ms/,
     );
   } finally {
     for (const socket of stalledSockets) socket.destroy();

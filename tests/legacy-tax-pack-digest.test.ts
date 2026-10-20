@@ -34,12 +34,22 @@ Module._load = function (request: string, parent: unknown, isMain: boolean) {
   return originalLoad.apply(this, arguments as any);
 };
 
-const { initTestDb, assert, assertEqual, getResults, closeDatabase } = require('./helpers/test-setup');
+const {
+  initTestDb,
+  assert,
+  assertEqual,
+  getResults,
+  closeDatabase,
+} = require('./helpers/test-setup');
 const { LEGACY_TRUSTED_PACK_DIGESTS, validationChecklist } = require('../main/routes/tax-packs');
 const { taxPackSha256 } = require('../main/tax-packs/catalog');
 
-const realIndiaPack = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures/legacy-tax-packs/official-india.json'), 'utf8'));
-const realThailandPack = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures/legacy-tax-packs/official-thailand.json'), 'utf8'));
+const realIndiaPack = JSON.parse(
+  fs.readFileSync(path.join(__dirname, 'fixtures/legacy-tax-packs/official-india.json'), 'utf8'),
+);
+const realThailandPack = JSON.parse(
+  fs.readFileSync(path.join(__dirname, 'fixtures/legacy-tax-packs/official-thailand.json'), 'utf8'),
+);
 
 function main() {
   console.log('Legacy Tax Pack Digest Tests (real historical artifacts)');
@@ -48,9 +58,15 @@ function main() {
   initTestDb();
 
   try {
-    console.log('\n1. Real fixture content hashes to the exact shipped LEGACY_TRUSTED_PACK_DIGESTS values');
+    console.log(
+      '\n1. Real fixture content hashes to the exact shipped LEGACY_TRUSTED_PACK_DIGESTS values',
+    );
     assertEqual(realIndiaPack.id, 'official-india', 'India fixture carries its real pre-rename id');
-    assertEqual(realThailandPack.id, 'official-thailand', 'Thailand fixture carries its real pre-rename id');
+    assertEqual(
+      realThailandPack.id,
+      'official-thailand',
+      'Thailand fixture carries its real pre-rename id',
+    );
     assertEqual(
       taxPackSha256(JSON.stringify(realIndiaPack)),
       LEGACY_TRUSTED_PACK_DIGESTS['official-india'],
@@ -62,7 +78,9 @@ function main() {
       'the real official-thailand artifact hashes to the exact digest documented in LEGACY_TRUSTED_PACK_DIGESTS',
     );
 
-    console.log('\n2. validationChecklist trusts the real, exact historical artifacts without a signature');
+    console.log(
+      '\n2. validationChecklist trusts the real, exact historical artifacts without a signature',
+    );
     for (const pack of [realIndiaPack, realThailandPack]) {
       const packJson = JSON.stringify(pack);
       const version = {
@@ -71,8 +89,12 @@ function main() {
         version: pack.version,
         schema_version: 1,
         manifest_json: JSON.stringify({
-          id: pack.id, publisher: pack.publisher, country: pack.country, jurisdiction: pack.jurisdiction,
-          version: pack.version, publishedAt: pack.publishedAt,
+          id: pack.id,
+          publisher: pack.publisher,
+          country: pack.country,
+          jurisdiction: pack.jurisdiction,
+          version: pack.version,
+          publishedAt: pack.publishedAt,
         }),
         pack_json: packJson,
         digest: taxPackSha256(packJson),
@@ -85,8 +107,14 @@ function main() {
         created_at: new Date().toISOString(),
       };
       const validation = validationChecklist(version);
-      const failedChecks = validation.checks.filter((check: any) => !check.passed).map((check: any) => check.id);
-      assertEqual(failedChecks.join(','), '', `${pack.id} (real artifact) passes all 26 activation checks unsigned`);
+      const failedChecks = validation.checks
+        .filter((check: any) => !check.passed)
+        .map((check: any) => check.id);
+      assertEqual(
+        failedChecks.join(','),
+        '',
+        `${pack.id} (real artifact) passes all 26 activation checks unsigned`,
+      );
       assertEqual(validation.valid, true, `${pack.id} (real artifact) is trusted end-to-end`);
     }
 

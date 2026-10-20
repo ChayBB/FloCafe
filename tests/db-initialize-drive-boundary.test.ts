@@ -51,24 +51,34 @@ const intentPath = path.join(testDir, 'google-drive-restore.pending');
 const tokenPath = path.join(testDir, 'google-drive-token.enc');
 
 function writeBoundToken(): void {
-  fs.writeFileSync(tokenPath, JSON.stringify({
-    version: 2,
-    access_token: 'stale-access-token',
-    refresh_token: 'stale-refresh-token',
-    installation_id: 'stale-installation',
-    account_subject: 'stale-subject',
-  }), { mode: 0o600 });
+  fs.writeFileSync(
+    tokenPath,
+    JSON.stringify({
+      version: 2,
+      access_token: 'stale-access-token',
+      refresh_token: 'stale-refresh-token',
+      installation_id: 'stale-installation',
+      account_subject: 'stale-subject',
+    }),
+    { mode: 0o600 },
+  );
 }
 
 function writeStaleIntent(): void {
-  fs.writeFileSync(intentPath, JSON.stringify({ phase: 'prepared', database_account_subject: null }), { mode: 0o600 });
+  fs.writeFileSync(
+    intentPath,
+    JSON.stringify({ phase: 'prepared', database_account_subject: null }),
+    { mode: 0o600 },
+  );
 }
 
 async function run(): Promise<void> {
   initDatabase();
-  getDatabase().prepare(
-    "INSERT OR IGNORE INTO users (id, name, password, role, is_active) VALUES ('owner-1', 'Owner', 'hash', 'owner', 1)"
-  ).run();
+  getDatabase()
+    .prepare(
+      "INSERT OR IGNORE INTO users (id, name, password, role, is_active) VALUES ('owner-1', 'Owner', 'hash', 'owner', 1)",
+    )
+    .run();
   resetMasterPin('1234');
 
   const app = express();
@@ -79,8 +89,10 @@ async function run(): Promise<void> {
   });
   app.use('/api/db-tools', databaseToolsRoutes);
 
-  const initialize = () => request(app).post('/api/db-tools/initialize')
-    .send({ master_pin: '1234', confirmation_phrase: 'INITIALIZE' });
+  const initialize = () =>
+    request(app)
+      .post('/api/db-tools/initialize')
+      .send({ master_pin: '1234', confirmation_phrase: 'INITIALIZE' });
 
   // Mirror app startup: the Drive service reconciles the boundary before any request.
   writeStaleIntent();
@@ -94,7 +106,9 @@ async function run(): Promise<void> {
     'an unresolvable boundary still blocks Drive work that was not an explicit reset',
   );
 
-  const activeInitialize = googleDrive.prepareForDatabaseRestore({ discardUnresolvedBoundary: true });
+  const activeInitialize = googleDrive.prepareForDatabaseRestore({
+    discardUnresolvedBoundary: true,
+  });
   await assert.rejects(
     googleDrive.prepareForDatabaseRestore({ discardUnresolvedBoundary: true }),
     (error: any) => error?.code === 'conflict',
@@ -112,35 +126,63 @@ async function run(): Promise<void> {
   const replacement = databaseModule.beginDatabaseReplacementJournal(recoverySourcePath, 'reset');
   databaseModule.commitDatabaseReplacementJournal(replacement);
   const finalizeDatabaseReplacementJournal = databaseModule.finalizeDatabaseReplacementJournal;
-  databaseModule.finalizeDatabaseReplacementJournal = () => { throw new Error('simulated journal finalization failure'); };
+  databaseModule.finalizeDatabaseReplacementJournal = () => {
+    throw new Error('simulated journal finalization failure');
+  };
   try {
     await assert.rejects(
       googleDrive.prepareForDatabaseRestore({ discardUnresolvedBoundary: true }),
       (error: any) => error?.code === 'conflict',
       'initialize remains blocked when committed replacement cleanup fails',
     );
-    assertEqualOrThrow(databaseModule.getDatabaseReplacementJournal()?.phase, 'committed', 'failed cleanup retains its committed replacement journal');
+    assertEqualOrThrow(
+      databaseModule.getDatabaseReplacementJournal()?.phase,
+      'committed',
+      'failed cleanup retains its committed replacement journal',
+    );
     assertOrThrow(fs.existsSync(intentPath), 'failed cleanup retains the restore boundary');
   } finally {
     databaseModule.finalizeDatabaseReplacementJournal = finalizeDatabaseReplacementJournal;
   }
 
   const blocked = await initialize();
-  assertEqualOrThrow(blocked.status, 200, `initialize recovers a stale Drive restore boundary (got ${blocked.status}, ${JSON.stringify(blocked.body)})`);
-  assertOrThrow(!!blocked.body.backupPath, 'initialize still returns the forced pre-wipe backup path');
-  assertOrThrow(!fs.existsSync(intentPath), 'the stale restore boundary is cleared once the database is rebuilt');
-  assertOrThrow(getCurrentSchemaVersion() > 0, 'the rebuilt database is at the current schema version');
+  assertEqualOrThrow(
+    blocked.status,
+    200,
+    `initialize recovers a stale Drive restore boundary (got ${blocked.status}, ${JSON.stringify(blocked.body)})`,
+  );
+  assertOrThrow(
+    !!blocked.body.backupPath,
+    'initialize still returns the forced pre-wipe backup path',
+  );
+  assertOrThrow(
+    !fs.existsSync(intentPath),
+    'the stale restore boundary is cleared once the database is rebuilt',
+  );
+  assertOrThrow(
+    getCurrentSchemaVersion() > 0,
+    'the rebuilt database is at the current schema version',
+  );
 
-  assertOrThrow(!fs.existsSync(tokenPath), 'stale Drive credentials are not carried across the reset');
+  assertOrThrow(
+    !fs.existsSync(tokenPath),
+    'stale Drive credentials are not carried across the reset',
+  );
 
   // A completed reset leaves no users behind, so setup must run again before the
   // owner can repeat the operation - which is exactly the flow under test here.
-  getDatabase().prepare(
-    "INSERT OR IGNORE INTO users (id, name, password, role, is_active) VALUES ('owner-1', 'Owner', 'hash', 'owner', 1)"
-  ).run();
+  getDatabase()
+    .prepare(
+      "INSERT OR IGNORE INTO users (id, name, password, role, is_active) VALUES ('owner-1', 'Owner', 'hash', 'owner', 1)",
+    )
+    .run();
 
   const repeated = await initialize();
-  assertEqualOrThrow(repeated.status, 200, `a second initialize is not wedged by the first (got ${repeated.status}, ${JSON.stringify(repeated.body)})`);
+  assertEqualOrThrow(
+    repeated.status,
+    200,
+    `a second initialize is not wedged by the first (got ${repeated.status}, ${JSON.stringify(repeated.body)})`,
+  );
 
   console.log('✅ Database initialize recovers a stale Drive restore boundary');
 }

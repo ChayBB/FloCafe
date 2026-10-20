@@ -19,12 +19,14 @@ export function parseLoginFailure(err: unknown): LoginFailure {
   if (!response || typeof response !== 'object') return empty;
 
   const r = response as { status?: unknown; data?: unknown };
-  const data = r.data && typeof r.data === 'object' ? (r.data as Record<string, unknown>) : undefined;
+  const data =
+    r.data && typeof r.data === 'object' ? (r.data as Record<string, unknown>) : undefined;
 
   return {
     status: typeof r.status === 'number' ? r.status : undefined,
     message: typeof data?.error === 'string' ? data.error : undefined,
-    attemptsRemaining: typeof data?.attempts_remaining === 'number' ? data.attempts_remaining : undefined,
+    attemptsRemaining:
+      typeof data?.attempts_remaining === 'number' ? data.attempts_remaining : undefined,
     lockoutMinutes: typeof data?.lockout_minutes === 'number' ? data.lockout_minutes : undefined,
   };
 }

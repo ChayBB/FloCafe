@@ -40,7 +40,12 @@ export function installHttpShutdownTracking(server: http.Server): HttpServerStat
   httpServerStates.set(server, state);
   trackedHttpServerStates.add(state);
   server.prependListener('request', (request, response) => {
-    const requestState: HttpRequestState = { controller: new AbortController(), work: new Set(), released: false, owner: state };
+    const requestState: HttpRequestState = {
+      controller: new AbortController(),
+      work: new Set(),
+      released: false,
+      owner: state,
+    };
     state.requests.add(requestState);
     httpRequestStates.set(request, requestState);
     const release = (): void => {
@@ -61,16 +66,18 @@ export function trackHttpRequestWork<T>(request: object, operation: Promise<T>):
   const requestState = httpRequestStates.get(request);
   if (!requestState) return operation;
   requestState.work.add(operation);
-  void operation.finally(() => {
-    requestState.work.delete(operation);
-    if (requestState.released && requestState.work.size === 0) {
-      requestState.owner.requests.delete(requestState);
-      if (requestState.owner.requests.size === 0) {
-        shuttingDownHttpServers.delete(requestState.owner);
-        if (requestState.owner.closed) trackedHttpServerStates.delete(requestState.owner);
+  void operation
+    .finally(() => {
+      requestState.work.delete(operation);
+      if (requestState.released && requestState.work.size === 0) {
+        requestState.owner.requests.delete(requestState);
+        if (requestState.owner.requests.size === 0) {
+          shuttingDownHttpServers.delete(requestState.owner);
+          if (requestState.owner.closed) trackedHttpServerStates.delete(requestState.owner);
+        }
       }
-    }
-  }).catch(() => {});
+    })
+    .catch(() => {});
   return operation;
 }
 
@@ -103,14 +110,18 @@ function isAlreadyClosedError(error: unknown): boolean {
 }
 
 function createTimeoutError(label: string, timeoutMs: number): Error & { code: string } {
-  const error = new Error(`${label} shutdown timed out after ${timeoutMs}ms`) as Error & { code: string };
+  const error = new Error(`${label} shutdown timed out after ${timeoutMs}ms`) as Error & {
+    code: string;
+  };
   error.code = 'ERR_SHUTDOWN_TIMEOUT';
   return error;
 }
 
 export function isShutdownTimeout(error: unknown): boolean {
   if ((error as { code?: unknown } | null)?.code === 'ERR_SHUTDOWN_TIMEOUT') return true;
-  return error instanceof AggregateError && error.errors.some((nested) => isShutdownTimeout(nested));
+  return (
+    error instanceof AggregateError && error.errors.some((nested) => isShutdownTimeout(nested))
+  );
 }
 
 async function withShutdownTimeout<T>(
@@ -141,7 +152,11 @@ async function withShutdownTimeout<T>(
 }
 
 /** Stop accepting HTTP connections and wait for active requests to finish. */
-export async function closeHttpServer(server: http.Server, label: string, timeoutMs = SHUTDOWN_TIMEOUT_MS): Promise<void> {
+export async function closeHttpServer(
+  server: http.Server,
+  label: string,
+  timeoutMs = SHUTDOWN_TIMEOUT_MS,
+): Promise<void> {
   const closableServer = server as ClosableHttpServer;
   const requestState = installHttpShutdownTracking(server);
   shuttingDownHttpServers.add(requestState);
@@ -161,20 +176,33 @@ export async function closeHttpServer(server: http.Server, label: string, timeou
       else reject(error);
     }
   });
-  const closePromise = Promise.all([closeListenerPromise, waitForHttpRequestWork(requestState)]).then(() => undefined);
+  const closePromise = Promise.all([
+    closeListenerPromise,
+    waitForHttpRequestWork(requestState),
+  ]).then(() => undefined);
 
   try {
-    await withShutdownTimeout(closePromise, label, () => {
-      abortHttpRequests(requestState);
-      closableServer.closeAllConnections?.();
-    }, timeoutMs);
+    await withShutdownTimeout(
+      closePromise,
+      label,
+      () => {
+        abortHttpRequests(requestState);
+        closableServer.closeAllConnections?.();
+      },
+      timeoutMs,
+    );
   } catch (error) {
     if ((error as { code?: string }).code !== 'ERR_SHUTDOWN_TIMEOUT') throw error;
     try {
-      await withShutdownTimeout(waitForHttpRequestWork(requestState), `${label} handler`, () => {
-        abortHttpRequests(requestState);
-        closableServer.closeAllConnections?.();
-      }, timeoutMs);
+      await withShutdownTimeout(
+        waitForHttpRequestWork(requestState),
+        `${label} handler`,
+        () => {
+          abortHttpRequests(requestState);
+          closableServer.closeAllConnections?.();
+        },
+        timeoutMs,
+      );
     } catch (drainError) {
       throw new AggregateError([error, drainError], `${label} shutdown failed`);
     }
@@ -217,39 +245,51 @@ function terminateWebSocketClients(wss: WebSocketServer): void {
   }
 }
 
-function drainWebSocketClients(wss: WebSocketServer, onError: (error: unknown) => void): Promise<void> {
+function drainWebSocketClients(
+  wss: WebSocketServer,
+  onError: (error: unknown) => void,
+): Promise<void> {
   const clients = [...wss.clients];
-  return Promise.all(clients.map((client) => new Promise<void>((resolve) => {
-    if (client.readyState === WebSocket.CLOSED) {
-      resolve();
-      return;
-    }
+  return Promise.all(
+    clients.map(
+      (client) =>
+        new Promise<void>((resolve) => {
+          if (client.readyState === WebSocket.CLOSED) {
+            resolve();
+            return;
+          }
 
-    let settled = false;
-    const onClientError = (error: unknown): void => {
-      onError(error);
-    };
-    const finish = (): void => {
-      if (settled) return;
-      settled = true;
-      client.off('close', finish);
-      client.off('error', onClientError);
-      resolve();
-    };
-    client.once('close', finish);
-    client.once('error', onClientError);
-    try {
-      if (client.readyState === WebSocket.OPEN) client.close(1001, 'Server shutting down');
-      else client.terminate();
-    } catch (error) {
-      onError(error);
-      finish();
-    }
-  }))).then(() => undefined);
+          let settled = false;
+          const onClientError = (error: unknown): void => {
+            onError(error);
+          };
+          const finish = (): void => {
+            if (settled) return;
+            settled = true;
+            client.off('close', finish);
+            client.off('error', onClientError);
+            resolve();
+          };
+          client.once('close', finish);
+          client.once('error', onClientError);
+          try {
+            if (client.readyState === WebSocket.OPEN) client.close(1001, 'Server shutting down');
+            else client.terminate();
+          } catch (error) {
+            onError(error);
+            finish();
+          }
+        }),
+    ),
+  ).then(() => undefined);
 }
 
 /** Close WebSocket clients/server and wait for the ws close callback. */
-export function closeWebSocketServer(wss: WebSocketServer, label: string, timeoutMs = SHUTDOWN_TIMEOUT_MS): Promise<void> {
+export function closeWebSocketServer(
+  wss: WebSocketServer,
+  label: string,
+  timeoutMs = SHUTDOWN_TIMEOUT_MS,
+): Promise<void> {
   let clientCloseError: unknown;
   const clientsPromise = drainWebSocketClients(wss, (error) => {
     clientCloseError ??= error;
@@ -430,8 +470,12 @@ export function createShutdownEntrypoints({
       beginShutdown();
       cleanupPromise = Promise.resolve().then(cleanup);
       cleanupPromise.then(
-        () => { cleanupFinished = true; },
-        () => { cleanupFinished = true; },
+        () => {
+          cleanupFinished = true;
+        },
+        () => {
+          cleanupFinished = true;
+        },
       );
     }
     return cleanupPromise;
@@ -494,7 +538,11 @@ export function createShutdownEntrypoints({
   process.on('SIGTERM', exitAfterCleanup);
   process.on('SIGINT', exitAfterCleanup);
 
-  return { runCleanup, isShutdownRequested: () => shutdownRequested, shutdownSignal: shutdownController.signal };
+  return {
+    runCleanup,
+    isShutdownRequested: () => shutdownRequested,
+    shutdownSignal: shutdownController.signal,
+  };
 }
 
 export function createExitCodeAwareShutdown(

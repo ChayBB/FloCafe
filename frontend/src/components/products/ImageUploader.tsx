@@ -21,7 +21,12 @@ interface ImageUploaderProps {
 
 type Mode = 'idle' | 'cropping' | 'url-input';
 
-export default function ImageUploader({ value, onChange, productId, aspect = 1 }: ImageUploaderProps) {
+export default function ImageUploader({
+  value,
+  onChange,
+  productId,
+  aspect = 1,
+}: ImageUploaderProps) {
   const t = useTranslations('products');
   const tCommon = useTranslations('common');
   const [mode, setMode] = useState<Mode>('idle');
@@ -30,36 +35,44 @@ export default function ImageUploader({ value, onChange, productId, aspect = 1 }
   const [zoom, setZoom] = useState(1);
   const [urlInput, setUrlInput] = useState('');
   const [fetching, setFetching] = useState(false);
-  
+
   const cameraInputRef = useRef<HTMLInputElement>(null);
-  const cropAreaRef = useRef<{ x: number; y: number; width: number; height: number }>({ x: 0, y: 0, width: 0, height: 0 });
+  const cropAreaRef = useRef<{ x: number; y: number; width: number; height: number }>({
+    x: 0,
+    y: 0,
+    width: 0,
+    height: 0,
+  });
   // Lazy cache-busting timestamp initialized once per mount to prevent
   // refetching image on every render.
   const [cacheBust] = useState(() => Date.now());
 
-  const processFile = useCallback(async (file: File) => {
-    if (file.size > MAX_RAW_FILE_SIZE) {
-      toast.error(t('imageTooLarge', { size: MAX_RAW_FILE_SIZE / 1024 / 1024 }));
-      return;
-    }
-    if (!file.type.startsWith('image/')) {
-      toast.error(t('imageSelectFile'));
-      return;
-    }
+  const processFile = useCallback(
+    async (file: File) => {
+      if (file.size > MAX_RAW_FILE_SIZE) {
+        toast.error(t('imageTooLarge', { size: MAX_RAW_FILE_SIZE / 1024 / 1024 }));
+        return;
+      }
+      if (!file.type.startsWith('image/')) {
+        toast.error(t('imageSelectFile'));
+        return;
+      }
 
-    // Load into crop editor
-    const reader = new FileReader();
-    reader.onload = () => {
-      setCropSrc(reader.result as string);
-      setMode('cropping');
-      setCrop({ x: 0, y: 0 });
-      setZoom(1);
-    };
-    reader.onerror = () => {
-      toast.error(t('imageReadFailed'));
-    };
-    reader.readAsDataURL(file);
-  }, [t]);
+      // Load into crop editor
+      const reader = new FileReader();
+      reader.onload = () => {
+        setCropSrc(reader.result as string);
+        setMode('cropping');
+        setCrop({ x: 0, y: 0 });
+        setZoom(1);
+      };
+      reader.onerror = () => {
+        toast.error(t('imageReadFailed'));
+      };
+      reader.readAsDataURL(file);
+    },
+    [t],
+  );
 
   const handleCropComplete = useCallback((_croppedArea: Area, croppedAreaPixels: Area) => {
     cropAreaRef.current = {
@@ -141,11 +154,14 @@ export default function ImageUploader({ value, onChange, productId, aspect = 1 }
     setCropSrc(null);
   }, [onChange]);
 
-  const onDrop = useCallback((acceptedFiles: File[]) => {
-    if (acceptedFiles.length > 0) {
-      processFile(acceptedFiles[0]);
-    }
-  }, [processFile]);
+  const onDrop = useCallback(
+    (acceptedFiles: File[]) => {
+      if (acceptedFiles.length > 0) {
+        processFile(acceptedFiles[0]);
+      }
+    },
+    [processFile],
+  );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -162,11 +178,21 @@ export default function ImageUploader({ value, onChange, productId, aspect = 1 }
         <div className="bg-card rounded-2xl max-w-lg w-full overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b">
             <h3 className="font-semibold text-foreground">{t('cropImage')}</h3>
-            <button type="button" onClick={() => { setMode('idle'); setCropSrc(null); }} className="text-gray-400 hover:text-muted-foreground">
+            <button
+              type="button"
+              onClick={() => {
+                setMode('idle');
+                setCropSrc(null);
+              }}
+              className="text-gray-400 hover:text-muted-foreground"
+            >
               <X size={20} />
             </button>
           </div>
-          <div className="relative w-full bg-muted" style={{ aspectRatio: String(Math.min(aspect, 2)) }}>
+          <div
+            className="relative w-full bg-muted"
+            style={{ aspectRatio: String(Math.min(aspect, 2)) }}
+          >
             <Cropper
               image={cropSrc}
               crop={crop}
@@ -187,7 +213,8 @@ export default function ImageUploader({ value, onChange, productId, aspect = 1 }
               onChange={(e) => setZoom(Number(e.target.value))}
               className="flex-1"
             />
-            <button type="button"
+            <button
+              type="button"
               onClick={handleCropSave}
               className="flex items-center gap-2 px-4 py-2 bg-brand text-white rounded-lg hover:bg-brand/90 transition-colors"
             >
@@ -214,15 +241,20 @@ export default function ImageUploader({ value, onChange, productId, aspect = 1 }
             dir="ltr"
             onKeyDown={(e) => e.key === 'Enter' && handleUrlFetch()}
           />
-          <button type="button"
+          <button
+            type="button"
             onClick={handleUrlFetch}
             disabled={fetching || !urlInput.trim()}
             className="px-3 py-2 bg-brand text-white rounded-lg text-sm hover:bg-brand/90 disabled:opacity-50"
           >
             {fetching ? t('imageFetching') : t('imageFetch')}
           </button>
-          <button type="button"
-            onClick={() => { setMode('idle'); setUrlInput(''); }}
+          <button
+            type="button"
+            onClick={() => {
+              setMode('idle');
+              setUrlInput('');
+            }}
             className="px-3 py-2 text-muted-foreground hover:text-foreground text-sm"
           >
             {tCommon('cancel')}
@@ -234,9 +266,12 @@ export default function ImageUploader({ value, onChange, productId, aspect = 1 }
   }
 
   // ── Idle mode — show current image or upload controls ────────────────
-  const previewUrl = value === 'EXISTING' && productId
-    ? `${api.defaults.baseURL}/products/${productId}/image?t=${cacheBust}`
-    : (value !== 'EXISTING' ? value : null);
+  const previewUrl =
+    value === 'EXISTING' && productId
+      ? `${api.defaults.baseURL}/products/${productId}/image?t=${cacheBust}`
+      : value !== 'EXISTING'
+        ? value
+        : null;
 
   return (
     <div className="space-y-2">
@@ -244,7 +279,8 @@ export default function ImageUploader({ value, onChange, productId, aspect = 1 }
       {previewUrl && (
         <div className="relative w-24 h-24 rounded-lg overflow-hidden border border-border">
           <img src={previewUrl} alt="Product" className="w-full h-full object-cover" />
-          <button type="button"
+          <button
+            type="button"
             onClick={handleRemove}
             className="absolute top-1 end-1 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600"
           >
@@ -259,7 +295,9 @@ export default function ImageUploader({ value, onChange, productId, aspect = 1 }
         <div
           {...getRootProps()}
           className={`w-full flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-xl cursor-pointer transition-colors ${
-            isDragActive ? 'border-brand bg-brand/5 text-brand' : 'border-gray-300 dark:border-border text-muted-foreground hover:border-brand hover:bg-muted'
+            isDragActive
+              ? 'border-brand bg-brand/5 text-brand'
+              : 'border-gray-300 dark:border-border text-muted-foreground hover:border-brand hover:bg-muted'
           }`}
         >
           <input {...getInputProps()} />
@@ -271,13 +309,16 @@ export default function ImageUploader({ value, onChange, productId, aspect = 1 }
 
         <div className="flex items-center gap-2 justify-center">
           <div className="flex-1 h-px bg-gray-200 dark:bg-border"></div>
-          <span className="text-xs text-gray-400 font-medium uppercase px-2">{t('imageOrUse')}</span>
+          <span className="text-xs text-gray-400 font-medium uppercase px-2">
+            {t('imageOrUse')}
+          </span>
           <div className="flex-1 h-px bg-gray-200 dark:bg-border"></div>
         </div>
 
         <div className="flex flex-wrap gap-2 justify-center">
           {/* Camera button (tablet POS) */}
-          <button type="button"
+          <button
+            type="button"
             onClick={() => cameraInputRef.current?.click()}
             className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-sm text-foreground hover:bg-muted hover:border-gray-400 dark:border-border dark:hover:border-border transition-colors"
           >
@@ -298,7 +339,8 @@ export default function ImageUploader({ value, onChange, productId, aspect = 1 }
           />
 
           {/* URL paste */}
-          <button type="button"
+          <button
+            type="button"
             onClick={() => setMode('url-input')}
             className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-sm text-foreground hover:bg-muted hover:border-gray-400 dark:border-border dark:hover:border-border transition-colors"
           >

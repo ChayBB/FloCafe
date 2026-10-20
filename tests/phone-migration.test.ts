@@ -21,7 +21,7 @@ Module._load = function (request: string, parent: unknown, isMain: boolean) {
         isEncryptionAvailable: () => true,
         encryptString: (s: string) => Buffer.from(s, 'utf8'),
         decryptString: (b: Buffer) => b.toString('utf8'),
-      }
+      },
     };
   }
   return originalLoad.apply(this, arguments);
@@ -48,19 +48,19 @@ try {
 
   const { MIGRATIONS } = require('../main/db');
   const v24 = MIGRATIONS.find((m: any) => m.version === 24);
-  
+
   if (!v24) throw new Error('Migration v24 not found');
   v24.up();
 
   // Check the results
   const customers = db.prepare('SELECT * FROM customers ORDER BY id ASC').all();
-  
+
   // c1: +91 5555555555 -> valid Indian number format (10 digits) -> E.164 is +915555555555
   assert.strictEqual(customers[0].phone, '+915555555555');
   assert.strictEqual(customers[0].country_code, '+91');
 
   // c2: +91 34342 -> invalid number -> stays as is
-  assert.strictEqual(customers[1].phone, '+91 34342'); 
+  assert.strictEqual(customers[1].phone, '+91 34342');
 
   // c3: +6491570159 -> valid NZ number -> E.164 is +6491570159
   assert.strictEqual(customers[2].phone, '+6491570159');
@@ -71,12 +71,14 @@ try {
   assert.strictEqual(customers[3].country_code, '+91');
 
   console.log('Migration tests passed for problematic numbers');
-  
+
   db.close();
   fs.rmSync(testDir, { recursive: true, force: true });
   process.exit(0);
 } catch (err: any) {
-  try { db.close(); } catch {}
+  try {
+    db.close();
+  } catch {}
   fs.rmSync(testDir, { recursive: true, force: true });
   console.error('FAILED:', err.stack);
   process.exit(1);

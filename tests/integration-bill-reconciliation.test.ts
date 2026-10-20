@@ -18,15 +18,25 @@ const os = require('os');
 const path = require('path');
 const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-reconcile-'));
 Module._load = function (request: string, parent: unknown, isMain: boolean) {
-  if (request === 'electron') return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
+  if (request === 'electron')
+    return { app: { isPackaged: true, getPath: () => testDir, getVersion: () => 'test' } };
   return originalLoad.apply(this, arguments as any);
 };
 
 const {
-  initTestDb, createApp, startServer,
-  seedOwnerUser, seedCategory, seedProduct,
-  api, assert, assertEqual,
-  getResults, closeDatabase, getDatabase, now,
+  initTestDb,
+  createApp,
+  startServer,
+  seedOwnerUser,
+  seedCategory,
+  seedProduct,
+  api,
+  assert,
+  assertEqual,
+  getResults,
+  closeDatabase,
+  getDatabase,
+  now,
 } = require('./helpers/test-setup');
 
 const { orderRoutes } = require('../main/routes/orders');
@@ -75,7 +85,11 @@ async function main() {
     });
     assertEqual(billRes.status, 201, 'bill created');
     const billId = billRes.data.bill.id;
-    assertEqual(billRes.data.bill.total, originalTotal, `bill total = ₹${originalTotal} (no discount yet)`);
+    assertEqual(
+      billRes.data.bill.total,
+      originalTotal,
+      `bill total = ₹${originalTotal} (no discount yet)`,
+    );
     assertEqual(billRes.data.bill.payment_status, 'unpaid', 'bill is unpaid');
 
     // ── Step 3: Apply 15% discount AFTER bill creation ───────────────
@@ -101,8 +115,16 @@ async function main() {
 
     // The bill should now reflect the discount
     assertEqual(updatedBill.discount_amount, 150, 'bill discount_amount = ₹150');
-    assertEqual(updatedBill.total, orderAfterDiscount.total, `bill total matches order total (₹${orderAfterDiscount.total})`);
-    assertEqual(updatedBill.balance, orderAfterDiscount.total, `bill balance = ₹${orderAfterDiscount.total}`);
+    assertEqual(
+      updatedBill.total,
+      orderAfterDiscount.total,
+      `bill total matches order total (₹${orderAfterDiscount.total})`,
+    );
+    assertEqual(
+      updatedBill.balance,
+      orderAfterDiscount.total,
+      `bill balance = ₹${orderAfterDiscount.total}`,
+    );
 
     // ── Step 5: Pay the discounted bill ──────────────────────────────
     console.log('\n5. Pay discounted bill');
@@ -147,7 +169,11 @@ async function main() {
     });
     assertEqual(billB.status, 201, 'bill B created');
     const billIdB = billB.data.bill.id;
-    assertEqual(billB.data.bill.total, orderBTotal, `bill total = ₹${orderBTotal} (before adding items)`);
+    assertEqual(
+      billB.data.bill.total,
+      orderBTotal,
+      `bill total = ₹${orderBTotal} (before adding items)`,
+    );
 
     // Add a second item to the existing order
     const addItemsRes = await api(baseUrl, `/api/orders/${orderIdB}/items`, {
@@ -157,11 +183,20 @@ async function main() {
     });
     assertEqual(addItemsRes.status, 200, 'item added to order');
     const orderAfterAdd = addItemsRes.data.order;
-    assert(orderAfterAdd.total > orderBTotal, `order total increased (₹${orderBTotal} → ₹${orderAfterAdd.total})`);
+    assert(
+      orderAfterAdd.total > orderBTotal,
+      `order total increased (₹${orderBTotal} → ₹${orderAfterAdd.total})`,
+    );
 
     // The existing unpaid bill must stay in sync before it is re-generated.
-    const billAfterAddBeforeRegeneration = await api(baseUrl, `/api/bills/${billIdB}`, { headers: authHeader });
-    assertEqual(billAfterAddBeforeRegeneration.status, 200, 'existing bill remains readable after adding items');
+    const billAfterAddBeforeRegeneration = await api(baseUrl, `/api/bills/${billIdB}`, {
+      headers: authHeader,
+    });
+    assertEqual(
+      billAfterAddBeforeRegeneration.status,
+      200,
+      'existing bill remains readable after adding items',
+    );
     assertEqual(
       billAfterAddBeforeRegeneration.data.bill.subtotal,
       orderAfterAdd.subtotal,
@@ -178,7 +213,11 @@ async function main() {
 
     // Verify the bill reflects the added items
     const syncedBill = billAfterAdd.data.bill;
-    assertEqual(syncedBill.total, orderAfterAdd.total, `bill total (₹${syncedBill.total}) matches order total (₹${orderAfterAdd.total}) after adding items`);
+    assertEqual(
+      syncedBill.total,
+      orderAfterAdd.total,
+      `bill total (₹${syncedBill.total}) matches order total (₹${orderAfterAdd.total}) after adding items`,
+    );
 
     // ═══ Scenario C: Item Discount After Bill Was Generated ═══
     console.log('\n─── Scenario C: Item Discount After Bill ───');
@@ -201,25 +240,38 @@ async function main() {
     });
     assertEqual(billC.status, 201, 'bill C created before item discount');
 
-    const itemDiscountRes = await api(baseUrl, `/api/orders/${orderIdC}/items/${itemC.id}/discount`, {
-      method: 'PATCH',
-      body: { discount_type: 'percentage', discount_value: 10 },
+    const itemDiscountRes = await api(
+      baseUrl,
+      `/api/orders/${orderIdC}/items/${itemC.id}/discount`,
+      {
+        method: 'PATCH',
+        body: { discount_type: 'percentage', discount_value: 10 },
+        headers: authHeader,
+      },
+    );
+    assertEqual(itemDiscountRes.status, 200, 'item discount applied after bill creation');
+    const orderAfterItemDiscount = (
+      await api(baseUrl, `/api/orders/${orderIdC}`, { headers: authHeader })
+    ).data.order;
+    const billAfterItemDiscount = await api(baseUrl, `/api/bills/${billC.data.bill.id}`, {
       headers: authHeader,
     });
-    assertEqual(itemDiscountRes.status, 200, 'item discount applied after bill creation');
-    const orderAfterItemDiscount = (await api(baseUrl, `/api/orders/${orderIdC}`, { headers: authHeader })).data.order;
-    const billAfterItemDiscount = await api(baseUrl, `/api/bills/${billC.data.bill.id}`, { headers: authHeader });
-    assertEqual(billAfterItemDiscount.status, 200, 'existing bill remains readable after item discount');
+    assertEqual(
+      billAfterItemDiscount.status,
+      200,
+      'existing bill remains readable after item discount',
+    );
     assertEqual(
       billAfterItemDiscount.data.bill.subtotal,
       orderAfterItemDiscount.subtotal,
       `bill subtotal (₹${billAfterItemDiscount.data.bill.subtotal}) matches order subtotal (₹${orderAfterItemDiscount.subtotal}) after item discount`,
     );
-
   } finally {
     server.close();
     closeDatabase();
-    try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
+    try {
+      fs.rmSync(testDir, { recursive: true, force: true });
+    } catch {}
   }
 
   const { passed, failed, total } = getResults();

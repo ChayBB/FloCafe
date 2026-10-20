@@ -21,42 +21,196 @@ const TRAILING_PUNCTUATION_RE = /[)\]},.:;!?]+$/;
 // name that is not a host is redacted too, since under-redacting is the failure
 // this exists to prevent. Underscore is not a host-label character, so
 // `orders.customer_id` is not caught here and stays a schema reference.
-const URL_LIKE_RE = /^(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/)?[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+(?::\d{1,5})?(?:\/\S*)?$/;
+const URL_LIKE_RE =
+  /^(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/)?[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+(?::\d{1,5})?(?:\/\S*)?$/;
 const HOST_PORT_RE = /^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*:\d{1,5}$/;
 
 // Structural words from this app's own diagnostic strings. Anything absent is
 // dropped. Known limit: a value made only of these words ("Order Only") cannot
 // be told from the fixed phrase, so the guarantee is per token, not per message.
 const SAFE_WORDS = new Set([
-  'a', 'aborted', 'all', 'an', 'and', 'any', 'app', 'are', 'at', 'attempted',
-  'available', 'be', 'been', 'blank', 'browser', 'browsers', 'busy', 'by', 'can', 'canceled',
-  'cancelled', 'cannot', 'check', 'column', 'columns', 'completed', 'compound', 'configured',
-  'connection', 'could', 'constraint', 'copy', 'database', 'default', 'desktop', 'denied',
-  'device', 'did', 'disabled', 'disk', 'do', 'document', 'duplicate', 'empty', 'error',
-  'exists', 'failed', 'financial', 'found', 'foreign', 'from', 'group', 'groups',
-  'has', 'having', 'image', 'in', 'incomplete', 'index', 'internal', 'invalid', 'into', 'is',
-  'jobs', 'key', 'keys', 'kitchen', 'line', 'lines', 'locked', 'malformed', 'map', 'mismatch',
-  'more', 'near', 'network', 'no', 'not', 'now', 'null', 'of', 'offline', 'on', 'one', 'only',
-  'optional', 'order', 'orders', 'out', 'outside', 'overlap', 'payment', 'permission',
-  'physical', 'placeholder', 'placement', 'print', 'printed', 'printer', 'query', 'queries',
-  'queue', 'range', 'read', 'readonly', 'real', 'receipt', 'rejected', 'refused', 'rendered',
-  'renderer', 'rendering', 'request', 'row', 'rows', 'select', 'semantic', 'server', 'source',
-  'spooler', 'stage', 'storage', 'such', 'surface', 'syntax', 'table', 'tables', 'text',
-  'than', 'the', 'this', 'timed', 'timeout', 'to', 'token', 'too', 'trigger', 'unit',
-  'unavailable', 'unable', 'unexpected', 'unreachable', 'unique', 'unsupported', 'use', 'using',
-  'validation', 'value', 'values', 'view', 'was', 'webusb', 'were', 'with', 'within',
+  'a',
+  'aborted',
+  'all',
+  'an',
+  'and',
+  'any',
+  'app',
+  'are',
+  'at',
+  'attempted',
+  'available',
+  'be',
+  'been',
+  'blank',
+  'browser',
+  'browsers',
+  'busy',
+  'by',
+  'can',
+  'canceled',
+  'cancelled',
+  'cannot',
+  'check',
+  'column',
+  'columns',
+  'completed',
+  'compound',
+  'configured',
+  'connection',
+  'could',
+  'constraint',
+  'copy',
+  'database',
+  'default',
+  'desktop',
+  'denied',
+  'device',
+  'did',
+  'disabled',
+  'disk',
+  'do',
+  'document',
+  'duplicate',
+  'empty',
+  'error',
+  'exists',
+  'failed',
+  'financial',
+  'found',
+  'foreign',
+  'from',
+  'group',
+  'groups',
+  'has',
+  'having',
+  'image',
+  'in',
+  'incomplete',
+  'index',
+  'internal',
+  'invalid',
+  'into',
+  'is',
+  'jobs',
+  'key',
+  'keys',
+  'kitchen',
+  'line',
+  'lines',
+  'locked',
+  'malformed',
+  'map',
+  'mismatch',
+  'more',
+  'near',
+  'network',
+  'no',
+  'not',
+  'now',
+  'null',
+  'of',
+  'offline',
+  'on',
+  'one',
+  'only',
+  'optional',
+  'order',
+  'orders',
+  'out',
+  'outside',
+  'overlap',
+  'payment',
+  'permission',
+  'physical',
+  'placeholder',
+  'placement',
+  'print',
+  'printed',
+  'printer',
+  'query',
+  'queries',
+  'queue',
+  'range',
+  'read',
+  'readonly',
+  'real',
+  'receipt',
+  'rejected',
+  'refused',
+  'rendered',
+  'renderer',
+  'rendering',
+  'request',
+  'row',
+  'rows',
+  'select',
+  'semantic',
+  'server',
+  'source',
+  'spooler',
+  'stage',
+  'storage',
+  'such',
+  'surface',
+  'syntax',
+  'table',
+  'tables',
+  'text',
+  'than',
+  'the',
+  'this',
+  'timed',
+  'timeout',
+  'to',
+  'token',
+  'too',
+  'trigger',
+  'unit',
+  'unavailable',
+  'unable',
+  'unexpected',
+  'unreachable',
+  'unique',
+  'unsupported',
+  'use',
+  'using',
+  'validation',
+  'value',
+  'values',
+  'view',
+  'was',
+  'webusb',
+  'were',
+  'with',
+  'within',
 ]);
 
 // Words after which a bare token is a schema reference, e.g. the `orders` in
 // `no such table: orders`.
-const SCHEMA_SLOT_INTRODUCERS = new Set(['table', 'column', 'index', 'view', 'trigger', 'constraint']);
+const SCHEMA_SLOT_INTRODUCERS = new Set([
+  'table',
+  'column',
+  'index',
+  'view',
+  'trigger',
+  'constraint',
+]);
 
 // Words after which a qualified name is a schema reference. Deliberately tiny
 // and deliberately NOT the structural vocabulary: "to", "by" or "found" is not
 // evidence that the dotted token after it is a database object, and treating it
 // as evidence is what once let a hostname survive here. Non-matching shapes are
 // dropped: losing a table name costs detail, keeping a host costs the guarantee.
-const SCHEMA_QUALIFIED_NAME_INTRODUCERS = new Set(['table', 'column', 'index', 'view', 'trigger', 'constraint', 'failed']);
+const SCHEMA_QUALIFIED_NAME_INTRODUCERS = new Set([
+  'table',
+  'column',
+  'index',
+  'view',
+  'trigger',
+  'constraint',
+  'failed',
+]);
 
 /** Plain-language opening clause per error class, so the operator reads a sentence. */
 const CLASS_PHRASE: Record<string, string> = {
@@ -120,16 +274,29 @@ function tokenize(source: string): string[] {
   for (const ch of source) {
     if (quote) {
       current += ch;
-      if (ch === quote) { tokens.push(current); current = ''; quote = ''; }
+      if (ch === quote) {
+        tokens.push(current);
+        current = '';
+        quote = '';
+      }
       continue;
     }
     if (ch === '"' || ch === "'" || ch === '`') {
-      if (current) { tokens.push(current); current = ''; }
+      if (current) {
+        tokens.push(current);
+        current = '';
+      }
       quote = ch;
       current = ch;
       continue;
     }
-    if (/\s/.test(ch)) { if (current) { tokens.push(current); current = ''; } continue; }
+    if (/\s/.test(ch)) {
+      if (current) {
+        tokens.push(current);
+        current = '';
+      }
+      continue;
+    }
     current += ch;
   }
   if (current) tokens.push(current);
@@ -158,13 +325,17 @@ function classifyToken(token: string, previousWord: string): string {
   if (SAFE_WORDS.has(word)) return `${prefix}${core}${suffix}`;
   if (!SQL_IDENTIFIER_RE.test(core)) return '';
   if (SCHEMA_SLOT_INTRODUCERS.has(previousWord)) return `${prefix}${core}${suffix}`;
-  if (core.includes('.') && SCHEMA_QUALIFIED_NAME_INTRODUCERS.has(previousWord)) return `${prefix}${core}${suffix}`;
+  if (core.includes('.') && SCHEMA_QUALIFIED_NAME_INTRODUCERS.has(previousWord))
+    return `${prefix}${core}${suffix}`;
   return '';
 }
 
 /** Reduces an exception message to a literal-free template. */
 export function deriveDiagnosticTemplate(rawMessage: unknown): string {
-  const source = String(rawMessage ?? '').replace(/\s+/g, ' ').trim().slice(0, MAX_SOURCE_MESSAGE_CHARS);
+  const source = String(rawMessage ?? '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, MAX_SOURCE_MESSAGE_CHARS);
   if (!source) return '';
 
   const parts: string[] = [];
@@ -190,7 +361,9 @@ export function deriveDiagnosticTemplate(rawMessage: unknown): string {
 }
 
 // `message` is the raw exception text and is never stored, only templated.
-export function deriveDiagnosticSignature(source: { errorClass?: unknown; message?: unknown } | null | undefined): DiagnosticSignature {
+export function deriveDiagnosticSignature(
+  source: { errorClass?: unknown; message?: unknown } | null | undefined,
+): DiagnosticSignature {
   const errorClass = normaliseErrorClass(source?.errorClass);
   const template = deriveDiagnosticTemplate(source?.message);
   const signature = template ? `${errorClass}: ${template}` : errorClass;
@@ -207,7 +380,11 @@ export function deriveDiagnosticSignature(source: { errorClass?: unknown; messag
 /** Class name of a thrown value, or `Error` when it is not an Error instance. */
 export function errorClassOf(error: unknown): string {
   if (error instanceof Error && error.constructor?.name) return error.constructor.name;
-  if (error && typeof error === 'object' && typeof (error as { name?: unknown }).name === 'string') {
+  if (
+    error &&
+    typeof error === 'object' &&
+    typeof (error as { name?: unknown }).name === 'string'
+  ) {
     return normaliseErrorClass((error as { name: string }).name);
   }
   return 'Error';

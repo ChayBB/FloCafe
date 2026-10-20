@@ -1,7 +1,11 @@
 'use client';
 
 import { useMemo } from 'react';
-import { getCurrencyDisplayName, listSupportedCurrencyCodes, POPULAR_CURRENCY_CODES } from '@shared/currencies';
+import {
+  getCurrencyDisplayName,
+  listSupportedCurrencyCodes,
+  POPULAR_CURRENCY_CODES,
+} from '@shared/currencies';
 
 interface CurrencySelectProps {
   value: string;
@@ -43,13 +47,18 @@ export function CurrencySelect({
     const supported = new Set(currencyNames.keys());
     if (recommended) supported.add(recommended);
     if (/^[A-Z]{3}$/.test(value)) supported.add(value);
-    const nameOf = (code: string) => currencyNames.get(code) || getCurrencyDisplayName(code, locale);
+    const nameOf = (code: string) =>
+      currencyNames.get(code) || getCurrencyDisplayName(code, locale);
 
-    const popular = POPULAR_CURRENCY_CODES.filter((code) => code !== recommended && supported.has(code));
+    const popular = POPULAR_CURRENCY_CODES.filter(
+      (code) => code !== recommended && supported.has(code),
+    );
     const excluded = new Set([recommended, ...popular]);
     const all = [...supported]
       .filter((code) => !excluded.has(code))
-      .sort((left, right) => nameOf(left).localeCompare(nameOf(right), locale, { sensitivity: 'base' }));
+      .sort((left, right) =>
+        nameOf(left).localeCompare(nameOf(right), locale, { sensitivity: 'base' }),
+      );
     return { recommended, popular, all };
   }, [currencyNames, locale, recommendedCurrency, value]);
 
@@ -71,14 +80,24 @@ export function CurrencySelect({
       {placeholder ? <option value="">{placeholder}</option> : null}
       {groups.recommended ? (
         <optgroup label={recommendedLabel}>
-          <option value={groups.recommended}>{optionLabel(groups.recommended, recommendedLabel)}</option>
+          <option value={groups.recommended}>
+            {optionLabel(groups.recommended, recommendedLabel)}
+          </option>
         </optgroup>
       ) : null}
       <optgroup label={popularLabel}>
-        {groups.popular.map((code) => <option key={code} value={code}>{optionLabel(code)}</option>)}
+        {groups.popular.map((code) => (
+          <option key={code} value={code}>
+            {optionLabel(code)}
+          </option>
+        ))}
       </optgroup>
       <optgroup label={allLabel}>
-        {groups.all.map((code) => <option key={code} value={code}>{optionLabel(code)}</option>)}
+        {groups.all.map((code) => (
+          <option key={code} value={code}>
+            {optionLabel(code)}
+          </option>
+        ))}
       </optgroup>
     </select>
   );

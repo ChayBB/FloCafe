@@ -48,11 +48,20 @@ async function main() {
   const db = initTestDb();
   const owner = seedOwnerUser(db);
   seedCategory(db, 'manual-tax-products', 'Manual Tax Products');
-  const product = seedProduct(db, 'manual-tax-product', 'manual-tax-products', 'Manual Tax Product', 100, {
-    tax_type: 'none',
-    tax_category_id: null,
-  });
-  db.prepare(`INSERT INTO addon_groups (id, name) VALUES ('manual-tax-addon-group', 'Extras')`).run();
+  const product = seedProduct(
+    db,
+    'manual-tax-product',
+    'manual-tax-products',
+    'Manual Tax Product',
+    100,
+    {
+      tax_type: 'none',
+      tax_category_id: null,
+    },
+  );
+  db.prepare(
+    `INSERT INTO addon_groups (id, name) VALUES ('manual-tax-addon-group', 'Extras')`,
+  ).run();
   db.prepare(`
     INSERT INTO addons (id, addon_group_id, name, price, tax_category_id)
     VALUES ('manual-tax-addon', 'manual-tax-addon-group', 'Extra Cheese', 20, NULL)
@@ -70,8 +79,16 @@ async function main() {
       body: {
         inclusive: true,
         categories: [
-          { tempId: 'standard', label: 'Standard', components: [{ label: 'Tax 1', type: 'percent', value: '5' }] },
-          { tempId: 'reduced', label: 'Reduced', components: [{ label: 'Tax 1', type: 'percent', value: '2' }] },
+          {
+            tempId: 'standard',
+            label: 'Standard',
+            components: [{ label: 'Tax 1', type: 'percent', value: '5' }],
+          },
+          {
+            tempId: 'reduced',
+            label: 'Reduced',
+            components: [{ label: 'Tax 1', type: 'percent', value: '2' }],
+          },
         ],
         defaultProductCategoryTempId: 'standard',
         packagingCategoryTempId: 'standard',
@@ -99,11 +116,14 @@ async function main() {
       assertEqual(res.status, 201, `override created for ${target.entity_type}`);
     }
     assertEqual(
-      db.prepare(`SELECT COUNT(*) AS c FROM tax_overrides`).get().c, 5,
+      db.prepare(`SELECT COUNT(*) AS c FROM tax_overrides`).get().c,
+      5,
       'five overrides exist before the category rename',
     );
 
-    console.log('\n3. Owner removes "Reduced" from the manual config (resubmits with only "Standard")');
+    console.log(
+      '\n3. Owner removes "Reduced" from the manual config (resubmits with only "Standard")',
+    );
     const updateRes = await api(baseUrl, '/api/tax-packs/manual-config', {
       method: 'POST',
       headers: owner.authHeader,
@@ -111,7 +131,11 @@ async function main() {
         override: true,
         inclusive: true,
         categories: [
-          { tempId: 'standard', label: 'Standard', components: [{ label: 'Tax 1', type: 'percent', value: '5' }] },
+          {
+            tempId: 'standard',
+            label: 'Standard',
+            components: [{ label: 'Tax 1', type: 'percent', value: '5' }],
+          },
         ],
         defaultProductCategoryTempId: 'standard',
         packagingCategoryTempId: 'standard',
@@ -123,20 +147,32 @@ async function main() {
     const remappedEntities = updateRes.data.remapped.map((entry: any) => entry.entity).sort();
     assertEqual(
       remappedEntities.join(','),
-      ['addon_override', 'delivery_override', 'packaging_override', 'product_override', 'service_charge_override'].join(','),
+      [
+        'addon_override',
+        'delivery_override',
+        'packaging_override',
+        'product_override',
+        'service_charge_override',
+      ].join(','),
       'the response reports all five override types as remapped (product/addon base columns were never set to "reduced", so they are correctly absent)',
     );
     console.log('   ✓ save response reports every override entity type as remapped');
 
     console.log('\n4. Every override in the database now points at a category that still exists');
     const survivingCategoryIds = new Set(
-      (db.prepare(`
+      (
+        db
+          .prepare(`
         SELECT category.category_id FROM tax_categories AS category
         JOIN country_packs AS pack ON pack.active_version_id = category.pack_version_id
         WHERE pack.id = ?
-      `).all(packId) as Array<{ category_id: string }>).map((row) => row.category_id),
+      `)
+          .all(packId) as Array<{ category_id: string }>
+      ).map((row) => row.category_id),
     );
-    const overrideRows = db.prepare(`SELECT entity_type, value_json FROM tax_overrides`).all() as Array<{ entity_type: string; value_json: string }>;
+    const overrideRows = db
+      .prepare(`SELECT entity_type, value_json FROM tax_overrides`)
+      .all() as Array<{ entity_type: string; value_json: string }>;
     assertEqual(overrideRows.length, 5, 'all five overrides still exist (remapped, not deleted)');
     for (const row of overrideRows) {
       const categoryId = JSON.parse(row.value_json).categoryId;
@@ -144,23 +180,44 @@ async function main() {
         survivingCategoryIds.has(categoryId),
         `${row.entity_type} override now points at a category that exists (got "${categoryId}")`,
       );
-      assertEqual(categoryId, 'standard', `${row.entity_type} override was remapped to the new default category`);
+      assertEqual(
+        categoryId,
+        'standard',
+        `${row.entity_type} override was remapped to the new default category`,
+      );
     }
-    console.log('   ✓ every override entity type (product, addon, packaging, delivery, service_charge) was remapped, none left dangling');
+    console.log(
+      '   ✓ every override entity type (product, addon, packaging, delivery, service_charge) was remapped, none left dangling',
+    );
 
-    console.log('\n5. Checkout-path tax calculation no longer throws for the remapped product override');
+    console.log(
+      '\n5. Checkout-path tax calculation no longer throws for the remapped product override',
+    );
     const { calculateItemTax } = require('../main/services/tax');
     db.prepare("UPDATE settings SET value = 'true' WHERE key = 'taxes_enabled'").run();
     const tenant = {
       taxes_enabled: true,
       country: db.prepare("SELECT value FROM settings WHERE key = 'country'").get().value,
-      business_type: db.prepare("SELECT value FROM settings WHERE key = 'business_type'").get()?.value || 'restaurant',
+      business_type:
+        db.prepare("SELECT value FROM settings WHERE key = 'business_type'").get()?.value ||
+        'restaurant',
       state_code: '',
     };
-    const result = calculateItemTax(tenant, { id: 'manual-tax-product', tax_category_id: null, tax_category: null }, 100, null);
-    assertEqual(result.tax_type, 'inclusive', 'the previously-dangling product override resolves and calculates tax without throwing');
+    const result = calculateItemTax(
+      tenant,
+      { id: 'manual-tax-product', tax_category_id: null, tax_category: null },
+      100,
+      null,
+    );
+    assertEqual(
+      result.tax_type,
+      'inclusive',
+      'the previously-dangling product override resolves and calculates tax without throwing',
+    );
     assert(result.tax_amount > 0, 'a nonzero tax amount is computed against the remapped category');
-    console.log('   ✓ calculateItemTax succeeds against the remapped override instead of throwing "resolved unknown tax category"');
+    console.log(
+      '   ✓ calculateItemTax succeeds against the remapped override instead of throwing "resolved unknown tax category"',
+    );
   } finally {
     server.close();
     closeDatabase();

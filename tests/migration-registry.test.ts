@@ -31,18 +31,26 @@ const path = require('path');
 
 const activeTestDir = fs.mkdtempSync(path.join(os.tmpdir(), 'flo-migration-registry-'));
 Module._load = function (request: string, parent: unknown, isMain: boolean) {
-  if (request === 'electron') return { app: { isPackaged: true, getPath: () => activeTestDir, getVersion: () => 'test' } };
+  if (request === 'electron')
+    return { app: { isPackaged: true, getPath: () => activeTestDir, getVersion: () => 'test' } };
   return originalLoad.apply(this, arguments as any);
 };
 
 const { initDatabase, getDatabase, getCurrentSchemaVersion, closeDatabase } = require('../main/db');
 const {
-  assertOrThrow, assertEqualOrThrow, assertGreaterThanOrThrow, getResults, resetCounters,
+  assertOrThrow,
+  assertEqualOrThrow,
+  assertGreaterThanOrThrow,
+  getResults,
+  resetCounters,
 } = require('./helpers/test-setup');
 
 // Pristine module-load snapshot: the shape runMigrations() reads, captured
 // before initDatabase() and before any suite can push into the live array.
-const PRISTINE_REGISTRY = require('../main/db').MIGRATIONS.map((m: any) => ({ version: m.version, name: m.name }));
+const PRISTINE_REGISTRY = require('../main/db').MIGRATIONS.map((m: any) => ({
+  version: m.version,
+  name: m.name,
+}));
 
 function main() {
   resetCounters();
@@ -58,7 +66,11 @@ function main() {
       Number.isInteger(version),
       `migration ${name} declares an integer version (got ${JSON.stringify(version)})`,
     );
-    assertGreaterThanOrThrow(version, previous, `migration v${version} (${name}) sorts after v${previous}`);
+    assertGreaterThanOrThrow(
+      version,
+      previous,
+      `migration v${version} (${name}) sorts after v${previous}`,
+    );
     const firstSeenAt = seen.get(version);
     assertOrThrow(
       firstSeenAt === undefined,
@@ -98,7 +110,7 @@ function main() {
   const results = getResults();
   console.log(
     `\nMigration registry: ${results.passed}/${results.total} checks passed ` +
-    `(${PRISTINE_REGISTRY.length} migrations, v${PRISTINE_REGISTRY[0].version}..v${PRISTINE_REGISTRY[PRISTINE_REGISTRY.length - 1].version}).`,
+      `(${PRISTINE_REGISTRY.length} migrations, v${PRISTINE_REGISTRY[0].version}..v${PRISTINE_REGISTRY[PRISTINE_REGISTRY.length - 1].version}).`,
   );
   if (results.failed > 0) process.exit(1);
 }

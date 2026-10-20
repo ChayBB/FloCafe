@@ -19,7 +19,11 @@ const CROP_ENCODING_ATTEMPTS = [
  * The attempt ladder shrinks the long edge, so a wide crop keeps its shape
  * instead of being squashed into a square.
  */
-export function compressCroppedImage(image: HTMLImageElement, crop: CropArea, aspect = 1): string | null {
+export function compressCroppedImage(
+  image: HTMLImageElement,
+  crop: CropArea,
+  aspect = 1,
+): string | null {
   try {
     for (const { size, quality } of CROP_ENCODING_ATTEMPTS) {
       const canvas = document.createElement('canvas');
@@ -28,7 +32,17 @@ export function compressCroppedImage(image: HTMLImageElement, crop: CropArea, as
       const ctx = canvas.getContext('2d');
       if (!ctx) return null;
 
-      ctx.drawImage(image, crop.x, crop.y, crop.width, crop.height, 0, 0, canvas.width, canvas.height);
+      ctx.drawImage(
+        image,
+        crop.x,
+        crop.y,
+        crop.width,
+        crop.height,
+        0,
+        0,
+        canvas.width,
+        canvas.height,
+      );
       const dataUri = canvas.toDataURL('image/webp', quality);
       if (dataUri !== 'data:,' && dataUri.length <= MAX_BASE64_LENGTH) return dataUri;
     }
@@ -57,7 +71,10 @@ export function compressImage(file: File, quality = 0.8): Promise<string | null>
       canvas.width = size;
       canvas.height = size;
       const ctx = canvas.getContext('2d');
-      if (!ctx) { resolve(null); return; }
+      if (!ctx) {
+        resolve(null);
+        return;
+      }
 
       ctx.drawImage(img, offsetX, offsetY, size, size, 0, 0, size, size);
 

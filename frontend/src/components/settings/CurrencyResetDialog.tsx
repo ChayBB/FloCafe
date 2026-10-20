@@ -5,7 +5,14 @@ import { AlertTriangle } from 'lucide-react';
 import { useTranslations } from 'use-intl';
 import api from '@/lib/api';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { MasterPinPrompt } from './MasterPinPrompt';
@@ -27,10 +34,18 @@ interface CurrencyResetDialogProps {
   onSuccess: () => void;
 }
 
-export function CurrencyResetDialog({ open, targetCurrency, onOpenChange, onSuccess }: CurrencyResetDialogProps) {
+export function CurrencyResetDialog({
+  open,
+  targetCurrency,
+  onOpenChange,
+  onSuccess,
+}: CurrencyResetDialogProps) {
   const t = useTranslations('settings');
   const tCommon = useTranslations('common');
-  const [impactResult, setImpactResult] = useState<{ target: string; impact: Impact | null } | null>(null);
+  const [impactResult, setImpactResult] = useState<{
+    target: string;
+    impact: Impact | null;
+  } | null>(null);
   const [phrase, setPhrase] = useState('');
   const [showPin, setShowPin] = useState(false);
   const confirmationPhrase = `CHANGE TO ${targetCurrency}`;
@@ -39,7 +54,8 @@ export function CurrencyResetDialog({ open, targetCurrency, onOpenChange, onSucc
 
   useEffect(() => {
     if (!open) return;
-    api.get('/db-tools/currency-reset-impact')
+    api
+      .get('/db-tools/currency-reset-impact')
       .then(({ data }) => setImpactResult({ target: targetCurrency, impact: data }))
       .catch(() => setImpactResult({ target: targetCurrency, impact: null }));
   }, [open, targetCurrency]);
@@ -87,17 +103,23 @@ export function CurrencyResetDialog({ open, targetCurrency, onOpenChange, onSucc
                       orders: impact.orders,
                     })}
                   </span>
-                  <span className="block">{t('currencyChangeDestructiveBody', { currency: targetCurrency })}</span>
+                  <span className="block">
+                    {t('currencyChangeDestructiveBody', { currency: targetCurrency })}
+                  </span>
                   <span className="block font-medium">{t('currencyChangeMenuBody')}</span>
                   <span className="block">{t('currencyChangeBackupBody')}</span>
                 </>
               ) : null}
-              {!loading && !impact ? <span className="block text-red-600">{t('currencyImpactFailed')}</span> : null}
+              {!loading && !impact ? (
+                <span className="block text-red-600">{t('currencyImpactFailed')}</span>
+              ) : null}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-2">
-            <Label htmlFor="currency-reset-confirm">{t('currencyChangeTypeConfirm', { phrase: confirmationPhrase })}</Label>
+            <Label htmlFor="currency-reset-confirm">
+              {t('currencyChangeTypeConfirm', { phrase: confirmationPhrase })}
+            </Label>
             <Input
               id="currency-reset-confirm"
               value={phrase}
@@ -108,7 +130,9 @@ export function CurrencyResetDialog({ open, targetCurrency, onOpenChange, onSucc
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={close}>{tCommon('cancel')}</Button>
+            <Button variant="outline" onClick={close}>
+              {tCommon('cancel')}
+            </Button>
             <Button
               variant="destructive"
               disabled={!impact || phrase !== confirmationPhrase}

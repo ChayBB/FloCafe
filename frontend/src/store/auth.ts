@@ -81,7 +81,11 @@ export const useAuthStore = create<AuthState>((set) => ({
     persistSession(data.access_token, currentTenant);
     syncTenantLanguage(currentTenant);
     const failedLanguages = currentTenant
-      ? await syncPrintPoliciesAtBootstrap(currentTenant, usePosSettingsStore, () => operation === authOperation)
+      ? await syncPrintPoliciesAtBootstrap(
+          currentTenant,
+          usePosSettingsStore,
+          () => operation === authOperation,
+        )
       : [];
     if (operation !== authOperation) return;
     set({
@@ -100,7 +104,11 @@ export const useAuthStore = create<AuthState>((set) => ({
     if (operation !== authOperation) return;
     persistSession(data.access_token, data.tenant);
     syncTenantLanguage(data.tenant);
-    const failedLanguages = await syncPrintPoliciesAtBootstrap(data.tenant, usePosSettingsStore, () => operation === authOperation);
+    const failedLanguages = await syncPrintPoliciesAtBootstrap(
+      data.tenant,
+      usePosSettingsStore,
+      () => operation === authOperation,
+    );
     if (operation !== authOperation) return;
     set({
       token: data.access_token,
@@ -133,8 +141,10 @@ export const useAuthStore = create<AuthState>((set) => ({
     const { data } = await api.get('/auth/me');
     const tenants: Tenant[] = data.tenants || [];
     const currentTenant = state.currentTenant
-      ? tenants.find((tenant) => tenant.id === state.currentTenant?.id) ?? null
-      : (tenants.length === 1 ? tenants[0] : null);
+      ? (tenants.find((tenant) => tenant.id === state.currentTenant?.id) ?? null)
+      : tenants.length === 1
+        ? tenants[0]
+        : null;
     if (currentTenant) localStorage.setItem('tenant', JSON.stringify(currentTenant));
     set({ user: data.user, tenants, currentTenant });
   },
@@ -163,12 +173,15 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
 
     if (token) {
-      await api.get('/auth/me')
+      await api
+        .get('/auth/me')
         .then(({ data }) => {
           if (operation !== authOperation) return null;
           const tenants: Tenant[] = data.tenants;
           // Find the fresh version of the currently selected tenant, or default to the first one
-          const freshTenant = currentTenant ? tenants.find((t: Tenant) => t.id === currentTenant.id) : null;
+          const freshTenant = currentTenant
+            ? tenants.find((t: Tenant) => t.id === currentTenant.id)
+            : null;
           const resolved = freshTenant ?? (tenants.length === 1 ? tenants[0] : null);
           if (resolved) localStorage.setItem('tenant', JSON.stringify(resolved));
           set({
@@ -179,7 +192,11 @@ export const useAuthStore = create<AuthState>((set) => ({
           });
           syncTenantLanguage(resolved);
           return resolved
-            ? syncPrintPoliciesAtBootstrap(resolved, usePosSettingsStore, () => operation === authOperation)
+            ? syncPrintPoliciesAtBootstrap(
+                resolved,
+                usePosSettingsStore,
+                () => operation === authOperation,
+              )
             : [];
         })
         .then((failedLanguages) => {

@@ -103,9 +103,7 @@ function roundSecret(): string {
 }
 
 function signRound(nonce: string, tableId: string, round: number): string {
-  return createHmac('sha256', roundSecret())
-    .update(`${nonce}.${tableId}.${round}`)
-    .digest('hex');
+  return createHmac('sha256', roundSecret()).update(`${nonce}.${tableId}.${round}`).digest('hex');
 }
 
 export function newRoundToken(tableId: string, round: number): string {

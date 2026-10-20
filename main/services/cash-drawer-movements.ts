@@ -23,9 +23,9 @@ function movementError(message: string, statusCode: number, code: string | null 
 
 /** A closed day refuses new drawer money even while a session is still open. */
 export function closedDayExists(db: CashDrawerDb, businessDate: string): boolean {
-  return !!db.prepare(
-    `SELECT id FROM cash_closures WHERE business_date = ? AND scope = 'day' LIMIT 1`,
-  ).get(businessDate);
+  return !!db
+    .prepare(`SELECT id FROM cash_closures WHERE business_date = ? AND scope = 'day' LIMIT 1`)
+    .get(businessDate);
 }
 
 export interface CashDrawerMovementInput {
@@ -49,18 +49,20 @@ export function insertCashDrawerMovement(db: CashDrawerDb, input: CashDrawerMove
   if (input.reason !== null && input.reason.length > MAX_MOVEMENT_REASON_LENGTH) {
     throw movementError('reason is too long', 400);
   }
-  const result = db.prepare(`
+  const result = db
+    .prepare(`
     INSERT INTO cash_drawer_movements (
       business_date, movement_type, amount_cents, reason, created_by, created_at, cash_session_id
     ) VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    input.businessDate,
-    input.movementType,
-    input.amountCents,
-    input.reason,
-    input.createdBy,
-    now(),
-    input.cashSessionId,
-  );
+  `)
+    .run(
+      input.businessDate,
+      input.movementType,
+      input.amountCents,
+      input.reason,
+      input.createdBy,
+      now(),
+      input.cashSessionId,
+    );
   return Number(result.lastInsertRowid);
 }
