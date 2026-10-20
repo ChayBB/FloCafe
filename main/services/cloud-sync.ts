@@ -2904,6 +2904,9 @@ export class CloudSyncService {
         if (this.cloudDeletionInProgress || this.shutdownRequested) return;
         const cfg = this.loadSettings();
         if (!cfg?.sync_enabled) return;
+        // An order event the cloud is not accepting would sit in the outbox and be
+        // retried for the life of the install; the queue has no expiry.
+        if (entityType === 'order' && !cfg.orders_enabled) return;
         const db = getDatabase();
         const id = crypto.randomUUID();
         db.prepare(`
