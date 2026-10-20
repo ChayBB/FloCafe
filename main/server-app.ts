@@ -316,6 +316,9 @@ function setupServerAppWebSocket(listeningServer: http.Server): void {
       return;
     }
     if (!isServerAppEnabled() || sockets.size >= MAX_SERVER_APP_SOCKETS) {
+      console.log(
+        `[Server App] Socket refused 503 (enabled=${isServerAppEnabled()}, open=${sockets.size})`,
+      );
       socket.write(
         'HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n',
       );
@@ -325,6 +328,7 @@ function setupServerAppWebSocket(listeningServer: http.Server): void {
     // The browser WebSocket API cannot set headers, so the token rides in the query string.
     const user = authenticateSocketToken(new URLSearchParams(rawQuery || '').get('token') || '');
     if (!user) {
+      console.log('[Server App] Socket refused 401 (token rejected)');
       socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
       socket.destroy();
       return;
@@ -332,9 +336,18 @@ function setupServerAppWebSocket(listeningServer: http.Server): void {
     wss.handleUpgrade(request, socket, head, (ws) => {
       sockets.set(ws, user);
       alive.add(ws);
+      console.log(`[Server App] Socket open for ${user.role} (open=${sockets.size})`);
       ws.on('pong', () => alive.add(ws));
-      ws.on('close', () => sockets.delete(ws));
-      ws.on('error', () => sockets.delete(ws));
+      ws.on('close', (code, reason) => {
+        sockets.delete(ws);
+        console.log(
+          `[Server App] Socket closed code=${code} reason=${reason?.toString() || '-'} (open=${sockets.size})`,
+        );
+      });
+      ws.on('error', (error) => {
+        sockets.delete(ws);
+        console.log(`[Server App] Socket error: ${(error as Error).message}`);
+      });
       ws.send(JSON.stringify({ type: 'connected' }));
     });
   });
