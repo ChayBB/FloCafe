@@ -7747,6 +7747,23 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       }
     },
   },
+  {
+    version: 1011,
+    name: 'add_product_min_quantity',
+    up: () => {
+      // A shop selling fish by the kilo will not weigh out 20 grams of it. The
+      // minimum is per product rather than per unit because it is a trading
+      // decision, not a property of the kilogram.
+      //
+      // 0 means no minimum, which is what every existing product gets: adding
+      // one retroactively would start rejecting orders a till already takes.
+      const columns = db.prepare(`PRAGMA table_info(products)`).all() as Array<{ name: string }>;
+      if (columns.some((column) => column.name === 'min_quantity')) return;
+      db.exec(
+        `ALTER TABLE products ADD COLUMN min_quantity REAL NOT NULL DEFAULT 0 CHECK (min_quantity >= 0)`,
+      );
+    },
+  },
 ];
 
 function syncBackupBeforeMigration(fromVersion: number, toVersion: number): void {
@@ -7907,6 +7924,7 @@ function createSchema(): void {
       sale_unit TEXT NOT NULL DEFAULT 'each' CHECK (sale_unit IN ('each', 'kg', 'g', 'lb', 'ml', 'cl', 'l', 'fl oz', 'oz')),
       allow_fractional_quantity INTEGER NOT NULL DEFAULT 0,
       weight_precision INTEGER NOT NULL DEFAULT 3 CHECK (weight_precision BETWEEN 0 AND 4),
+      min_quantity REAL NOT NULL DEFAULT 0 CHECK (min_quantity >= 0),
       image_url TEXT,
       is_active INTEGER DEFAULT 1,
       sort_order INTEGER DEFAULT 0,

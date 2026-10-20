@@ -1415,6 +1415,7 @@
     "fieldTaxType": "Tipo di imposta",
     "fieldTrackInventory": "Traccia inventario",
     "fieldWeightPrecision": "Precisione",
+    "fieldMinQuantity": "Quantità minima",
     "hiddenOnPos": "(nascosto nel POS)",
     "imageCamera": "Fotocamera",
     "imageCompressFailed": "Impossibile comprimere abbastanza questa immagine. Prova un ritaglio più stretto o un'altra immagine.",

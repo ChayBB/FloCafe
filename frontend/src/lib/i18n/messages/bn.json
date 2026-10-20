@@ -1415,6 +1415,7 @@
     "fieldTaxType": "করের ধরন",
     "fieldTrackInventory": "ট্র্যাক ইনভেন্টরি",
     "fieldWeightPrecision": "যথার্থতা",
+    "fieldMinQuantity": "সর্বনিম্ন পরিমাণ",
     "hiddenOnPos": "(POS এ লুকানো)",
     "imageCamera": "ক্যামেরা",
     "imageCompressFailed": "এই ছবিটি যথেষ্ট সংকুচিত করা যায়নি। একটি শক্ত ক্রপ বা অন্য ছবি চেষ্টা করুন.",

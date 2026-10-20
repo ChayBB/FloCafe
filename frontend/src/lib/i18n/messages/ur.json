@@ -1415,6 +1415,7 @@
     "fieldTaxType": "ٹیکس کی قسم",
     "fieldTrackInventory": "اسٹاک کا ریکارڈ رکھیں",
     "fieldWeightPrecision": "درستگی",
+    "fieldMinQuantity": "کم از کم مقدار",
     "hiddenOnPos": "(POS پر مخفی)",
     "imageCamera": "کیمرہ",
     "imageCompressFailed": "اس تصویر کو کافی حد تک کمپریس نہیں کیا جا سکا۔ زیادہ تنگ کاٹی گئی تصویر یا دوسری تصویر آزمائیں۔",

@@ -1415,6 +1415,7 @@
     "fieldTaxType": "税種別",
     "fieldTrackInventory": "在庫を追跡",
     "fieldWeightPrecision": "精度",
+    "fieldMinQuantity": "最小数量",
     "hiddenOnPos": "（POSでは非表示）",
     "imageCamera": "カメラ",
     "imageCompressFailed": "画像を十分に圧縮できませんでした。より狭く切り抜くか別の画像をお試しください。",

@@ -35,6 +35,24 @@ export function fractionalQuantityStep(product: {
   return 10 ** -precision;
 }
 
+/**
+ * The smallest quantity this product may be sold in.
+ *
+ * `min_quantity` is the merchant's trading floor — a fishmonger will not weigh
+ * out 20 grams. Zero or unset means no floor, in which case the smallest sale is
+ * one step: one item for a counted product, one unit of precision for a weighed
+ * one.
+ */
+export function minimumQuantity(
+  product: { min_quantity?: number | null | undefined },
+  step: number | null,
+): number {
+  const floor = step ?? 1;
+  const configured = Number(product.min_quantity);
+  if (!Number.isFinite(configured) || configured <= 0) return floor;
+  return Math.max(floor, configured);
+}
+
 export function roundToQuantityPrecision(value: number, step: number): number {
   if (step >= 1) return Math.round(value);
   const precision = Math.round(-Math.log10(step));

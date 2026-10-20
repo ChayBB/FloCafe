@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { useTranslations } from 'use-intl';
 import { useFormatCurrency } from '@/hooks/useFormatCurrency';
 import { formatCurrencyForTenant } from '@/lib/countries';
-import { fractionalQuantityStep, roundToQuantityPrecision } from '@/lib/utils';
+import { fractionalQuantityStep, minimumQuantity, roundToQuantityPrecision } from '@/lib/utils';
 import { addonStockCeiling, isAddonLowStock, isAddonSoldOut } from '@/lib/addon-inventory';
 import { activeVariants, isVariantSoldOut, selectDefaultVariant } from '@/lib/product-variants';
 import { cartVariantUnitPrice } from '@/lib/cart-price';
@@ -104,8 +104,14 @@ export default function AddonModal({
   const [selected, setSelected] = useState<Record<string | number, Addon[]>>(() =>
     groupInitialAddons(initialAddons),
   );
-  const [quantity, setQuantity] = useState(initialQuantity);
-  const [qtyDraft, setQtyDraft] = useState(() => String(initialQuantity));
+  const step = fractionalQuantityStep(product);
+  // A shop that will not weigh out 20 grams of fish sets a floor. The field
+  // never opens below it: a quantity under the floor is not a sale, and the
+  // backend refuses it, so offering one would only fail on save.
+  const minQuantity = minimumQuantity(product, step);
+  const openingQuantity = Math.max(initialQuantity, minQuantity);
+  const [quantity, setQuantity] = useState(openingQuantity);
+  const [qtyDraft, setQtyDraft] = useState(() => String(openingQuantity));
   const [instructions, setInstructions] = useState(initialInstructions);
 
   const variants = activeVariants(product.variants);
@@ -117,8 +123,6 @@ export default function AddonModal({
   const variantUnitPrice = (variant: ProductVariant | null) =>
     cartVariantUnitPrice({ variant, product }, onlinePlatformSelected);
   const basePrice = variantUnitPrice(selectedVariant);
-  const step = fractionalQuantityStep(product);
-
   const setQty = (next: number) => {
     setQuantity(next);
     setQtyDraft(String(next));
@@ -131,7 +135,7 @@ export default function AddonModal({
       setQtyDraft(String(quantity));
       return;
     }
-    const rounded = Math.max(step, roundToQuantityPrecision(parsed, step));
+    const rounded = Math.max(minQuantity, roundToQuantityPrecision(parsed, step));
     setQuantity(rounded);
     setQtyDraft(String(rounded));
   };
@@ -209,7 +213,7 @@ export default function AddonModal({
     if (step == null) return quantity;
     const parsed = Number(qtyDraft);
     if (!Number.isFinite(parsed) || parsed <= 0) return quantity;
-    return Math.max(step, roundToQuantityPrecision(parsed, step));
+    return Math.max(minQuantity, roundToQuantityPrecision(parsed, step));
   })();
   const itemTotal = (basePrice + addonTotal) * effectiveQuantity;
 
@@ -510,7 +514,7 @@ export default function AddonModal({
               onClick={() =>
                 step == null
                   ? setQty(Math.max(1, quantity - 1))
-                  : setQty(Math.max(step, roundToQuantityPrecision(quantity - step, step)))
+                  : setQty(Math.max(minQuantity, roundToQuantityPrecision(quantity - step, step)))
               }
               className="touch-target rounded-full bg-muted flex items-center justify-center hover:bg-muted active:bg-muted"
               aria-label={t('remove')}
@@ -543,7 +547,7 @@ export default function AddonModal({
               <input
                 type="number"
                 inputMode="decimal"
-                min={step}
+                min={minQuantity}
                 step={step}
                 value={qtyDraft}
                 onChange={(e) => setQtyDraft(e.target.value)}

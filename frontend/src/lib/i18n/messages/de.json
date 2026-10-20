@@ -1415,6 +1415,7 @@
     "fieldTaxType": "Steuerart",
     "fieldTrackInventory": "Lagerbestand verfolgen",
     "fieldWeightPrecision": "Präzision",
+    "fieldMinQuantity": "Mindestmenge",
     "hiddenOnPos": "(Im Kassensystem ausgeblendet)",
     "imageCamera": "Kamera",
     "imageCompressFailed": "Bild konnte nicht ausreichend komprimiert werden. Bitte wählen Sie ein kleineres Bild.",

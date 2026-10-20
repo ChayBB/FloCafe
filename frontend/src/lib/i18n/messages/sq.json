@@ -1415,6 +1415,7 @@
     "fieldTaxType": "Lloji i tatimit",
     "fieldTrackInventory": "Ndiqni inventarin",
     "fieldWeightPrecision": "Saktësia",
+    "fieldMinQuantity": "Sasia minimale",
     "hiddenOnPos": "(Fshehur në POS)",
     "imageCamera": "Kamera",
     "imageCompressFailed": "Ky imazh nuk mund të kompresohej mjaftueshëm. Provoni një prerje më të ngushtë ose një imazh tjetër.",

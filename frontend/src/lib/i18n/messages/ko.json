@@ -1415,6 +1415,7 @@
     "fieldTaxType": "세금 유형",
     "fieldTrackInventory": "재고 추적",
     "fieldWeightPrecision": "정밀도",
+    "fieldMinQuantity": "최소 수량",
     "hiddenOnPos": "(POS에 숨김)",
     "imageCamera": "카메라",
     "imageCompressFailed": "이 이미지를 충분히 압축할 수 없습니다. 더 좁게 자르거나 다른 이미지를 사용하세요.",

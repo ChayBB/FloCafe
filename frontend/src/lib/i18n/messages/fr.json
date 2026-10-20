@@ -1415,6 +1415,7 @@
     "fieldTaxType": "Type de taxe",
     "fieldTrackInventory": "Suivre les stocks",
     "fieldWeightPrecision": "Précision",
+    "fieldMinQuantity": "Quantité minimale",
     "hiddenOnPos": "(Masqué à la caisse)",
     "imageCamera": "Appareil photo",
     "imageCompressFailed": "Impossible de compresser suffisamment cette image. Essayez de la recadrer davantage ou choisissez-en une autre.",

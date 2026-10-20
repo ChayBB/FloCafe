@@ -196,6 +196,7 @@ export default function ProductsPage() {
     sale_unit: 'each' as Product['sale_unit'],
     allow_fractional_quantity: false,
     weight_precision: '3',
+    min_quantity: '',
     inventory_product_id: '',
     inventory_deduction_quantity: '1',
     tax_category_id: '',
@@ -413,6 +414,7 @@ export default function ProductsPage() {
       sale_unit: 'each',
       allow_fractional_quantity: false,
       weight_precision: '3',
+      min_quantity: '',
       inventory_product_id: '',
       inventory_deduction_quantity: '1',
       tax_category_id: '',
@@ -476,6 +478,7 @@ export default function ProductsPage() {
       sale_unit: product.sale_unit || 'each',
       allow_fractional_quantity: !!product.allow_fractional_quantity,
       weight_precision: String(product.weight_precision ?? 3),
+      min_quantity: product.min_quantity ? String(product.min_quantity) : '',
       inventory_product_id: product.inventory_product_id || '',
       inventory_deduction_quantity: String(product.inventory_deduction_quantity ?? 1),
       tax_category_id: product.tax_category_id || '',
@@ -590,6 +593,7 @@ export default function ProductsPage() {
         sale_unit: form.sale_unit,
         allow_fractional_quantity: form.allow_fractional_quantity,
         weight_precision: Number(form.weight_precision),
+        min_quantity: form.min_quantity.trim() === '' ? 0 : Number(form.min_quantity),
         ...(form.inventory_product_id
           ? {
               inventory_product_id: form.inventory_product_id,
@@ -1396,6 +1400,20 @@ export default function ProductsPage() {
                           max="4"
                           value={form.weight_precision}
                           onChange={(e) => setForm({ ...form, weight_precision: e.target.value })}
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-border rounded-lg focus:ring-2 focus:ring-brand outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-foreground mb-1">
+                          {t('fieldMinQuantity')}
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="any"
+                          placeholder="0"
+                          value={form.min_quantity}
+                          onChange={(e) => setForm({ ...form, min_quantity: e.target.value })}
                           className="w-full px-3 py-2 border border-gray-300 dark:border-border rounded-lg focus:ring-2 focus:ring-brand outline-none"
                         />
                       </div>

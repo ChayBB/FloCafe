@@ -1415,6 +1415,7 @@
     "fieldTaxType": "Jenis Pajak",
     "fieldTrackInventory": "Lacak Stok",
     "fieldWeightPrecision": "Presisi",
+    "fieldMinQuantity": "Jumlah minimum",
     "hiddenOnPos": "(Disembunyikan di POS)",
     "imageCamera": "Kamera",
     "imageCompressFailed": "Tidak dapat mengompres gambar ini dengan cukup. Coba pangkas lebih rapat atau gunakan gambar lain.",

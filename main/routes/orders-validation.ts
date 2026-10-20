@@ -151,6 +151,7 @@ export function validateProductQuantity(
     sale_unit?: string;
     allow_fractional_quantity?: boolean | number;
     weight_precision?: number;
+    min_quantity?: number | null;
   },
   quantity: unknown,
 ): asserts quantity is number {
@@ -160,6 +161,16 @@ export function validateProductQuantity(
       new Error(`Invalid quantity for ${productName}: must be a positive number`),
       { statusCode: 400, diagnosticCode: 'quantity_invalid' },
     );
+  }
+  // A shop that will not weigh out 20 grams of fish sets a floor per product.
+  // Checked here rather than only in the dialog, because the dialog is one of
+  // several ways an order reaches this function.
+  const minimum = Number(product.min_quantity);
+  if (Number.isFinite(minimum) && minimum > 0 && quantity + 1e-9 < minimum) {
+    throw Object.assign(new Error(`Invalid quantity for ${productName}: minimum is ${minimum}`), {
+      statusCode: 400,
+      diagnosticCode: 'quantity_invalid',
+    });
   }
   if (Number.isInteger(quantity)) return;
   if (

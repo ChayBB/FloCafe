@@ -101,6 +101,8 @@ export interface Product {
   sale_unit: 'each' | 'kg' | 'g' | 'lb' | 'ml' | 'cl' | 'l' | 'fl oz' | 'oz';
   allow_fractional_quantity: boolean;
   weight_precision: number;
+  /** Smallest quantity this product may be sold in; 0 means no floor. */
+  min_quantity?: number | null;
   inventory_product_id?: string | null;
   inventory_deduction_quantity?: number | null;
   description: string | null;
