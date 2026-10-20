@@ -2,17 +2,8 @@
 
 import { useEffect, useRef } from 'react';
 import { ORDER_TONES, playChime, playWhenReady } from '@/lib/alert-sounds';
-
-interface AnnouncedItem {
-  product_name: string;
-  quantity: number;
-}
-
-export interface AnnouncedOrder {
-  id: number;
-  items?: AnnouncedItem[] | null;
-  table?: { name: string } | null;
-}
+import { markSeen, selectArrivals, type AnnouncedOrder } from '@/lib/kds-arrivals';
+export type { AnnouncedItem, AnnouncedOrder } from '@/lib/kds-arrivals';
 
 // The chime has to finish and the room has to register it before the voice starts,
 // or the first word is lost under the second tone.
@@ -139,14 +130,14 @@ export function useKdsOrderAnnouncer({
     }
     if (!seededRef.current) {
       // First payload is the existing board, not news.
-      orders.forEach((order) => seenRef.current.add(order.id));
+      markSeen(orders, seenRef.current);
       seededRef.current = true;
       return;
     }
 
-    const arrived = orders.filter((order) => !seenRef.current.has(order.id));
+    const arrived = selectArrivals(orders, seenRef.current);
     if (arrived.length === 0) return;
-    arrived.forEach((order) => seenRef.current.add(order.id));
+    markSeen(arrived, seenRef.current);
 
     for (const order of arrived) {
       // Chained so two orders landing together are announced one after the other
