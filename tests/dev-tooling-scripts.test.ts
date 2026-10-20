@@ -665,9 +665,20 @@ exit 0
     shardRunStep.run.trim(),
     "xvfb-run -a --server-args='-screen 0 1280x800x24' env SHARD_TOTAL=4 SHARD_INDEX=${{ matrix.shard }} node scripts/ci/run-test-shard.cjs",
   );
-  assert.ok(
-    linuxTestsJob.steps.some((step: any) => step.if === 'matrix.shard == 0'),
-    'Payment method split check must run only on shard 0',
+  // Suites used to be hand-copied into their own shard-0 steps because the
+  // shard runner does not execute `npm pretest`. Anything still only in pretest
+  // is invisible to pull requests, and a hand-maintained list is how that gets
+  // missed: a suite moved into the batches but left listed here would run twice,
+  // and one added to pretest without a step here would run never.
+  const shardCovered = new Set(listDefaultSuites(realPkg));
+  const handRunSuites = linuxTestsJob.steps
+    .filter((step: any) => typeof step.run === 'string')
+    .flatMap((step: any) => [...step.run.matchAll(/npm run (test:[\w-]+)/g)].map((m: any) => m[1]))
+    .filter((name: string) => shardCovered.has(name));
+  assert.deepStrictEqual(
+    handRunSuites,
+    [],
+    'linux-tests must not re-run suites the shard runner already covers',
   );
   assert.ok(
     linuxTestsJob.steps.some(
