@@ -51,6 +51,7 @@ import {
 import { API_JSON_BODY_LIMIT } from './http-limits';
 import { buildCspHeader } from './csp';
 import { resolveContainedPath } from './lib/path-containment';
+import { createSpaFallback } from './lib/spa-fallback';
 import { ROLE_ACCESS } from '../shared/role-permissions';
 import {
   onGuestOrder,
@@ -805,16 +806,7 @@ export function startServerApp(): Promise<void> {
       }
       app.use(express.static(staticDir, { dotfiles: 'allow', index: false }));
       app.get('/', (_req: Request, res: Response) => res.redirect('/server-standalone'));
-      app.get('/*splat', staticRouteRateLimit(), (req: Request, res: Response) => {
-        const routePath = resolveContainedPath(staticDir, `.${req.path}`, 'index.html');
-        if (routePath && fs.existsSync(routePath)) {
-          res.sendFile(routePath, { dotfiles: 'allow' });
-        } else {
-          res.sendFile(path.join(staticDir, 'server-standalone', 'index.html'), {
-            dotfiles: 'allow',
-          });
-        }
-      });
+      app.get('/*splat', staticRouteRateLimit(), createSpaFallback(staticDir, 'server-standalone'));
     } else {
       console.warn('[Server App] Static build not found. Run `npm run build:frontend` first.');
       app.get('/', (_req: Request, res: Response) => {

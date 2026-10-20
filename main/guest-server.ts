@@ -34,7 +34,7 @@ import {
   setGuestPort,
 } from './guest-server-state';
 import { API_JSON_BODY_LIMIT } from './http-limits';
-import { resolveContainedPath } from './lib/path-containment';
+import { createSpaFallback } from './lib/spa-fallback';
 import { GUEST_CHANNEL_HEADER, getGuestChannelSecret } from './services/guest-channel';
 import {
   isRoundTokenCurrent,
@@ -289,14 +289,7 @@ export function startGuestServer(): Promise<void> {
       console.log(`[Guest] Serving static files from: ${staticDir}`);
       app.use(express.static(staticDir, { dotfiles: 'allow', index: false }));
       app.get('/', (_req: Request, res: Response) => res.redirect('/guest-order'));
-      app.get('/*splat', staticRouteRateLimit(), (req: Request, res: Response) => {
-        const routePath = resolveContainedPath(staticDir, `.${req.path}`, 'index.html');
-        if (routePath && fs.existsSync(routePath)) {
-          res.sendFile(routePath, { dotfiles: 'allow' });
-        } else {
-          res.sendFile(path.join(staticDir, 'guest-order', 'index.html'), { dotfiles: 'allow' });
-        }
-      });
+      app.get('/*splat', staticRouteRateLimit(), createSpaFallback(staticDir, 'guest-order'));
     } else {
       console.warn('[Guest] Static build not found. Run `npm run build:frontend` first.');
     }

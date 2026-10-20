@@ -51,6 +51,7 @@ import {
 import { buildCspHeader } from './csp';
 import { getDefaultKdsPort, getKdsPort as getActiveKdsPort, setKdsPort } from './kds-server-state';
 import { resolveContainedPath } from './lib/path-containment';
+import { createSpaFallback } from './lib/spa-fallback';
 import { ROLE_ACCESS, hasRole } from '../shared/role-permissions';
 import {
   effectivePermissionRevision,
@@ -772,15 +773,7 @@ export function startKdsServer(): Promise<void> {
       });
 
       // SPA fallback - serve the standalone KDS for any unmatched routes
-      app.get('/*splat', staticRouteRateLimit(), (req: Request, res: Response) => {
-        // Try to serve the specific route first
-        const routePath = resolveContainedPath(staticDir, `.${req.path}`, 'index.html');
-        if (routePath && fs.existsSync(routePath)) {
-          res.sendFile(routePath, { dotfiles: 'allow' });
-        } else {
-          res.sendFile(path.join(staticDir, 'kds-standalone', 'index.html'), { dotfiles: 'allow' });
-        }
-      });
+      app.get('/*splat', staticRouteRateLimit(), createSpaFallback(staticDir, 'kds-standalone'));
     } else {
       console.warn('[KDS Server] Static build not found. Run `npm run build:frontend` first.');
       app.get('/', (_req: Request, res: Response) => {
