@@ -66,6 +66,20 @@ function captureStaffValidation(
   }
 }
 
+function captureDuplicateEmail(
+  capturePoint: 'fc.backend.staff.duplicate_email' | 'fc.backend.staff.update.duplicate_email',
+): void {
+  const failure = serializeOperationFailure({
+    capture_point: capturePoint,
+    outcome: 'not_applied',
+  });
+  try {
+    if (failure) cloudSync.captureOperationFailure(failure);
+  } catch {
+    // Diagnostics cannot change the duplicate-email response.
+  }
+}
+
 function captureStaffTargetAccessDenied(action: string): void {
   const failure = serializeOperationFailure({
     capture_point: 'fc.backend.staff.target_access_denied',
@@ -109,6 +123,24 @@ function normalizeStaffEmail(email: unknown): string {
     .toLowerCase();
 }
 
+/** A rejected identifier: the message, plus what the diagnostics registry calls it. */
+type IdentifierProblem = {
+  message: string;
+  duplicateEmail: boolean;
+  validationCode?: 'email_invalid';
+};
+
+function identifierProblem(
+  message: string,
+  extra: { duplicateEmail?: boolean; validationCode?: 'email_invalid' } = {},
+): IdentifierProblem {
+  return {
+    message,
+    duplicateEmail: extra.duplicateEmail === true,
+    validationCode: extra.validationCode,
+  };
+}
+
 /**
  * An account needs at least one way to sign in.
  *
@@ -122,20 +154,24 @@ function identifierErrors(
   email: string,
   username: string,
   excludeUserId?: string,
-): string | null {
-  if (!email && !username) return 'An email address or a username is required';
-  if (email && !isValidEmail(email)) return 'Enter a valid email address';
+): IdentifierProblem | null {
+  if (!email && !username) return identifierProblem('An email address or a username is required');
+  if (email && !isValidEmail(email))
+    return identifierProblem('Enter a valid email address', { validationCode: 'email_invalid' });
   const usernameProblem = username ? checkUsername(username) : null;
   if (usernameProblem === 'looks_like_email') {
     // Sign-in accepts either identifier, so a username shaped like an email
     // would let one typed string resolve to two people.
-    return 'A username cannot contain @';
+    return identifierProblem('A username cannot contain @');
   }
   if (usernameProblem === 'too_short')
-    return `Username must be at least ${USERNAME_MIN} characters`;
-  if (usernameProblem === 'too_long') return `Username must be at most ${USERNAME_MAX} characters`;
+    return identifierProblem(`Username must be at least ${USERNAME_MIN} characters`);
+  if (usernameProblem === 'too_long')
+    return identifierProblem(`Username must be at most ${USERNAME_MAX} characters`);
   if (usernameProblem === 'bad_characters') {
-    return 'Username may use letters, numbers, dot, dash, underscore and single spaces';
+    return identifierProblem(
+      'Username may use letters, numbers, dot, dash, underscore and single spaces',
+    );
   }
 
   // Compared in JS rather than SQL: SQLite's LOWER() folds ASCII only, so
@@ -157,8 +193,9 @@ function identifierErrors(
 
   // Checked across both columns: a username that matches someone's email (or
   // the reverse) would resolve one typed string to two accounts at sign-in.
-  if (email && clash(email)) return 'Email already in use';
-  if (username && clash(username)) return 'Username already in use';
+  if (email && clash(email))
+    return identifierProblem('Email already in use', { duplicateEmail: true });
+  if (username && clash(username)) return identifierProblem('Username already in use');
   return null;
 }
 
@@ -425,10 +462,13 @@ router.post('/', requireStaffWrite, authRateLimit(), (req: Request, res: Respons
 
     const db = getDatabase();
 
-    const identifierProblem = identifierErrors(db, normalizedEmail, normalizedUsername);
-    if (identifierProblem) {
-      logStaffRejection('create', identifierProblem, normalizedEmail || normalizedUsername);
-      return res.status(400).json({ error: identifierProblem });
+    const problem = identifierErrors(db, normalizedEmail, normalizedUsername);
+    if (problem) {
+      logStaffRejection('create', problem.message, normalizedEmail || normalizedUsername);
+      if (problem.validationCode)
+        captureStaffValidation('fc.backend.staff.create.validation', problem.validationCode);
+      if (problem.duplicateEmail) captureDuplicateEmail('fc.backend.staff.duplicate_email');
+      return res.status(400).json({ error: problem.message });
     }
 
     if (normalizedStationIds.length > 0) {
@@ -550,9 +590,12 @@ router.put('/:id', requireStaffWrite, authRateLimit(), (req: Request, res: Respo
     const nextUsername = usernameProvided
       ? (normalizedUsername as string)
       : normalizeUsername(member.username);
-    const identifierProblem = identifierErrors(db, nextEmail, nextUsername, String(req.params.id));
-    if (identifierProblem) {
-      return res.status(400).json({ error: identifierProblem });
+    const problem = identifierErrors(db, nextEmail, nextUsername, String(req.params.id));
+    if (problem) {
+      if (problem.validationCode)
+        captureStaffValidation('fc.backend.staff.update.validation', problem.validationCode);
+      if (problem.duplicateEmail) captureDuplicateEmail('fc.backend.staff.update.duplicate_email');
+      return res.status(400).json({ error: problem.message });
     }
 
     if (password && !validatePassword(password)) {
