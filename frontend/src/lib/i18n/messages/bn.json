@@ -563,6 +563,7 @@
     "statusVoided": "অকার্যকর",
     "statusWaiting": "অপেক্ষা করছে",
     "tableLabel": "টেবিল {name}",
+    "itemReadyAlert": "{item} তৈরি — {table}",
     "title": "রান্নাঘর প্রদর্শন",
     "updating": "আপডেট হচ্ছে...",
     "viewKanban": "কানবন",

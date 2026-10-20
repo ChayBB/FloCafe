@@ -563,6 +563,7 @@
     "statusVoided": "已作废",
     "statusWaiting": "等待中",
     "tableLabel": "桌台 {name}",
+    "itemReadyAlert": "{item} 已做好 — {table}",
     "title": "厨房显示",
     "updating": "更新中…",
     "viewKanban": "看板",

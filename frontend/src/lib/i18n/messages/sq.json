@@ -563,6 +563,7 @@
     "statusVoided": "Anuluar",
     "statusWaiting": "Në pritje",
     "tableLabel": "Tavolinë {name}",
+    "itemReadyAlert": "{item} është gati — {table}",
     "title": "Shfaqja e kuzhinës",
     "updating": "Duke u përditësuar...",
     "viewKanban": "Kanban",

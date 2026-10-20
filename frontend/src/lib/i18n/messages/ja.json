@@ -563,6 +563,7 @@
     "statusVoided": "無効",
     "statusWaiting": "待機中",
     "tableLabel": "テーブル {name}",
+    "itemReadyAlert": "{item}ができあがりました — {table}",
     "title": "キッチンディスプレイ",
     "updating": "更新中…",
     "viewKanban": "カンバン",

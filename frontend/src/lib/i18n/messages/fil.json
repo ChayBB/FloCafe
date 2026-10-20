@@ -563,6 +563,7 @@
     "statusVoided": "Na-void",
     "statusWaiting": "Naghintay",
     "tableLabel": "Lamesa {name}",
+    "itemReadyAlert": "Handa na ang {item} — {table}",
     "title": "Kitchen Display System",
     "updating": "Nag-uupdate...",
     "viewKanban": "Kanban",

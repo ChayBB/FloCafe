@@ -563,6 +563,7 @@
     "statusVoided": "İptal Edildi",
     "statusWaiting": "Bekliyor",
     "tableLabel": "Masa {name}",
+    "itemReadyAlert": "{item} hazır — {table}",
     "title": "Mutfak Ekranı (KDS)",
     "updating": "Güncelleniyor...",
     "viewKanban": "Kanban Görünümü",

@@ -563,6 +563,7 @@
     "statusVoided": "취소됨",
     "statusWaiting": "대기",
     "tableLabel": "테이블 {name}",
+    "itemReadyAlert": "{item} 준비 완료 — {table}",
     "title": "주방 디스플레이",
     "updating": "업데이트 중…",
     "viewKanban": "칸반",

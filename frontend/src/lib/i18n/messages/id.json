@@ -563,6 +563,7 @@
     "statusVoided": "Dibatalkan",
     "statusWaiting": "Menunggu",
     "tableLabel": "Meja {name}",
+    "itemReadyAlert": "{item} sudah siap — {table}",
     "title": "Tampilan Dapur",
     "updating": "Memperbarui…",
     "viewKanban": "Kanban",

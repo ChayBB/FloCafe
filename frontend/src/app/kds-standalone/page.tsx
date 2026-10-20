@@ -5,6 +5,7 @@ import { KdsLoginForm } from '@/components/kds/KdsLoginForm';
 import { KdsWorkspace } from '@/components/kds/KdsWorkspace';
 import { useKdsConnection } from '@/hooks/useKdsConnection';
 import { useKdsOrderAnnouncer } from '@/hooks/useKdsOrderAnnouncer';
+import { useKdsReadyAnnouncer } from '@/hooks/useKdsReadyAnnouncer';
 import { useServerKdsInfo } from '@/hooks/useServerKdsInfo';
 import { useSyncServerLanguage } from '@/lib/i18n';
 import { useLocale, useTranslations } from 'use-intl';
@@ -86,6 +87,16 @@ export default function KdsStandalonePage() {
     enabled: !!conn.user,
     locale,
     formatTable,
+  });
+
+  // The same bell and sentence the waiter's app uses, so a cook who taps
+  // "ready" hears that it registered without looking up.
+  useKdsReadyAnnouncer({
+    orders: conn.orders,
+    enabled: !!conn.user,
+    locale,
+    describeReady: ({ productName, tableName }) =>
+      t('itemReadyAlert', { item: productName, table: formatTable(tableName) }),
   });
 
   if (kdsEnabled === null) {

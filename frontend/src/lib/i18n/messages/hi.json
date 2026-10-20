@@ -563,6 +563,7 @@
     "statusVoided": "रद्द",
     "statusWaiting": "प्रतीक्षा में",
     "tableLabel": "टेबल {name}",
+    "itemReadyAlert": "{item} तैयार है — {table}",
     "title": "रसोई डिस्प्ले",
     "updating": "अपडेट हो रहा है...",
     "viewKanban": "कैनबन",

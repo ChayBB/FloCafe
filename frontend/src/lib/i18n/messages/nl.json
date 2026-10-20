@@ -563,6 +563,7 @@
     "statusVoided": "Geannuleerd",
     "statusWaiting": "In afwachting",
     "tableLabel": "Tafel {name}",
+    "itemReadyAlert": "{item} is klaar — {table}",
     "title": "Keukenmonitor",
     "updating": "Updaten…",
     "viewKanban": "Kanban",

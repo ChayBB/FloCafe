@@ -563,6 +563,7 @@
     "statusVoided": "Аннулировано",
     "statusWaiting": "Ожидание",
     "tableLabel": "Стол {name}",
+    "itemReadyAlert": "{item} готово — {table}",
     "title": "Кухня",
     "updating": "Обновление…",
     "viewKanban": "Канбан",

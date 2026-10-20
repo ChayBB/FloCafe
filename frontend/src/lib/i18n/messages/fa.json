@@ -563,6 +563,7 @@
     "statusVoided": "باطل‌شده",
     "statusWaiting": "در انتظار",
     "tableLabel": "میز {name}",
+    "itemReadyAlert": "{item} آماده است — {table}",
     "title": "نمایشگر آشپزخانه",
     "updating": "در حال به‌روزرسانی…",
     "viewKanban": "کانبان",

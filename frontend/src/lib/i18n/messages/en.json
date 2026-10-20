@@ -563,6 +563,7 @@
     "statusVoided": "Voided",
     "statusWaiting": "Waiting",
     "tableLabel": "Table {name}",
+    "itemReadyAlert": "{item} is ready — {table}",
     "title": "Kitchen Display",
     "updating": "Updating…",
     "viewKanban": "Kanban",

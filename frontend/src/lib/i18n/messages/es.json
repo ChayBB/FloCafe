@@ -563,6 +563,7 @@
     "statusVoided": "Anulado",
     "statusWaiting": "En espera",
     "tableLabel": "Mesa {name}",
+    "itemReadyAlert": "{item} está listo — {table}",
     "title": "Pantalla de Cocina",
     "updating": "Actualizando…",
     "viewKanban": "Kanban",

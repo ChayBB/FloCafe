@@ -563,6 +563,7 @@
     "statusVoided": "Đã hủy",
     "statusWaiting": "Đang chờ",
     "tableLabel": "Bàn {name}",
+    "itemReadyAlert": "{item} đã xong — {table}",
     "title": "Màn hình bếp",
     "updating": "Đang cập nhật…",
     "viewKanban": "Kanban",

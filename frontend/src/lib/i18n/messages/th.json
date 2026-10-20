@@ -563,6 +563,7 @@
     "statusVoided": "ยกเลิกแล้ว",
     "statusWaiting": "กำลังรอ",
     "tableLabel": "โต๊ะ {name}",
+    "itemReadyAlert": "{item} พร้อมเสิร์ฟ — {table}",
     "title": "จอแสดงผลในครัว",
     "updating": "กำลังอัปเดต…",
     "viewKanban": "คานบัน",

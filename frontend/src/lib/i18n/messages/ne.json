@@ -563,6 +563,7 @@
     "statusVoided": "शून्य",
     "statusWaiting": "प्रतिक्षा गर्दै",
     "tableLabel": "तालिका {name}",
+    "itemReadyAlert": "{item} तयार भयो — {table}",
     "title": "किचन डिस्प्ले",
     "updating": "अद्यावधिक गर्दै...",
     "viewKanban": "कानबन",

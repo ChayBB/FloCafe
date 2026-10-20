@@ -563,6 +563,7 @@
     "statusVoided": "ملغى",
     "statusWaiting": "الانتظار",
     "tableLabel": "الجدول {name}",
+    "itemReadyAlert": "{item} جاهز — {table}",
     "title": "شاشة عرض المطبخ",
     "updating": "جاري التحديث…",
     "viewKanban": "كانبان",

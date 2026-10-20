@@ -563,6 +563,7 @@
     "statusVoided": "Annullato",
     "statusWaiting": "In attesa",
     "tableLabel": "Tavolo {name}",
+    "itemReadyAlert": "{item} è pronto — {table}",
     "title": "Schermo cucina",
     "updating": "Aggiornamento…",
     "viewKanban": "Kanban",

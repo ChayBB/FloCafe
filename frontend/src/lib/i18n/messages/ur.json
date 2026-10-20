@@ -563,6 +563,7 @@
     "statusVoided": "منسوخ",
     "statusWaiting": "منتظر",
     "tableLabel": "میز {name}",
+    "itemReadyAlert": "{item} تیار ہے — {table}",
     "title": "کچن ڈسپلے",
     "updating": "اپ ڈیٹ ہو رہا ہے…",
     "viewKanban": "کانبن",

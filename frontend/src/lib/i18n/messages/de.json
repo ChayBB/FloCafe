@@ -563,6 +563,7 @@
     "statusVoided": "Storniert",
     "statusWaiting": "Wartend",
     "tableLabel": "Tisch {name}",
+    "itemReadyAlert": "{item} ist fertig — {table}",
     "title": "Küchenanzeige (KDS)",
     "updating": "Wird aktualisiert…",
     "viewKanban": "Kanban",
