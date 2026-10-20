@@ -197,7 +197,21 @@ export default function AddonModal({
 
   const allAddons = Object.values(selected).flat();
   const addonTotal = allAddons.reduce((sum, a) => sum + Number(a.price) * (a.quantity || 1), 0);
-  const itemTotal = (basePrice + addonTotal) * quantity;
+  /**
+   * What `handleAdd` would charge right now.
+   *
+   * On a weighed product the typed draft is the weight, and it is only folded
+   * into `quantity` on confirm. Pricing the line off `quantity` meanwhile showed
+   * the customer a total for the wrong weight — the one number they are watching
+   * while the scale is read out.
+   */
+  const effectiveQuantity = (() => {
+    if (step == null) return quantity;
+    const parsed = Number(qtyDraft);
+    if (!Number.isFinite(parsed) || parsed <= 0) return quantity;
+    return Math.max(step, roundToQuantityPrecision(parsed, step));
+  })();
+  const itemTotal = (basePrice + addonTotal) * effectiveQuantity;
 
   const canQuantityCoverAddons = (targetQty: number): boolean => {
     if (targetQty <= 0) return false;
@@ -231,14 +245,9 @@ export default function AddonModal({
 
   const handleAdd = () => {
     if (!isValid) return;
-    let effectiveQuantity = quantity;
-    if (step != null) {
-      const parsed = Number(qtyDraft);
-      if (Number.isFinite(parsed) && parsed > 0) {
-        effectiveQuantity = Math.max(step, roundToQuantityPrecision(parsed, step));
-        setQuantity(effectiveQuantity);
-        setQtyDraft(String(effectiveQuantity));
-      }
+    if (step != null && effectiveQuantity !== quantity) {
+      setQuantity(effectiveQuantity);
+      setQtyDraft(String(effectiveQuantity));
     }
     onAdd(product, effectiveQuantity, allAddons, instructions, selectedVariant);
     onClose();
