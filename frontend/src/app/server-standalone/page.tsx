@@ -935,6 +935,11 @@ export default function ServerStandalonePage() {
         duration: 6000,
       });
     },
+    // The same sentence the toast shows, so the voice follows the tenant's
+    // language without a second string to translate.
+    describeReady: ({ productName, tableName }) =>
+      t('itemReadyAlert', { item: productName, table: tableName }),
+    locale: getLanguageLocale(language),
     onGuestOrder: ({ tableName, itemCount, appended }) => {
       toast.success(
         t(appended ? 'guestOrderAddedAlert' : 'guestOrderAlert', {

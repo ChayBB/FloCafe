@@ -4,6 +4,7 @@ import type { AxiosInstance } from 'axios';
 import { useEffect, useRef } from 'react';
 import { parseDbTimestamp } from '@/lib/utils';
 import { ORDER_TONES, playBell, playChime, playWhenReady } from '@/lib/alert-sounds';
+import { SPEECH_DELAY_MS, speakAlert } from '@/lib/speech';
 
 export interface ReadyAlertTable {
   id: string;
@@ -45,12 +46,17 @@ export function useServerReadyAlerts({
   muted,
   onReady,
   onGuestOrder,
+  describeReady,
+  locale = 'en',
 }: {
   api: AxiosInstance | null;
   tables: ReadyAlertTable[];
   enabled: boolean;
   muted: boolean;
   onReady: (item: { productName: string; tableName: string }) => void;
+  /** Spoken after the bell. Returns the already-translated sentence, or nothing to stay silent. */
+  describeReady?: (item: { productName: string; tableName: string }) => string;
+  locale?: string;
   /** A customer ordered from their own phone on one of this user's tables. */
   onGuestOrder?: (order: { tableName: string; itemCount: number; appended: boolean }) => void;
 }) {
@@ -62,12 +68,17 @@ export function useServerReadyAlerts({
   const tablesRef = useRef(tables);
   const onReadyRef = useRef(onReady);
   const onGuestOrderRef = useRef(onGuestOrder);
+  const describeReadyRef = useRef(describeReady);
+  const localeRef = useRef(locale);
+  const speechTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     mutedRef.current = muted;
     tablesRef.current = tables;
     onReadyRef.current = onReady;
     onGuestOrderRef.current = onGuestOrder;
-  }, [muted, tables, onReady, onGuestOrder]);
+    describeReadyRef.current = describeReady;
+    localeRef.current = locale;
+  }, [muted, tables, onReady, onGuestOrder, describeReady, locale]);
 
   function chime(play: (context: AudioContext) => void) {
     if (mutedRef.current) return;
@@ -102,6 +113,16 @@ export function useServerReadyAlerts({
   function raiseAlert(alert: { productName: string; tableName: string }) {
     chime(playBell);
     onReadyRef.current(alert);
+    if (mutedRef.current) return;
+    const sentence = describeReadyRef.current?.(alert);
+    if (!sentence) return;
+    // Held until the bell has rung out: a voice starting under the tail loses its
+    // first syllable, which is usually the dish.
+    if (speechTimerRef.current) clearTimeout(speechTimerRef.current);
+    speechTimerRef.current = setTimeout(() => {
+      speechTimerRef.current = null;
+      speakAlert(sentence, localeRef.current);
+    }, SPEECH_DELAY_MS);
   }
 
   useEffect(() => {
@@ -256,6 +277,12 @@ export function useServerReadyAlerts({
 
   useEffect(
     () => () => {
+      if (speechTimerRef.current) clearTimeout(speechTimerRef.current);
+      try {
+        window.speechSynthesis?.cancel();
+      } catch {
+        /* not supported */
+      }
       void audioRef.current?.close();
     },
     [],
