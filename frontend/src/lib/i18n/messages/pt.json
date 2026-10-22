@@ -956,6 +956,7 @@
     "processOrderFailed": "Falha ao processar o pedido",
     "processingPayment": "Processando...",
     "quantity": "Quantidade",
+    "enterWeight": "Informe o peso",
     "receiptPrintFailed": "Falha ao imprimir o comprovante — verifique a conexão da impressora",
     "remainingCount": "{count} restante(s)",
     "remove": "Remover",

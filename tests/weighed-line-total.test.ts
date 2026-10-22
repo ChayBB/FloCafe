@@ -11,7 +11,11 @@
  * priced 1.3549 kg and sent it would have its order refused at the till.
  */
 import assert from 'node:assert/strict';
-import { fractionalQuantityStep, roundToQuantityPrecision } from '../frontend/src/lib/utils';
+import {
+  fractionalQuantityStep,
+  quantityNudge,
+  roundToQuantityPrecision,
+} from '../frontend/src/lib/utils';
 
 /** The dialog's own arithmetic: base plus addons, times the weight. */
 function lineTotal(basePrice: number, addonTotal: number, quantity: number): number {
@@ -90,6 +94,39 @@ function main() {
     'a weight under one step floors to one step',
   );
   console.log('  ✓ an unreadably small weight floors to one step');
+
+  // --- what a button press moves, which is not the precision ---
+  assert.equal(quantityNudge(step), 0.1, 'a button moves 100 grams, not one gram');
+  assert.equal(
+    quantityNudge(
+      fractionalQuantityStep({
+        sale_unit: 'kg',
+        allow_fractional_quantity: 1,
+        weight_precision: 1,
+      }),
+    ),
+    0.1,
+    'a coarser product still moves 100 grams',
+  );
+  assert.equal(quantityNudge(null), 1, 'a counted product moves one item');
+  assert.equal(
+    quantityNudge(
+      fractionalQuantityStep({
+        sale_unit: 'kg',
+        allow_fractional_quantity: 1,
+        weight_precision: 0,
+      }),
+    ),
+    1,
+    'a product weighed to whole units moves one unit',
+  );
+  // The press lands on the grid the backend accepts, not between two valid weights.
+  assert.equal(
+    roundToQuantityPrecision(3.004 + quantityNudge(step), step),
+    3.104,
+    'a press keeps the precision',
+  );
+  console.log('  ✓ a button press moves 0.1, typing still takes three decimals');
 
   console.log('\nAll weighed line total assertions passed.');
 }

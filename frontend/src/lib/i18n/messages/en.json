@@ -993,6 +993,7 @@
     "saleCompleteCheckOrders": "Open Orders to confirm the sale. Do not create it again.",
     "processingPayment": "Processing...",
     "quantity": "Quantity",
+    "enterWeight": "Enter weight",
     "receiptPrintFailed": "Receipt print failed — check printer connection",
     "remainingCount": "{count} remaining",
     "remove": "Remove",

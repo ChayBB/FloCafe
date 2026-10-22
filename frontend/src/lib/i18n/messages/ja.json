@@ -956,6 +956,7 @@
     "processOrderFailed": "注文の処理に失敗しました",
     "processingPayment": "処理中…",
     "quantity": "数量",
+    "enterWeight": "重量を入力",
     "receiptPrintFailed": "レシートの印刷に失敗しました - プリンターの接続を確認してください",
     "remainingCount": "残り{count}件",
     "remove": "削除",

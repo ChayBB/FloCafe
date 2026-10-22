@@ -956,6 +956,7 @@
     "processOrderFailed": "Kan de bestelling niet verwerken",
     "processingPayment": "Betaling verwerken…",
     "quantity": "Aantal",
+    "enterWeight": "Voer gewicht in",
     "receiptPrintFailed": "Afdrukken van de kassabon mislukt - controleer de printerverbinding",
     "remainingCount": "{count} over",
     "remove": "Verwijderen",

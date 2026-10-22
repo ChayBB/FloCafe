@@ -956,6 +956,7 @@
     "processOrderFailed": "Elaborazione dell'ordine non riuscita",
     "processingPayment": "Elaborazione...",
     "quantity": "Quantità",
+    "enterWeight": "Inserisci il peso",
     "receiptPrintFailed": "Stampa della ricevuta non riuscita: controlla la connessione della stampante",
     "remainingCount": "{count} rimanenti",
     "remove": "Rimuovi",

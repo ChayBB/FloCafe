@@ -956,6 +956,7 @@
     "processOrderFailed": "Përpunimi i porosisë dështoi",
     "processingPayment": "Po përpunohet...",
     "quantity": "Sasia",
+    "enterWeight": "Shkruani peshën",
     "receiptPrintFailed": "Dëftesa nuk u printua dot - kontrolloni printerin",
     "remainingCount": "{count} të mbetura",
     "remove": "Hiq",

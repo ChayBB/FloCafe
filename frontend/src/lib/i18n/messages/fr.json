@@ -956,6 +956,7 @@
     "processOrderFailed": "Impossible de traiter la commande",
     "processingPayment": "Traitement...",
     "quantity": "Quantité",
+    "enterWeight": "Saisir le poids",
     "receiptPrintFailed": "Échec de l’impression du reçu - vérifiez la connexion de l’imprimante",
     "remainingCount": "{count} restant(s)",
     "remove": "Retirer",

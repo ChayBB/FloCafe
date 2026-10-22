@@ -956,6 +956,7 @@
     "processOrderFailed": "ประมวลผลคำสั่งซื้อไม่สำเร็จ",
     "processingPayment": "กำลังประมวลผล...",
     "quantity": "จำนวน",
+    "enterWeight": "โปรดระบุน้ำหนัก",
     "receiptPrintFailed": "พิมพ์ใบเสร็จไม่สำเร็จ - ตรวจสอบการเชื่อมต่อเครื่องพิมพ์",
     "remainingCount": "เหลืออีก {count} รายการ",
     "remove": "นำออก",

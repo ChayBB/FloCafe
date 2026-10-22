@@ -956,6 +956,7 @@
     "processOrderFailed": "आदेश संसाधित करने में विफल",
     "processingPayment": "प्रसंस्करण...",
     "quantity": "मात्रा",
+    "enterWeight": "वज़न दर्ज करें",
     "receiptPrintFailed": "बिल प्रिंट विफल - प्रिंटर कनेक्शन जाँचें",
     "remainingCount": "{count} शेष",
     "remove": "हटाओ",

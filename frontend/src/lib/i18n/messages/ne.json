@@ -956,6 +956,7 @@
     "processOrderFailed": "अर्डर प्रशोधन गर्न असफल भयो",
     "processingPayment": "प्रशोधन गर्दै...",
     "quantity": "मात्रा",
+    "enterWeight": "तौल लेख्नुहोस्",
     "receiptPrintFailed": "रसिद प्रिन्ट असफल भयो — प्रिन्टर जडान जाँच गर्नुहोस्",
     "remainingCount": "{count} बाँकी",
     "remove": "हटाउनुहोस्",

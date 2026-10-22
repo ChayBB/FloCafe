@@ -956,6 +956,7 @@
     "processOrderFailed": "주문 처리에 실패했습니다",
     "processingPayment": "처리 중...",
     "quantity": "수량",
+    "enterWeight": "중량 입력",
     "receiptPrintFailed": "영수증 출력 실패 — 프린터 연결을 확인하세요",
     "remainingCount": "{count} 남음",
     "remove": "제거",

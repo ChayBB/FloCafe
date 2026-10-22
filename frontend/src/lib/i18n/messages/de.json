@@ -956,6 +956,7 @@
     "processOrderFailed": "Bestellung konnte nicht verarbeitet werden",
     "processingPayment": "Zahlung wird verarbeitet…",
     "quantity": "Menge",
+    "enterWeight": "Gewicht eingeben",
     "receiptPrintFailed": "Kassenbon konnte nicht gedruckt werden – prüfen Sie die Druckerverbindung",
     "remainingCount": "{count} verbleibend",
     "remove": "Entfernen",

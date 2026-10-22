@@ -956,6 +956,7 @@
     "processOrderFailed": "آرڈر پراسیس نہیں ہو سکا",
     "processingPayment": "پراسیس ہو رہا ہے...",
     "quantity": "مقدار",
+    "enterWeight": "وزن درج کریں",
     "receiptPrintFailed": "رسید پرنٹ نہیں ہو سکی — پرنٹر کا کنکشن چیک کریں",
     "remainingCount": "{count} باقی",
     "remove": "ہٹائیں",

@@ -956,6 +956,7 @@
     "processOrderFailed": "Sipariş işlenemedi",
     "processingPayment": "İşleniyor...",
     "quantity": "Miktar",
+    "enterWeight": "Ağırlığı girin",
     "receiptPrintFailed": "Fiş yazdırılamadı — yazıcı bağlantısını kontrol edin",
     "remainingCount": "{count} kaldı",
     "remove": "Kaldır",

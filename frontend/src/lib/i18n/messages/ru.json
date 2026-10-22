@@ -956,6 +956,7 @@
     "processOrderFailed": "Не удалось обработать заказ",
     "processingPayment": "Обработка...",
     "quantity": "Количество",
+    "enterWeight": "Введите вес",
     "receiptPrintFailed": "Не удалось распечатать чек — проверьте подключение принтера.",
     "remainingCount": "{count} осталось",
     "remove": "Удалить",

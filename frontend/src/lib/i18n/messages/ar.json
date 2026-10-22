@@ -956,6 +956,7 @@
     "processOrderFailed": "فشل معالجة الطلب",
     "processingPayment": "جاري المعالجة...",
     "quantity": "الكمية",
+    "enterWeight": "أدخل الوزن",
     "receiptPrintFailed": "فشل طباعة الإيصال — تحقق من توصيل الطابعة",
     "remainingCount": "{count} المتبقي",
     "remove": "إزالة",

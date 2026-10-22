@@ -7,7 +7,13 @@ import { Button } from '@/components/ui/button';
 import { useTranslations } from 'use-intl';
 import { useFormatCurrency } from '@/hooks/useFormatCurrency';
 import { formatCurrencyForTenant } from '@/lib/countries';
-import { fractionalQuantityStep, minimumQuantity, roundToQuantityPrecision } from '@/lib/utils';
+import {
+  fractionalQuantityStep,
+  maximumQuantity,
+  minimumQuantity,
+  quantityNudge,
+  roundToQuantityPrecision,
+} from '@/lib/utils';
 import { addonStockCeiling, isAddonLowStock, isAddonSoldOut } from '@/lib/addon-inventory';
 import { activeVariants, isVariantSoldOut, selectDefaultVariant } from '@/lib/product-variants';
 import { cartVariantUnitPrice } from '@/lib/cart-price';
@@ -109,9 +115,19 @@ export default function AddonModal({
   // never opens below it: a quantity under the floor is not a sale, and the
   // backend refuses it, so offering one would only fail on save.
   const minQuantity = minimumQuantity(product, step);
+  // What + and - move by. Coarser than the precision on purpose: see quantityNudge.
+  const nudge = quantityNudge(step);
+  // Null when the product sets no cap, in which case nothing here limits it.
+  const maxQuantity = maximumQuantity(product);
+  const clampQuantity = (value: number) =>
+    maxQuantity == null ? value : Math.min(value, maxQuantity);
   const openingQuantity = Math.max(initialQuantity, minQuantity);
   const [quantity, setQuantity] = useState(openingQuantity);
-  const [qtyDraft, setQtyDraft] = useState(() => String(openingQuantity));
+  // A weighed line opens blank. Every fish weighs something different, so a
+  // prefilled 1 is a number nobody chose that still prices the line.
+  const [qtyDraft, setQtyDraft] = useState(() =>
+    step == null || initialQuantity !== 1 ? String(openingQuantity) : '',
+  );
   const [instructions, setInstructions] = useState(initialInstructions);
 
   const variants = activeVariants(product.variants);
@@ -130,12 +146,14 @@ export default function AddonModal({
 
   const commitQtyDraft = () => {
     if (step == null) return;
+    // Left blank stays blank: the line cannot be added until a weight is read.
+    if (qtyDraft.trim() === '') return;
     const parsed = Number(qtyDraft);
     if (!Number.isFinite(parsed) || parsed <= 0) {
       setQtyDraft(String(quantity));
       return;
     }
-    const rounded = Math.max(minQuantity, roundToQuantityPrecision(parsed, step));
+    const rounded = clampQuantity(Math.max(minQuantity, roundToQuantityPrecision(parsed, step)));
     setQuantity(rounded);
     setQtyDraft(String(rounded));
   };
@@ -209,11 +227,12 @@ export default function AddonModal({
    * the customer a total for the wrong weight — the one number they are watching
    * while the scale is read out.
    */
+  const weightEntered = step == null || qtyDraft.trim() !== '';
   const effectiveQuantity = (() => {
     if (step == null) return quantity;
     const parsed = Number(qtyDraft);
     if (!Number.isFinite(parsed) || parsed <= 0) return quantity;
-    return Math.max(minQuantity, roundToQuantityPrecision(parsed, step));
+    return clampQuantity(Math.max(minQuantity, roundToQuantityPrecision(parsed, step)));
   })();
   const itemTotal = (basePrice + addonTotal) * effectiveQuantity;
 
@@ -228,7 +247,8 @@ export default function AddonModal({
     return true;
   };
 
-  const nextItemQty = step == null ? quantity + 1 : roundToQuantityPrecision(quantity + step, step);
+  const nextItemQty =
+    step == null ? quantity + 1 : roundToQuantityPrecision(quantity + nudge, step);
   const canIncreaseItemQty = canQuantityCoverAddons(nextItemQty);
 
   const groupsSatisfied = groups.every((g) => {
@@ -243,6 +263,7 @@ export default function AddonModal({
   // A product with variants cannot be sold without one, and a fully sold-out
   // variant set cannot be sold at all.
   const isValid =
+    weightEntered &&
     groupsSatisfied &&
     (variants.length === 0 || Boolean(selectedVariant)) &&
     canQuantityCoverAddons(quantity);
@@ -514,14 +535,16 @@ export default function AddonModal({
               onClick={() =>
                 step == null
                   ? setQty(Math.max(1, quantity - 1))
-                  : setQty(Math.max(minQuantity, roundToQuantityPrecision(quantity - step, step)))
+                  : setQty(Math.max(minQuantity, roundToQuantityPrecision(quantity - nudge, step)))
               }
               className="touch-target rounded-full bg-muted flex items-center justify-center hover:bg-muted active:bg-muted"
               aria-label={t('remove')}
             >
               <Minus size={18} />
             </button>
-            <div className="grid grid-cols-3 gap-2">
+            {/* Counts, not weights. No two fish weigh the same, so offering 1, 2
+                and 3 beside a kilogram field only invites the wrong number. */}
+            <div className={`grid grid-cols-3 gap-2 ${step == null ? '' : 'hidden'}`}>
               {[1, 2, 3].map((quickQty) => {
                 const disabled = !canQuantityCoverAddons(quickQty);
                 return (
@@ -544,26 +567,36 @@ export default function AddonModal({
             {step == null ? (
               <span className="text-lg font-bold w-10 text-center tabular-nums">{quantity}</span>
             ) : (
-              <input
-                type="number"
-                inputMode="decimal"
-                min={minQuantity}
-                step={step}
-                value={qtyDraft}
-                onChange={(e) => setQtyDraft(e.target.value)}
-                onBlur={commitQtyDraft}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') commitQtyDraft();
-                }}
-                aria-label={t('quantity')}
-                className="w-16 text-lg font-bold text-center tabular-nums border border-border bg-background rounded-md px-1 py-0.5 outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand"
-              />
+              // The unit sits beside the field because the number is a weight read
+              // off a scale, not a count. Without it the box reads as "how many",
+              // which is the question it used to be asked.
+              <span className="flex items-center gap-1">
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min={minQuantity}
+                  max={maxQuantity ?? undefined}
+                  step={step}
+                  value={qtyDraft}
+                  onChange={(e) => setQtyDraft(e.target.value)}
+                  onBlur={commitQtyDraft}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') commitQtyDraft();
+                  }}
+                  placeholder={t('enterWeight')}
+                  aria-label={t('enterWeight')}
+                  className="w-20 text-lg font-bold text-center tabular-nums border border-border bg-background rounded-md px-1 py-0.5 outline-none focus:ring-2 focus:ring-brand/30 focus:border-brand placeholder:text-xs placeholder:font-normal placeholder:text-muted-foreground"
+                />
+                <span className="text-sm font-medium text-muted-foreground">
+                  {product.sale_unit}
+                </span>
+              </span>
             )}
             <button
               onClick={() =>
                 step == null
-                  ? setQty(quantity + 1)
-                  : setQty(roundToQuantityPrecision(quantity + step, step))
+                  ? setQty(clampQuantity(quantity + 1))
+                  : setQty(clampQuantity(roundToQuantityPrecision(quantity + nudge, step)))
               }
               disabled={!canIncreaseItemQty}
               className="touch-target rounded-full bg-muted flex items-center justify-center hover:bg-muted active:bg-muted disabled:cursor-not-allowed disabled:opacity-50"

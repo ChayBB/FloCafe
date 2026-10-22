@@ -956,6 +956,7 @@
     "processOrderFailed": "處理訂單失敗",
     "processingPayment": "處理中…",
     "quantity": "數量",
+    "enterWeight": "請輸入重量",
     "receiptPrintFailed": "收據列印失敗——請檢查印表機連線",
     "remainingCount": "剩餘 {count}",
     "remove": "移除",

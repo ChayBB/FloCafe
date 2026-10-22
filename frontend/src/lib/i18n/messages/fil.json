@@ -956,6 +956,7 @@
     "processOrderFailed": "Nabigong process order",
     "processingPayment": "Pinoproseso...",
     "quantity": "Dami",
+    "enterWeight": "Ilagay ang timbang",
     "receiptPrintFailed": "Resibo print failed — check printer connection",
     "remainingCount": "{count} natitira",
     "remove": "Tanggalin",

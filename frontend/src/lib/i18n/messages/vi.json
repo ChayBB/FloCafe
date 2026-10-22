@@ -956,6 +956,7 @@
     "processOrderFailed": "Không thể xử lý đơn hàng",
     "processingPayment": "Đang xử lý...",
     "quantity": "Số lượng",
+    "enterWeight": "Nhập khối lượng",
     "receiptPrintFailed": "Không thể in biên nhận - hãy kiểm tra kết nối máy in",
     "remainingCount": "Còn lại {count}",
     "remove": "Gỡ bỏ",

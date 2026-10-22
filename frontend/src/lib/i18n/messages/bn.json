@@ -956,6 +956,7 @@
     "processOrderFailed": "অর্ডার প্রক্রিয়া করতে ব্যর্থ হয়েছে",
     "processingPayment": "প্রক্রিয়া করা হচ্ছে...",
     "quantity": "পরিমাণ",
+    "enterWeight": "ওজন লিখুন",
     "receiptPrintFailed": "রসিদ মুদ্রণ ব্যর্থ হয়েছে — প্রিন্টার সংযোগ পরীক্ষা করুন",
     "remainingCount": "{count}টি বাকি",
     "remove": "সরান",

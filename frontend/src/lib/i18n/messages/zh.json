@@ -956,6 +956,7 @@
     "processOrderFailed": "处理订单失败",
     "processingPayment": "处理中…",
     "quantity": "数量",
+    "enterWeight": "请输入重量",
     "receiptPrintFailed": "小票打印失败——请检查打印机连接",
     "remainingCount": "剩余 {count}",
     "remove": "移除",

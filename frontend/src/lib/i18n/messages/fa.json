@@ -956,6 +956,7 @@
     "processOrderFailed": "پردازش سفارش انجام نشد",
     "processingPayment": "در حال پردازش",
     "quantity": "مقدار",
+    "enterWeight": "وزن را وارد کنید",
     "receiptPrintFailed": "چاپ رسید انجام نشد — پیوند چاپگر را بررسی کنید",
     "remainingCount": "{count} باقی مانده",
     "remove": "برداشتن",
