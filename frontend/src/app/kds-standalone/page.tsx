@@ -82,9 +82,13 @@ export default function KdsStandalonePage() {
   const formatTable = useCallback((name: string) => t('tableLabel', { name }), [t]);
   // Chime, pause, then read the ticket out: a cook with their hands full never
   // has to look up to know an order landed.
+  // Not until the board has actually arrived. `user` is set at auth, before
+  // initial_data, so announcing from that point seeded an empty board and then
+  // read the whole kitchen out on every refresh.
+  const boardReady = !!conn.user && !conn.loading;
   useKdsOrderAnnouncer({
     orders: conn.orders,
-    enabled: !!conn.user,
+    enabled: boardReady,
     locale,
     formatTable,
   });
@@ -93,7 +97,7 @@ export default function KdsStandalonePage() {
   // "ready" hears that it registered without looking up.
   useKdsReadyAnnouncer({
     orders: conn.orders,
-    enabled: !!conn.user,
+    enabled: boardReady,
     locale,
     describeReady: ({ productName, tableName }) =>
       t('itemReadyAlert', { item: productName, table: formatTable(tableName) }),
