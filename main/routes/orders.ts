@@ -870,11 +870,15 @@ type ProductRow = TaxProductRow & {
   price: string | number;
   /** Cost of goods, frozen onto the line at sale time. */
   cost?: number | string | null;
+  /** Only a product sold by weight can have a line awaiting one. */
+  allow_fractional_quantity?: number | boolean;
 };
 
 interface OrderItemInput {
   product_id: string;
   quantity: number;
+  /** The waiter sent this line before it was weighed; the till has the scale. */
+  weight_pending?: boolean;
   unit_price?: number;
   discount_amount?: number;
   variant_id?: string | null;
@@ -916,8 +920,8 @@ function insertOrderItems(
   const insertItem = db.prepare(`
   INSERT INTO order_items (order_id, product_id, variant_id, product_name, product_sku, unit_price, unit_cost, quantity, inventory_deducted_quantity, inventory_product_id, inventory_variant_id,
     subtotal, tax_amount, tax_breakdown, tax_snapshot, tax_type, discount_amount, total, variant_selection,
-    modifier_selection, special_instructions, recipe_snapshot, status, created_at, updated_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    modifier_selection, special_instructions, recipe_snapshot, status, weight_pending, created_at, updated_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
   const insertedItemIds: (number | bigint)[] = [];
@@ -1040,6 +1044,8 @@ function insertOrderItems(
       item.special_instructions || null,
       recipeSnapshot ? JSON.stringify(recipeSnapshot) : null,
       initialStatus,
+      // Only a product actually sold by weight can be awaiting one.
+      item.weight_pending === true && Number(product.allow_fractional_quantity) === 1 ? 1 : 0,
       itemCreatedAt,
       itemCreatedAt,
     );
@@ -1749,8 +1755,8 @@ router.post(
         const insertItem = db.prepare(`
         INSERT INTO order_items (order_id, product_id, variant_id, product_name, product_sku, unit_price, unit_cost, quantity, inventory_deducted_quantity, inventory_product_id, inventory_variant_id,
           subtotal, tax_amount, tax_breakdown, tax_snapshot, tax_type, discount_amount, total, variant_selection,
-          modifier_selection, special_instructions, recipe_snapshot, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+          modifier_selection, special_instructions, recipe_snapshot, status, weight_pending, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
       `);
 
         for (const item of items) {
@@ -1855,6 +1861,8 @@ router.post(
             JSON.stringify(item.modifier_selection || null),
             item.special_instructions || null,
             recipeSnapshot ? JSON.stringify(recipeSnapshot) : null,
+            // Only a product actually sold by weight can be awaiting one.
+            item.weight_pending === true && Number(product.allow_fractional_quantity) === 1 ? 1 : 0,
             itemCreatedAt,
             itemCreatedAt,
           );
@@ -4627,6 +4635,9 @@ router.patch(
                 tax_type = ?,
                 discount_amount = ?,
                 total = ?,
+                -- Setting the quantity is the weighing. Nothing else clears it,
+                -- so a line cannot be paid for still marked as unweighed.
+                weight_pending = 0,
                 updated_at = ?
             WHERE id = ?
           `).run(

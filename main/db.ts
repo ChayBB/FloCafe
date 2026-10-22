@@ -7780,6 +7780,24 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       );
     },
   },
+  {
+    version: 1013,
+    name: 'add_order_item_weight_pending',
+    up: () => {
+      // A waiter takes the order; the scale is at the till. The line is sent to
+      // the kitchen before anyone knows what it weighs, and the cashier has to
+      // be told which lines still need weighing.
+      //
+      // A flag rather than a sentinel quantity: one kilogram is a real weight,
+      // so no quantity can stand for "not weighed yet" without being wrong on
+      // the day someone sells exactly that much.
+      const columns = db.prepare(`PRAGMA table_info(order_items)`).all() as Array<{ name: string }>;
+      if (columns.some((column) => column.name === 'weight_pending')) return;
+      db.exec(
+        `ALTER TABLE order_items ADD COLUMN weight_pending INTEGER NOT NULL DEFAULT 0 CHECK (weight_pending IN (0, 1))`,
+      );
+    },
+  },
 ];
 
 function syncBackupBeforeMigration(fromVersion: number, toVersion: number): void {
@@ -8173,6 +8191,7 @@ function createSchema(): void {
       addons TEXT,
       special_instructions TEXT,
       status TEXT DEFAULT 'pending',
+      weight_pending INTEGER NOT NULL DEFAULT 0 CHECK (weight_pending IN (0, 1)),
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (order_id) REFERENCES orders(id)

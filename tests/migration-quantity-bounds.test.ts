@@ -128,7 +128,31 @@ function main(): void {
       'a product that predates the column has no cap',
     );
 
-    console.log('\n4. the bounds the columns accept');
+    console.log('\n4. v1013 marks a line as awaiting its weight');
+    const pendingColumn = db
+      .prepare('PRAGMA table_info(order_items)')
+      .all()
+      .find((entry: any) => entry.name === 'weight_pending');
+    assert(Boolean(pendingColumn), 'order_items.weight_pending exists');
+    assert(
+      String(pendingColumn?.dflt_value) === '0',
+      'and defaults to 0, so no existing line is owed a weight',
+    );
+    const pendingMigration = MIGRATIONS.find((entry: any) => entry.version === 1013);
+    assert(Boolean(pendingMigration), 'v1013 is in the registry');
+    assert(
+      pendingMigration?.name === 'add_order_item_weight_pending',
+      'v1013 is this migration, not another that drifted into the slot',
+    );
+    let pendingThrew = false;
+    try {
+      pendingMigration.up();
+    } catch {
+      pendingThrew = true;
+    }
+    assert(!pendingThrew, 'running it again on a migrated database throws nothing');
+
+    console.log('\n5. the bounds the columns accept');
     db.prepare(
       "INSERT INTO products (id, name, price, min_quantity, is_active, created_at, updated_at) VALUES ('p-fish', 'ปลากะพง', 100, 0.5, 1, datetime('now'), datetime('now'))",
     ).run();

@@ -5,7 +5,7 @@ import { useTranslations } from 'use-intl';
 import type { Order } from '@/lib/types';
 import { Ltr } from '@/components/layout/Ltr';
 import { useFormatCurrency } from '@/hooks/useFormatCurrency';
-import { parseDbTimestamp, cn } from '@/lib/utils';
+import { parseDbTimestamp, cn, weightPendingItems } from '@/lib/utils';
 import { orderStatusBadge, ORDER_TYPE_KEYS } from './OrderCard';
 
 function OrderTypeIcon({ type }: { type: Order['type'] }) {
@@ -54,6 +54,7 @@ export function OrdersMasterList({
         const itemCount = (order.items || []).filter(
           (i) => !['cancelled', 'voided', 'void_adjustment'].includes(i.status),
         ).length;
+        const awaitingWeight = weightPendingItems(order.items).length;
         return (
           <li key={order.id}>
             <button
@@ -64,7 +65,11 @@ export function OrdersMasterList({
                 'w-full text-start px-3 py-2.5 flex flex-col gap-1 transition-colors touch-manipulation',
                 selectedOrderId === order.id
                   ? 'bg-brand/10 ring-1 ring-inset ring-brand'
-                  : 'bg-card hover:bg-muted/60',
+                  : awaitingWeight > 0
+                    ? // The line was sent before it was weighed; the price is not
+                      // final until the till weighs it, so the row has to say so.
+                      'bg-orange-100 dark:bg-orange-950/40 ring-1 ring-inset ring-orange-500 hover:bg-orange-200/70 dark:hover:bg-orange-950/60'
+                    : 'bg-card hover:bg-muted/60',
                 !active && 'opacity-80',
               )}
             >

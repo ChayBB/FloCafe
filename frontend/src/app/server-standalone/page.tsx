@@ -590,6 +590,7 @@ export default function ServerStandalonePage() {
     addons: Addon[],
     specialInstructions: string,
     variant: ProductVariant | null = null,
+    weightPending = false,
   ) {
     if (sendInFlightRef.current) return;
     setDraft((lines) => {
@@ -614,6 +615,7 @@ export default function ServerStandalonePage() {
           addons,
           special_instructions: specialInstructions,
           variant,
+          weight_pending: weightPending,
         },
       ];
     });
@@ -1381,11 +1383,11 @@ export default function ServerStandalonePage() {
           country={regional?.country}
           initialQuantity={addonModalQuantity}
           initialVariant={addonModalVariant}
-          onAdd={(addedProduct, quantity, addons, instructions, variant) => {
+          onAdd={(addedProduct, quantity, addons, instructions, variant, weightPending) => {
             if (sendInFlightRef.current || addonModalSendSeqRef.current !== sendSeqRef.current) {
               return;
             }
-            addDraftLine(addedProduct, quantity, addons, instructions, variant);
+            addDraftLine(addedProduct, quantity, addons, instructions, variant, weightPending);
           }}
           onClose={() => {
             setAddonModalProduct(null);

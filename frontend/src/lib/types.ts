@@ -260,6 +260,8 @@ export interface OrderItem {
   tax_snapshot?: TaxSnapshot | null;
   addons: { id?: number | string | null; name: string; price?: number; quantity?: number }[] | null;
   special_instructions: string | null;
+  /** Sent to the kitchen before it was weighed; the till still has to weigh it. */
+  weight_pending?: boolean | number | null;
   status: 'pending' | 'preparing' | 'ready' | 'served' | 'cancelled' | 'voided' | 'void_adjustment';
   superseded?: boolean;
   edit_version?: number;
@@ -448,4 +450,6 @@ export interface CartItem {
   addons: Addon[];
   special_instructions: string;
   variant?: ProductVariant | null;
+  /** Sent to the kitchen before it was weighed; the till carries the scale. */
+  weight_pending?: boolean;
 }

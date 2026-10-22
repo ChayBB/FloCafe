@@ -85,3 +85,21 @@ export function roundToQuantityPrecision(value: number, step: number): number {
   const precision = Math.round(-Math.log10(step));
   return Number(value.toFixed(precision));
 }
+
+/**
+ * Lines still waiting to be weighed at the till.
+ *
+ * A waiter sends fish to the kitchen before anyone knows what it weighs, so the
+ * cashier has to be shown which lines are not yet priced. Cancelled and voided
+ * lines are not owed a weight.
+ */
+export function weightPendingItems<
+  T extends { status?: string | null; weight_pending?: boolean | number | null },
+>(items: readonly T[] | null | undefined): T[] {
+  if (!items) return [];
+  return items.filter(
+    (item) =>
+      Boolean(Number(item.weight_pending)) &&
+      !['cancelled', 'voided', 'void_adjustment', 'refunded'].includes(String(item.status ?? '')),
+  );
+}

@@ -30,6 +30,8 @@ interface Props {
     addons: Addon[],
     specialInstructions: string,
     variant: ProductVariant | null,
+    /** Sent without a weight: the scale is at the till, not in the dining room. */
+    weightPending?: boolean,
   ) => void;
   onClose: () => void;
   initialQuantity?: number;
@@ -263,7 +265,6 @@ export default function AddonModal({
   // A product with variants cannot be sold without one, and a fully sold-out
   // variant set cannot be sold at all.
   const isValid =
-    weightEntered &&
     groupsSatisfied &&
     (variants.length === 0 || Boolean(selectedVariant)) &&
     canQuantityCoverAddons(quantity);
@@ -274,7 +275,7 @@ export default function AddonModal({
       setQuantity(effectiveQuantity);
       setQtyDraft(String(effectiveQuantity));
     }
-    onAdd(product, effectiveQuantity, allAddons, instructions, selectedVariant);
+    onAdd(product, effectiveQuantity, allAddons, instructions, selectedVariant, !weightEntered);
     onClose();
   };
 
