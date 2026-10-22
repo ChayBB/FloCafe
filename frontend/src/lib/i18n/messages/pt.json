@@ -1416,6 +1416,7 @@
     "fieldTrackInventory": "Controlar Estoque",
     "fieldWeightPrecision": "Precisão",
     "fieldMinQuantity": "Quantidade mínima",
+    "fieldMaxQuantity": "Quantidade máxima",
     "hiddenOnPos": "(Oculto no POS)",
     "imageCamera": "Câmera",
     "imageCompressFailed": "Não foi possível comprimir esta imagem o suficiente. Tente um recorte mais justo ou outra imagem.",

@@ -53,6 +53,33 @@ export function minimumQuantity(
   return Math.max(floor, configured);
 }
 
+/**
+ * The largest quantity this product may be sold in, or null for no cap.
+ *
+ * A counter that will not sell more than ten kilos on one line says so here.
+ * Zero or unset means no cap; the field is then limited only by what the
+ * backend will accept.
+ */
+export function maximumQuantity(product: {
+  max_quantity?: number | null | undefined;
+}): number | null {
+  const configured = Number(product.max_quantity);
+  return Number.isFinite(configured) && configured > 0 ? configured : null;
+}
+
+/**
+ * How far one press of + or − moves the quantity.
+ *
+ * Not the same as the precision. A product weighed to three decimals can be
+ * typed as 1.355, but a button that moved by 0.001 would take five hundred
+ * presses to cross half a kilo, and one stray press left 3.004 looking like 3.
+ * Precision governs what may be entered; this governs what a button does.
+ */
+export function quantityNudge(step: number | null): number {
+  if (step == null) return 1;
+  return Math.max(step, 0.1);
+}
+
 export function roundToQuantityPrecision(value: number, step: number): number {
   if (step >= 1) return Math.round(value);
   const precision = Math.round(-Math.log10(step));

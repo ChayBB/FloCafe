@@ -1416,6 +1416,7 @@
     "fieldTrackInventory": "ติดตามสินค้าคงคลัง",
     "fieldWeightPrecision": "ความละเอียด",
     "fieldMinQuantity": "จำนวนขั้นต่ำ",
+    "fieldMaxQuantity": "จำนวนสูงสุด",
     "hiddenOnPos": "(ซ่อนใน POS)",
     "imageCamera": "กล้อง",
     "imageCompressFailed": "ไม่สามารถบีบอัดภาพนี้ได้เพียงพอ ลองครอปให้ใกล้ขึ้นหรือใช้ภาพอื่น",

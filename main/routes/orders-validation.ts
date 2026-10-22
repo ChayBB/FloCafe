@@ -152,6 +152,7 @@ export function validateProductQuantity(
     allow_fractional_quantity?: boolean | number;
     weight_precision?: number;
     min_quantity?: number | null;
+    max_quantity?: number | null;
   },
   quantity: unknown,
 ): asserts quantity is number {
@@ -168,6 +169,15 @@ export function validateProductQuantity(
   const minimum = Number(product.min_quantity);
   if (Number.isFinite(minimum) && minimum > 0 && quantity + 1e-9 < minimum) {
     throw Object.assign(new Error(`Invalid quantity for ${productName}: minimum is ${minimum}`), {
+      statusCode: 400,
+      diagnosticCode: 'quantity_invalid',
+    });
+  }
+  // And the ceiling. Ten kilos of fish on one line is either the whole counter
+  // or a misread scale, and the till cannot tell those apart.
+  const maximum = Number(product.max_quantity);
+  if (Number.isFinite(maximum) && maximum > 0 && quantity - 1e-9 > maximum) {
+    throw Object.assign(new Error(`Invalid quantity for ${productName}: maximum is ${maximum}`), {
       statusCode: 400,
       diagnosticCode: 'quantity_invalid',
     });

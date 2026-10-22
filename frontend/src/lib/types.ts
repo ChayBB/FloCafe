@@ -103,6 +103,8 @@ export interface Product {
   weight_precision: number;
   /** Smallest quantity this product may be sold in; 0 means no floor. */
   min_quantity?: number | null;
+  /** Largest quantity this product may be sold in; 0 means no cap. */
+  max_quantity?: number | null;
   inventory_product_id?: string | null;
   inventory_deduction_quantity?: number | null;
   description: string | null;

@@ -1416,6 +1416,7 @@
     "fieldTrackInventory": "Houd inventaris bij",
     "fieldWeightPrecision": "Precisie",
     "fieldMinQuantity": "Minimumhoeveelheid",
+    "fieldMaxQuantity": "Maximumhoeveelheid",
     "hiddenOnPos": "(Verborgen op POS)",
     "imageCamera": "Camera",
     "imageCompressFailed": "Kan deze afbeelding niet voldoende comprimeren. Probeer een strakkere uitsnede of een andere afbeelding.",

@@ -1416,6 +1416,7 @@
     "fieldTrackInventory": "Stok Takibi Yap",
     "fieldWeightPrecision": "Hassasiyet",
     "fieldMinQuantity": "Minimum miktar",
+    "fieldMaxQuantity": "Maksimum miktar",
     "hiddenOnPos": "(POS'ta Gizli)",
     "imageCamera": "Kamera",
     "imageCompressFailed": "Bu görsel yeterince sıkıştırılamadı. Daha dar kırpın veya başka bir görsel deneyin.",

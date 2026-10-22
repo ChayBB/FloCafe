@@ -1416,6 +1416,7 @@
     "fieldTrackInventory": "Traccia inventario",
     "fieldWeightPrecision": "Precisione",
     "fieldMinQuantity": "Quantità minima",
+    "fieldMaxQuantity": "Quantità massima",
     "hiddenOnPos": "(nascosto nel POS)",
     "imageCamera": "Fotocamera",
     "imageCompressFailed": "Impossibile comprimere abbastanza questa immagine. Prova un ritaglio più stretto o un'altra immagine.",

@@ -1416,6 +1416,7 @@
     "fieldTrackInventory": "跟踪库存",
     "fieldWeightPrecision": "精度",
     "fieldMinQuantity": "最小数量",
+    "fieldMaxQuantity": "最大数量",
     "hiddenOnPos": "（POS 上隐藏）",
     "imageCamera": "摄像头",
     "imageCompressFailed": "无法充分压缩此图片。请尝试更紧凑的裁剪或换一张图片。",

@@ -1416,6 +1416,7 @@
     "fieldTrackInventory": "Track Inventory",
     "fieldWeightPrecision": "Precision",
     "fieldMinQuantity": "Minimum quantity",
+    "fieldMaxQuantity": "Maximum quantity",
     "hiddenOnPos": "(Hidden on POS)",
     "imageCamera": "Camera",
     "imageCompressFailed": "Could not compress this image enough. Try a tighter crop or another image.",

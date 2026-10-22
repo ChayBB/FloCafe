@@ -474,6 +474,7 @@ function validateWeightedProductFields(
     sale_unit?: string;
     allow_fractional_quantity?: boolean | number;
     min_quantity?: number | null;
+    max_quantity?: number | null;
   },
 ): string | null {
   if (values.sale_unit !== undefined && !VALID_SALE_UNITS.includes(values.sale_unit as any)) {
@@ -494,10 +495,11 @@ function validateWeightedProductFields(
       return 'weight_precision must be an integer between 0 and 4';
     }
   }
-  if (values.min_quantity !== undefined) {
-    const minimum = values.min_quantity;
-    if (typeof minimum !== 'number' || !Number.isFinite(minimum) || minimum < 0) {
-      return 'min_quantity must be a number of zero or more';
+  for (const field of ['min_quantity', 'max_quantity'] as const) {
+    if (values[field] === undefined) continue;
+    const bound = values[field];
+    if (typeof bound !== 'number' || !Number.isFinite(bound) || bound < 0) {
+      return `${field} must be a number of zero or more`;
     }
   }
   const effectiveSaleUnit =
@@ -517,6 +519,18 @@ function validateWeightedProductFields(
   // offers whole units, so the minimum could never be met exactly.
   if (effectiveMinimum > 0 && !effectiveAllowFractional && !Number.isInteger(effectiveMinimum)) {
     return 'min_quantity must be a whole number unless the product allows fractional quantities';
+  }
+  const effectiveMaximum =
+    values.max_quantity !== undefined
+      ? (values.max_quantity as number)
+      : Number(current?.max_quantity ?? 0);
+  if (effectiveMaximum > 0 && !effectiveAllowFractional && !Number.isInteger(effectiveMaximum)) {
+    return 'max_quantity must be a whole number unless the product allows fractional quantities';
+  }
+  // A floor above the ceiling leaves no quantity that can be sold at all, which
+  // the till would only discover at the counter.
+  if (effectiveMinimum > 0 && effectiveMaximum > 0 && effectiveMinimum > effectiveMaximum) {
+    return 'min_quantity cannot be greater than max_quantity';
   }
   return null;
 }
@@ -1128,7 +1142,7 @@ router.get('/', requirePermission('catalog.view'), (req: Request, res: Response)
     const db = getDatabase();
     const includeInactiveVariants = wantsInactiveVariants(req);
     let query = `SELECT p.id, p.category_id, p.name, p.description, p.price, p.cost, p.sku, p.barcode,
-      p.sale_unit, p.allow_fractional_quantity, p.weight_precision, p.min_quantity,
+      p.sale_unit, p.allow_fractional_quantity, p.weight_precision, p.min_quantity, p.max_quantity,
       p.inventory_product_id, p.inventory_deduction_quantity,
       p.is_active, p.sort_order, p.track_inventory, p.stock_quantity, p.low_stock_threshold,
       p.tax_type, p.tax_rate, p.tax_category_id, p.tax_behavior, p.cb_percent, p.tags, p.dietary_tags, p.deleted_at, p.created_at, p.updated_at,
@@ -1435,6 +1449,7 @@ router.post('/', requirePermission('catalog.manage'), (req: Request, res: Respon
       allow_fractional_quantity,
       weight_precision,
       min_quantity,
+      max_quantity,
       inventory_product_id,
       inventory_deduction_quantity,
       tax_category_id,
@@ -1562,11 +1577,11 @@ router.post('/', requirePermission('catalog.manage'), (req: Request, res: Respon
     const insertProduct = db.transaction(() => {
       db.prepare(`
         INSERT INTO products (id, category_id, name, sku, barcode, description, price, cost,
-          sale_unit, allow_fractional_quantity, weight_precision, min_quantity,
+          sale_unit, allow_fractional_quantity, weight_precision, min_quantity, max_quantity,
           inventory_product_id, inventory_deduction_quantity,
           tax_type, tax_rate, tax_category_id, tax_behavior, track_inventory, stock_quantity, low_stock_threshold,
           is_active, image_url, sort_order, cb_percent, tags, dietary_tags, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         id,
         normalizeNullableString(category_id),
@@ -1581,6 +1596,9 @@ router.post('/', requirePermission('catalog.manage'), (req: Request, res: Respon
         weight_precision ?? 3,
         typeof min_quantity === 'number' && Number.isFinite(min_quantity) && min_quantity > 0
           ? min_quantity
+          : 0,
+        typeof max_quantity === 'number' && Number.isFinite(max_quantity) && max_quantity > 0
+          ? max_quantity
           : 0,
         inventory_product_id || null,
         inventory_product_id
@@ -1685,6 +1703,7 @@ router.put('/:id', requirePermission('catalog.manage'), (req: Request, res: Resp
       allow_fractional_quantity,
       weight_precision,
       min_quantity,
+      max_quantity,
       inventory_product_id,
       inventory_deduction_quantity,
       tax_category_id,
@@ -1838,6 +1857,7 @@ router.put('/:id', requirePermission('catalog.manage'), (req: Request, res: Resp
     const hasAllowFractionalQuantity = hasOwn(req.body, 'allow_fractional_quantity');
     const hasWeightPrecision = hasOwn(req.body, 'weight_precision');
     const hasMinQuantity = hasOwn(req.body, 'min_quantity');
+    const hasMaxQuantity = hasOwn(req.body, 'max_quantity');
     const hasInventoryProductId = hasOwn(req.body, 'inventory_product_id');
     const hasInventoryDeductionQuantity = hasOwn(req.body, 'inventory_deduction_quantity');
     const hasStockQuantity =
@@ -1880,6 +1900,7 @@ router.put('/:id', requirePermission('catalog.manage'), (req: Request, res: Resp
           allow_fractional_quantity = CASE WHEN @has_allow_fractional_quantity = 1 THEN @allow_fractional_quantity ELSE allow_fractional_quantity END,
           weight_precision = CASE WHEN @has_weight_precision = 1 THEN @weight_precision ELSE weight_precision END,
           min_quantity = CASE WHEN @has_min_quantity = 1 THEN @min_quantity ELSE min_quantity END,
+          max_quantity = CASE WHEN @has_max_quantity = 1 THEN @max_quantity ELSE max_quantity END,
           inventory_product_id = CASE WHEN @has_inventory_product_id = 1 THEN @inventory_product_id ELSE inventory_product_id END,
           inventory_deduction_quantity = CASE WHEN @has_inventory_deduction_quantity = 1 THEN @inventory_deduction_quantity ELSE inventory_deduction_quantity END,
           description = CASE WHEN @has_description = 1 THEN @description ELSE description END,
@@ -1918,6 +1939,11 @@ router.put('/:id', requirePermission('catalog.manage'), (req: Request, res: Resp
         min_quantity:
           typeof min_quantity === 'number' && Number.isFinite(min_quantity) && min_quantity > 0
             ? min_quantity
+            : 0,
+        has_max_quantity: hasMaxQuantity ? 1 : 0,
+        max_quantity:
+          typeof max_quantity === 'number' && Number.isFinite(max_quantity) && max_quantity > 0
+            ? max_quantity
             : 0,
         has_inventory_product_id: hasInventoryProductId ? 1 : 0,
         inventory_product_id: hasInventoryProductId ? inventory_product_id || null : null,

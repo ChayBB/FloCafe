@@ -1416,6 +1416,7 @@
     "fieldTrackInventory": "تتبع المخزون",
     "fieldWeightPrecision": "الدقة",
     "fieldMinQuantity": "الحد الأدنى للكمية",
+    "fieldMaxQuantity": "الحد الأقصى للكمية",
     "hiddenOnPos": "(مخفي في نقطة البيع)",
     "imageCamera": "الكاميرا",
     "imageCompressFailed": "لم يتمكن البرنامج من ضغط هذه الصورة بالقدر الكافي. جرب اقتصاصها بشكل أكثر دقة أو استخدم صورة أخرى.",

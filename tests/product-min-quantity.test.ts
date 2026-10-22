@@ -13,7 +13,11 @@
  */
 import assert from 'node:assert/strict';
 import { validateProductQuantity } from '../main/routes/orders-validation';
-import { fractionalQuantityStep, minimumQuantity } from '../frontend/src/lib/utils';
+import {
+  fractionalQuantityStep,
+  maximumQuantity,
+  minimumQuantity,
+} from '../frontend/src/lib/utils';
 
 const FISH = {
   name: 'ปลากะพง',
@@ -85,7 +89,30 @@ function main() {
   );
   console.log('  ✓ the dialog opens at the floor the backend enforces');
 
-  console.log('\nAll product minimum quantity assertions passed.');
+  // --- the ceiling, the other end of the same decision ---
+  const CAPPED = { ...FISH, min_quantity: 0.1, max_quantity: 10 };
+  validateProductQuantity(CAPPED as never, 10);
+  validateProductQuantity(CAPPED as never, 9.999);
+  rejects(CAPPED, 10.001, 'a weight above the cap is refused');
+  rejects(CAPPED, 50, 'a misread scale is refused');
+  rejects(CAPPED, 0.05, 'the floor still applies under a cap');
+  console.log('  ✓ a weight above the cap is refused');
+
+  // Floating point must not refuse a weight that is exactly the cap.
+  validateProductQuantity({ ...FISH, min_quantity: 0, max_quantity: 0.3 } as never, 0.1 + 0.2);
+  console.log('  ✓ a weight equal to the cap is not lost to float error');
+
+  validateProductQuantity({ ...FISH, max_quantity: 0 } as never, 500);
+  validateProductQuantity({ ...FISH, max_quantity: null } as never, 500);
+  console.log('  ✓ a product with no cap is unaffected');
+
+  assert.equal(maximumQuantity({ max_quantity: 10 }), 10, 'a configured cap is reported');
+  assert.equal(maximumQuantity({ max_quantity: 0 }), null, 'zero means no cap');
+  assert.equal(maximumQuantity({ max_quantity: null }), null, 'unset means no cap');
+  assert.equal(maximumQuantity({}), null, 'absent means no cap');
+  console.log('  ✓ the dialog cap matches the backend cap');
+
+  console.log('\nAll product quantity bound assertions passed.');
 }
 
 main();

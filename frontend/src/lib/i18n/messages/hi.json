@@ -1416,6 +1416,7 @@
     "fieldTrackInventory": "ट्रैक इन्वेंटरी",
     "fieldWeightPrecision": "परिशुद्धता",
     "fieldMinQuantity": "न्यूनतम मात्रा",
+    "fieldMaxQuantity": "अधिकतम मात्रा",
     "hiddenOnPos": "(पीओएस पर छिपा हुआ)",
     "imageCamera": "कैमरा",
     "imageCompressFailed": "इस छवि को पर्याप्त रूप से संपीड़ित नहीं किया जा सका. एक सख्त क्रॉप या अन्य छवि आज़माएँ।",

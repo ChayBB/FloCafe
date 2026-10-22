@@ -7764,6 +7764,22 @@ export const MIGRATIONS: { version: number; name: string; up: () => void }[] = [
       );
     },
   },
+  {
+    version: 1012,
+    name: 'add_product_max_quantity',
+    up: () => {
+      // The other end of the same decision: a counter that will not sell more
+      // than ten kilos in one line, whether because that is the stock or
+      // because a larger number is a typo at the scale.
+      //
+      // 0 means no cap, which is what every existing product gets.
+      const columns = db.prepare(`PRAGMA table_info(products)`).all() as Array<{ name: string }>;
+      if (columns.some((column) => column.name === 'max_quantity')) return;
+      db.exec(
+        `ALTER TABLE products ADD COLUMN max_quantity REAL NOT NULL DEFAULT 0 CHECK (max_quantity >= 0)`,
+      );
+    },
+  },
 ];
 
 function syncBackupBeforeMigration(fromVersion: number, toVersion: number): void {
@@ -7925,6 +7941,7 @@ function createSchema(): void {
       allow_fractional_quantity INTEGER NOT NULL DEFAULT 0,
       weight_precision INTEGER NOT NULL DEFAULT 3 CHECK (weight_precision BETWEEN 0 AND 4),
       min_quantity REAL NOT NULL DEFAULT 0 CHECK (min_quantity >= 0),
+      max_quantity REAL NOT NULL DEFAULT 0 CHECK (max_quantity >= 0),
       image_url TEXT,
       is_active INTEGER DEFAULT 1,
       sort_order INTEGER DEFAULT 0,

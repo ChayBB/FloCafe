@@ -1,5 +1,5 @@
 /**
- * Migration v1011: products carry a minimum sale quantity.
+ * Migrations v1011 and v1012: products carry a minimum and a maximum sale quantity.
  *
  * Two paths have to agree. A fresh install builds the table from the canonical
  * schema; an existing till gets the column by ALTER. A column present in one and
@@ -81,7 +81,7 @@ function main(): void {
       'v1011 is this migration, not another that drifted into the slot',
     );
     migration.up();
-    db.pragma('user_version = 1011');
+    db.pragma(`user_version = ${MIGRATIONS[MIGRATIONS.length - 1].version}`);
 
     const upgraded = column(db, 'min_quantity');
     assert(Boolean(upgraded), 'the column is added by the migration');
@@ -106,7 +106,29 @@ function main(): void {
     }
     assert(!threw, 'running it again on a migrated database throws nothing');
 
-    console.log('\n3. the floor the column accepts');
+    console.log('\n3. v1012 adds the ceiling the same way');
+    const freshMax = column(db, 'max_quantity');
+    assert(Boolean(freshMax), 'products.max_quantity exists');
+    assert(freshMax?.type === 'REAL', 'it holds a fractional quantity too');
+    assert(String(freshMax?.dflt_value) === '0', 'and defaults to 0, meaning no cap');
+
+    db.exec('ALTER TABLE products DROP COLUMN max_quantity');
+    const capMigration = MIGRATIONS.find((entry: any) => entry.version === 1012);
+    assert(Boolean(capMigration), 'v1012 is in the registry');
+    assert(
+      capMigration?.name === 'add_product_max_quantity',
+      'v1012 is this migration, not another that drifted into the slot',
+    );
+    capMigration.up();
+    db.pragma(`user_version = ${MIGRATIONS[MIGRATIONS.length - 1].version}`);
+    assert(Boolean(column(db, 'max_quantity')), 'the cap column is added by the migration');
+    assert(
+      (db.prepare("SELECT max_quantity AS m FROM products WHERE id = 'p-old'").get() as any).m ===
+        0,
+      'a product that predates the column has no cap',
+    );
+
+    console.log('\n4. the bounds the columns accept');
     db.prepare(
       "INSERT INTO products (id, name, price, min_quantity, is_active, created_at, updated_at) VALUES ('p-fish', 'ปลากะพง', 100, 0.5, 1, datetime('now'), datetime('now'))",
     ).run();

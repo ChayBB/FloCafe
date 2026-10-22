@@ -1416,6 +1416,7 @@
     "fieldTrackInventory": "پیگیری موجودی",
     "fieldWeightPrecision": "دقت",
     "fieldMinQuantity": "حداقل مقدار",
+    "fieldMaxQuantity": "حداکثر مقدار",
     "hiddenOnPos": "(پنهان در صندوق)",
     "imageCamera": "دوربین",
     "imageCompressFailed": "این تصویر به اندازه کافی فشرده نشد. برش فشرده‌تر یا تصویر دیگری را بیازمایید.",

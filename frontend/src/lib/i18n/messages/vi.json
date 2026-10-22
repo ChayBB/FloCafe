@@ -1416,6 +1416,7 @@
     "fieldTrackInventory": "Theo dõi kho",
     "fieldWeightPrecision": "Độ chính xác",
     "fieldMinQuantity": "Số lượng tối thiểu",
+    "fieldMaxQuantity": "Số lượng tối đa",
     "hiddenOnPos": "(Ẩn trên POS)",
     "imageCamera": "Máy ảnh",
     "imageCompressFailed": "Không thể nén ảnh đủ mức. Hãy cắt sát hơn hoặc dùng ảnh khác.",

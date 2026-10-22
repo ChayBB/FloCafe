@@ -1416,6 +1416,7 @@
     "fieldTrackInventory": "Suivre les stocks",
     "fieldWeightPrecision": "Précision",
     "fieldMinQuantity": "Quantité minimale",
+    "fieldMaxQuantity": "Quantité maximale",
     "hiddenOnPos": "(Masqué à la caisse)",
     "imageCamera": "Appareil photo",
     "imageCompressFailed": "Impossible de compresser suffisamment cette image. Essayez de la recadrer davantage ou choisissez-en une autre.",

@@ -1416,6 +1416,7 @@
     "fieldTrackInventory": "Subaybayan ang Imbentaryo",
     "fieldWeightPrecision": "Katumpakan",
     "fieldMinQuantity": "Pinakamababang dami",
+    "fieldMaxQuantity": "Pinakamataas na dami",
     "hiddenOnPos": "(Nakatago sa POS)",
     "imageCamera": "Camera",
     "imageCompressFailed": "Hindi ma-compress nang sapat ang larawang ito. Subukang i-crop o gumamit ng ibang larawan.",

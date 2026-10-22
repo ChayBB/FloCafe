@@ -1416,6 +1416,7 @@
     "fieldTrackInventory": "Отслеживание инвентаря",
     "fieldWeightPrecision": "Точность",
     "fieldMinQuantity": "Минимальное количество",
+    "fieldMaxQuantity": "Максимальное количество",
     "hiddenOnPos": "(Скрыто в POS)",
     "imageCamera": "Камера",
     "imageCompressFailed": "Не удалось достаточно сжать это изображение. Попробуйте более тесное кадрирование или другое изображение.",

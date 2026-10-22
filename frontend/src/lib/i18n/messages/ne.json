@@ -1416,6 +1416,7 @@
     "fieldTrackInventory": "ट्र्याक सूची",
     "fieldWeightPrecision": "परिशुद्धता",
     "fieldMinQuantity": "न्यूनतम परिमाण",
+    "fieldMaxQuantity": "अधिकतम परिमाण",
     "hiddenOnPos": "(POS मा लुकाइएको)",
     "imageCamera": "क्यामेरा",
     "imageCompressFailed": "यो छवि पर्याप्त कम्प्रेस गर्न सकिएन। कडा क्रप वा अर्को छवि प्रयास गर्नुहोस्।",
